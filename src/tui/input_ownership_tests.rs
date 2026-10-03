@@ -1,9 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::state::{
-    ApiKeyTarget, HelpTab, ListPickerKind, Overlay, RuntimeSnapshot, StatusTab,
-    TranscriptScrollLayout,
-};
+use super::state::{ApiKeyTarget, HelpTab, ListPickerKind, Overlay, RuntimeSnapshot, StatusTab};
 use super::terminal_ui::handle_paste;
 use super::testing::TuiHarness;
 
@@ -43,32 +40,24 @@ async fn model_search_owns_unicode_cursor_editing() {
     let mut tui = harness();
     tui.app_mut().bottom_pane.input = "draft".into();
     tui.app_mut().bottom_pane.input_cursor_offset = Some(2);
-    tui.app_mut()
-        .transcript_scroll
-        .update_layout(TranscriptScrollLayout {
-            width: 80,
-            height: 20,
-            content_rows: 100,
-        });
-    tui.app_mut().transcript_scroll.scroll(-7);
-    let scroll = tui.app().transcript_scroll;
+    tui.app_mut().transcript_scroll = 7;
     tui.app_mut().open_overlay(Overlay::ModelSearch);
-    type_text(&mut tui, "\u{6a21}\u{578b}ab").await;
+    type_text(&mut tui, "模型ab").await;
     press(&mut tui, KeyCode::Home).await;
     press(&mut tui, KeyCode::Right).await;
     press(&mut tui, KeyCode::Char('X')).await;
-    assert_eq!(tui.app().model_search_query, "\u{6a21}X\u{578b}ab");
+    assert_eq!(tui.app().model_search_query, "模X型ab");
     press(&mut tui, KeyCode::Delete).await;
-    assert_eq!(tui.app().model_search_query, "\u{6a21}Xab");
+    assert_eq!(tui.app().model_search_query, "模Xab");
     press(&mut tui, KeyCode::Backspace).await;
-    assert_eq!(tui.app().model_search_query, "\u{6a21}ab");
+    assert_eq!(tui.app().model_search_query, "模ab");
     press(&mut tui, KeyCode::End).await;
     press(&mut tui, KeyCode::Left).await;
     press(&mut tui, KeyCode::Char('y')).await;
-    assert_eq!(tui.app().model_search_query, "\u{6a21}ayb");
+    assert_eq!(tui.app().model_search_query, "模ayb");
     assert_eq!(tui.app().bottom_pane.input, "draft");
     assert_eq!(tui.app().bottom_pane.input_cursor_offset, Some(2));
-    assert_eq!(tui.app().transcript_scroll, scroll);
+    assert_eq!(tui.app().transcript_scroll, 7);
     tui.expect_no_commands();
 }
 
@@ -179,25 +168,21 @@ fn paste_in_resume_picker_updates_search_only() {
 async fn model_search_render_keeps_cursor_on_visible_query() {
     let mut tui = harness();
     tui.app_mut().open_overlay(Overlay::ModelSearch);
-    type_text(&mut tui, "\u{6a21}\u{578b}ab").await;
+    type_text(&mut tui, "模型ab").await;
     press(&mut tui, KeyCode::Left).await;
     let (buffer, cursor) = tui.screen_buffer(80, 24);
     let (x, y) = cursor.expect("visible search cursor");
     assert!(x < 80 && y < 24);
     assert_eq!(buffer[(x, y)].symbol(), "b");
-    assert_eq!(buffer[(x - 3, y)].symbol(), "\u{578b}");
-    assert_eq!(buffer[(x - 5, y)].symbol(), "\u{6a21}");
+    assert_eq!(buffer[(x - 3, y)].symbol(), "型");
+    assert_eq!(buffer[(x - 5, y)].symbol(), "模");
 }
 
 #[tokio::test]
 async fn long_model_query_scrolls_with_cursor() {
     let mut tui = harness();
     tui.app_mut().open_overlay(Overlay::ModelSearch);
-    type_text(
-        &mut tui,
-        &format!("HEAD{}TAIL", "\u{6a21}\u{578b}".repeat(40)),
-    )
-    .await;
+    type_text(&mut tui, &format!("HEAD{}TAIL", "模型".repeat(40))).await;
     let (screen, cursor) = tui.screen_with_cursor(80, 24);
     let (x, y) = cursor.expect("visible search cursor");
     assert!(

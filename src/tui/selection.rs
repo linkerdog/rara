@@ -45,13 +45,14 @@ impl TranscriptSelection {
         &mut self,
         lines: &[Line<'static>],
         area: Rect,
-        scroll_offset: usize,
+        scroll_offset: u16,
     ) {
         let key = TranscriptSelectionSnapshotKey::from_lines(lines, area, scroll_offset);
         if self.snapshot_key == Some(key) {
             return;
         }
-        self.snapshot = TranscriptSelectionSnapshot::from_lines(lines, area, scroll_offset);
+        self.snapshot =
+            TranscriptSelectionSnapshot::from_lines(lines, area, usize::from(scroll_offset));
         self.snapshot_key = Some(key);
         self.clamp_points_to_snapshot();
     }
@@ -214,7 +215,7 @@ struct TranscriptSelectionSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TranscriptSelectionSnapshotKey {
     area: Rect,
-    scroll_offset: usize,
+    scroll_offset: u16,
     line_count: usize,
     span_count: usize,
     text_len: usize,
@@ -222,7 +223,7 @@ struct TranscriptSelectionSnapshotKey {
 }
 
 impl TranscriptSelectionSnapshotKey {
-    fn from_lines(lines: &[Line<'static>], area: Rect, scroll_offset: usize) -> Self {
+    fn from_lines(lines: &[Line<'static>], area: Rect, scroll_offset: u16) -> Self {
         let mut span_count = 0usize;
         let mut text_len = 0usize;
         let mut hasher = DefaultHasher::new();

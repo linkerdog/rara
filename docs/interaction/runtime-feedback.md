@@ -86,13 +86,31 @@ Resume behavior is owned by [threads](../features/threads.md) and
 [session transcript](../features/session-transcript.md). Tests must distinguish
 restored committed output, restored pending state, and newly running work.
 
-Transcript scrolling is bounded by the currently rendered visual rows. Repeated
-Up/PageUp at the top must not delay the next Down/PageDown. Manual upward
-navigation anchors the top visual row while streaming appends new rows; scrolling
-back to the bottom resumes tail-following. Clear and thread resume start at the
-tail. Long histories remain reachable without a 16-bit global-row offset; see
-[mouse text selection](../features/mouse-text-selection.md) for shared scrolling,
-rendering, and copy behavior.
+### RUN-05: Terminal Lifetime And Restoration
+
+Terminal mode ownership begins before raw mode or input reporting is enabled.
+Non-TTY stdout is rejected before ownership or escape-sequence output begins.
+Startup failures, event-loop errors, normal exits, and unwinding must restore
+raw mode, mouse reporting, bracketed paste, and cursor visibility. Partial
+initialization has the same restoration obligation as a running UI.
+
+Cleanup attempts every owned mode even when one operation fails, preserving
+the first cleanup error. An existing startup or runtime error remains the
+primary error; a cleanup failure must also surface. A panic hook restores the
+terminal before invoking the previous hook when the TUI owner panics during
+initialization or an event-loop poll. Caught background-task panics must not
+disable a running UI's terminal modes, including tasks on the same executor
+thread between owner polls. If the owner catches a panic after restoration,
+the UI must exit instead of continuing with disabled terminal modes.
+Restore modes before asynchronous exit work such as memory draining.
+Explicit restoration consumes guard ownership even when a cleanup operation
+fails; Drop must not repeat that failed cleanup attempt. Signal termination
+such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
+
+Only one TUI may own the process terminal at a time. Restoration is idempotent
+and does not modify keyboard enhancement stacks that the TUI never enabled.
+This contract does not cover uncatchable termination such as SIGKILL or imply
+viewport, suspend/resume, or shell-prompt positioning guarantees.
 
 ## Validation Matrix
 
@@ -102,6 +120,7 @@ rendering, and copy behavior.
 | RUN-02 | Controller completion-barrier tests and scripted runtime cancellation |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
+| RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
 
 ## Open Risks
 
@@ -117,3 +136,4 @@ rendering, and copy behavior.
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
+- [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)

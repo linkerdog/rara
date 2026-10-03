@@ -16,7 +16,6 @@ use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
 use super::bottom_pane_model::BottomPaneModel;
 use super::planning_lifecycle::PlanningLifecycleSnapshot;
-use super::transcript_scroll::TranscriptScroll;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::CodexModelOption;
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
@@ -410,6 +409,7 @@ pub enum TaskCompletion {
     Query {
         agent: Agent,
         result: anyhow::Result<()>,
+        goal_turn: Option<crate::runtime_goals::GoalTurn>,
     },
     Compact {
         agent: Agent,
@@ -796,7 +796,7 @@ pub struct TuiApp {
     pub resume_search_query: String,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
-    pub(crate) transcript_scroll: TranscriptScroll,
+    pub transcript_scroll: usize,
     pub(crate) transcript_selection: TranscriptSelection,
     pub context_scroll: u16,
     pub terminal_width: u16,
@@ -850,66 +850,4 @@ pub struct SkillPickerEntry {
     pub disable_model_invocation: bool,
 }
 
-/// Represents the lifecycle state of a ralph loop goal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GoalStatus {
-    /// Agent is actively working toward the goal across turns.
-    Pursuing,
-    /// User paused the goal; can be resumed.
-    Paused,
-    /// Agent reported a genuine blocker after repeated attempts to resolve it.
-    Blocked,
-    /// Goal was completed successfully.
-    Complete,
-    /// Goal exceeded its configured token budget; soft-stop.
-    BudgetLimited,
-}
-
-/// Tracks a long-running objective that the agent autonomously works toward.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RalphGoal {
-    /// The objective text set by `/goal <objective>`.
-    pub objective: String,
-    /// Current lifecycle status.
-    pub status: GoalStatus,
-    /// Optional token budget (input tokens). None = unlimited.
-    pub token_budget: Option<u32>,
-    /// Total input tokens consumed by goal turns.
-    pub tokens_used: u32,
-    /// Number of autonomous turns completed toward this goal.
-    pub turns_completed: u32,
-    /// Unix timestamp in seconds when the goal was created.
-    pub created_at_epoch_seconds: u64,
-}
-
-impl RalphGoal {
-    pub fn new(objective: String, token_budget: Option<u32>) -> Self {
-        Self {
-            objective,
-            status: GoalStatus::Pursuing,
-            token_budget,
-            tokens_used: 0,
-            turns_completed: 0,
-            created_at_epoch_seconds: current_unix_timestamp_secs(),
-        }
-    }
-
-    pub fn time_used_seconds(&self) -> u64 {
-        current_unix_timestamp_secs().saturating_sub(self.created_at_epoch_seconds)
-    }
-
-    pub fn remaining_tokens(&self) -> Option<u32> {
-        self.token_budget
-            .map(|budget| budget.saturating_sub(self.tokens_used))
-    }
-}
-
-pub fn current_unix_timestamp_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
-}
-
-/// Shared handle for model-facing goal tools and TUI to observe/update goal state.
-pub type GoalHandle = std::sync::Arc<std::sync::RwLock<Option<RalphGoal>>>;
+pub use crate::runtime_goals::{GoalHandle, GoalStatus, RalphGoal, current_unix_timestamp_secs};

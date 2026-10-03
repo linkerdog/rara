@@ -239,6 +239,29 @@ pub(crate) fn start_input_control_task_with_services(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
+    let goal_turn = match &request {
+        crate::runtime_control::InputControlRequest::AnswerPlanApproval { decision, .. } => {
+            match decision {
+                crate::runtime_control::PlanApprovalDecision::Approve => {
+                    app.goal_handle.begin_turn(agent.total_input_tokens)
+                }
+                crate::runtime_control::PlanApprovalDecision::ContinuePlanning
+                | crate::runtime_control::PlanApprovalDecision::Reject => None,
+            }
+        }
+        crate::runtime_control::InputControlRequest::SubmitUserPrompt { .. }
+        | crate::runtime_control::InputControlRequest::SubmitFollowUp { .. }
+        | crate::runtime_control::InputControlRequest::AnswerPendingInput { .. }
+        | crate::runtime_control::InputControlRequest::AnswerShellApproval { .. } => {
+            match agent.execution_mode {
+                crate::agent::AgentExecutionMode::Execute
+                | crate::agent::AgentExecutionMode::Review => {
+                    app.goal_handle.begin_turn(agent.total_input_tokens)
+                }
+                crate::agent::AgentExecutionMode::Plan => None,
+            }
+        }
+    };
     bus.publish_raw(AgentEvent::AgentStart);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
@@ -272,7 +295,11 @@ pub(crate) fn start_input_control_task_with_services(
 
         let result = result.map_err(|e| anyhow::anyhow!("{e}"));
         lifecycle_bus.publish_raw(task_result_lifecycle_event(&result));
-        TaskCompletion::Query { agent, result }
+        TaskCompletion::Query {
+            agent,
+            result,
+            goal_turn,
+        }
     });
 
     app.bottom_pane.running_task = Some(RunningTask {
@@ -394,6 +421,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         Some("reviewing changes".into()),
     );
     app.push_entry("You", prompt.clone());
+    let goal_turn = app.goal_handle.begin_turn(agent.total_input_tokens);
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
@@ -414,7 +442,11 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
             })
             .await;
         forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
-        TaskCompletion::Query { agent, result }
+        TaskCompletion::Query {
+            agent,
+            result,
+            goal_turn,
+        }
     });
 
     app.bottom_pane.running_task = Some(RunningTask {

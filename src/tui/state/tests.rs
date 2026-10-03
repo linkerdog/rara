@@ -10,9 +10,8 @@ use tempfile::tempdir;
 use super::{
     ActivePendingInteractionKind, AgentMarkdownStreamState, InteractionKind, ListPickerKind,
     ModelCatalogSnapshot, Overlay, PROVIDER_FAMILIES, PendingInteractionSnapshot, ProviderFamily,
-    RuntimeExtensionSnapshot, RuntimeSnapshot, SystemMessageKind, ToolTranscriptStatus,
-    TranscriptEntry, TranscriptScrollLayout, TranscriptTurn, TuiApp,
-    input_requests_command_palette, parse_repo_slug, state_db_status_error,
+    RuntimeExtensionSnapshot, RuntimeSnapshot, SystemMessageKind, TranscriptEntry, TranscriptTurn,
+    TuiApp, input_requests_command_palette, parse_repo_slug, state_db_status_error,
 };
 use crate::agent::{Agent, PendingApproval};
 use crate::codex_model_catalog::{CodexModelOption, CodexReasoningOption};
@@ -32,6 +31,1892 @@ fn provider_family_idx(family: ProviderFamily) -> usize {
         .expect("provider family present")
 }
 
-mod core_and_runtime;
-mod providers;
-mod transcript_and_persistence;
+#[test]
+fn detects_slash_command_input() {
+    assert!(input_requests_command_palette("/"));
+    assert!(input_requests_command_palette("/help"));
+    assert!(input_requests_command_palette("   /help"));
+    assert!(!input_requests_command_palette(""));
+    assert!(!input_requests_command_palette("help"));
+    assert!(!input_requests_command_palette("   help"));
+}
+
+#[test]
+fn redacts_secrets_in_state_db_status_messages() {
+    let rendered = state_db_status_error(
+        "write failed",
+        "token=supersecretvalue Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+    );
+    assert!(rendered.contains("write failed:"));
+    assert!(rendered.contains("[REDACTED_SECRET]"));
+    assert!(!rendered.contains("supersecretvalue"));
+    assert!(!rendered.contains("abcdefghijklmnopqrstuvwxyz"));
+}
+
+#[test]
+fn agent_markdown_stream_sanitizes_terminal_controls() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+
+    stream.push_delta("First\rSecond\u{1b}[31m red\u{1b}[0m\u{8}!");
+
+    assert_eq!(stream.sanitized_raw_text(), "First\nSecond red!");
+    let rendered = stream
+        .display_lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("First"));
+    assert!(rendered.contains("Second red!"));
+    assert!(!rendered.contains('\r'));
+    assert!(!rendered.contains('\u{1b}'));
+    assert!(!rendered.contains('\u{8}'));
+}
+
+#[test]
+fn agent_markdown_stream_finalize_commits_partial_line() {
+    let mut stream = AgentMarkdownStreamState::new(std::path::PathBuf::from("."));
+
+    stream.push_delta("Partial answer without newline");
+    stream.finalize_display_lines();
+
+    let rendered = stream
+        .display_lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Partial answer without newline"));
+    assert_eq!(stream.display_lines.len(), 1);
+}
+
+#[test]
+fn prioritizes_active_pending_interaction_in_ui_order() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+    app.snapshot = RuntimeSnapshot {
+        pending_interactions: vec![
+            PendingInteractionSnapshot {
+                kind: InteractionKind::RequestInput,
+                title: "Question".to_string(),
+                summary: String::new(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: Some("plan_agent".to_string()),
+                created_at_epoch_seconds: None,
+            },
+            PendingInteractionSnapshot {
+                kind: InteractionKind::Approval,
+                title: "Pending Approval".to_string(),
+                summary: "run cargo test".to_string(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: None,
+                created_at_epoch_seconds: None,
+            },
+            PendingInteractionSnapshot {
+                kind: InteractionKind::PlanApproval,
+                title: "Plan Ready".to_string(),
+                summary: "Review the plan.".to_string(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: None,
+                created_at_epoch_seconds: None,
+            },
+        ],
+        ..RuntimeSnapshot::default()
+    };
+
+    let active = app
+        .active_pending_interaction()
+        .expect("pending interaction");
+    assert_eq!(active.kind, ActivePendingInteractionKind::PlanApproval);
+    assert_eq!(active._snapshot.title, "Plan Ready");
+}
+
+#[test]
+fn clear_pending_command_approval_removes_only_shell_approval() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+    app.snapshot = RuntimeSnapshot {
+        pending_interactions: vec![
+            PendingInteractionSnapshot {
+                kind: InteractionKind::RequestInput,
+                title: "Question".to_string(),
+                summary: "Need a value".to_string(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: Some("worker".to_string()),
+                created_at_epoch_seconds: None,
+            },
+            PendingInteractionSnapshot {
+                kind: InteractionKind::Approval,
+                title: "Pending Approval".to_string(),
+                summary: "run cargo test".to_string(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: None,
+                created_at_epoch_seconds: None,
+            },
+            PendingInteractionSnapshot {
+                kind: InteractionKind::PlanApproval,
+                title: "Plan Ready".to_string(),
+                summary: "Review the plan.".to_string(),
+                options: Vec::new(),
+                note: None,
+                approval: None,
+                source: None,
+                created_at_epoch_seconds: None,
+            },
+        ],
+        ..RuntimeSnapshot::default()
+    };
+
+    assert!(app.pending_command_approval().is_some());
+
+    app.clear_pending_command_approval();
+
+    assert!(app.pending_command_approval().is_none());
+    assert_eq!(app.snapshot.pending_interactions.len(), 2);
+    assert!(
+        app.snapshot
+            .pending_interactions
+            .iter()
+            .any(|item| item.kind == InteractionKind::RequestInput)
+    );
+    assert!(
+        app.snapshot
+            .pending_interactions
+            .iter()
+            .any(|item| item.kind == InteractionKind::PlanApproval)
+    );
+}
+
+#[test]
+fn showing_plan_approval_resets_the_shared_action_selection() {
+    let dir = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.approval_picker_idx = 3;
+
+    app.show_pending_plan_approval(None);
+
+    assert_eq!(app.approval_picker_idx, 0);
+}
+
+#[test]
+fn sync_snapshot_reports_effective_network_access_for_pending_approval() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    agent.pending_approval = Some(PendingApproval {
+        tool_use_id: "tool-1".to_string(),
+        request: BashCommandInput {
+            command: Some("cargo check".to_string()),
+            allow_net: false,
+            ..Default::default()
+        },
+    });
+
+    app.apply_runtime_snapshot(&agent, RuntimeExtensionSnapshot::default());
+
+    let approval = app
+        .pending_command_approval()
+        .and_then(|interaction| interaction.approval.as_ref())
+        .expect("pending approval");
+    assert!(approval.allow_net);
+}
+
+#[tokio::test]
+async fn sync_snapshot_reports_registered_runtime_hooks() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    let bus = std::sync::Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(4));
+    let runtime = std::sync::Arc::new(crate::hook_runtime::HookRuntime::new(bus));
+    runtime.register(
+        "plugin-pre-tool".into(),
+        crate::runtime_control::HookLifecycle::PreToolUse,
+        Box::new(|_| {}),
+    );
+    app.hook_runtime = Some(runtime);
+
+    app.apply_runtime_snapshot(
+        &agent,
+        RuntimeExtensionSnapshot {
+            hook_count: 1,
+            ..RuntimeExtensionSnapshot::default()
+        },
+    );
+
+    assert_eq!(app.snapshot.extension_hook_count, 1);
+}
+
+#[test]
+fn sync_snapshot_uses_cached_agent_definition_records() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let agents_dir = rara_dir.join("agents");
+    std::fs::create_dir_all(&agents_dir).expect("agents");
+    let agent_path = agents_dir.join("status-cache-test.md");
+    std::fs::write(
+        &agent_path,
+        r#"---
+name: status-cache-before
+description: Cached before sync.
+---
+
+Cached prompt.
+"#,
+    )
+    .expect("agent definition");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root, rara_dir)),
+    );
+    std::fs::write(
+        &agent_path,
+        r#"---
+name: status-cache-after
+description: Should require a runtime rebuild.
+---
+
+Reloaded prompt.
+"#,
+    )
+    .expect("updated agent definition");
+
+    app.apply_runtime_snapshot(
+        &agent,
+        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+    );
+
+    assert!(
+        app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| {
+                line.contains("status-cache-before")
+                    && line.contains(".rara/agents/status-cache-test.md")
+            })
+    );
+    assert!(
+        !app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("status-cache-after"))
+    );
+}
+
+#[test]
+fn sync_snapshot_counts_runtime_agent_definition_records() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("workspace");
+    let rara_dir = root.join(".rara");
+    std::fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
+    std::fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
+    let home_root = dir.path().join("home");
+    let mut app = TuiApp::new(ConfigManager {
+        path: root.join("config.json"),
+    })
+    .expect("app");
+    let mut agent = Agent::new(
+        ToolManager::new(),
+        std::sync::Arc::new(MockLlm),
+        std::sync::Arc::new(MemoryHandle::new(
+            &rara_dir.join("memory").to_string_lossy(),
+        )),
+        std::sync::Arc::new(SessionManager {
+            storage_dir: rara_dir.join("rollouts"),
+            legacy_storage_dir: rara_dir.join("sessions"),
+        }),
+        std::sync::Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir)),
+    );
+    agent.agent_definitions = AgentDefinitionCache::from_records_for_test(vec![
+        AgentDefinitionLoadRecord {
+            id: "repo-agent".to_string(),
+            source_path: root.join(".rara").join("agents").join("repo-agent.md"),
+            definition: None,
+            error: Some("parse error".to_string()),
+        },
+        AgentDefinitionLoadRecord {
+            id: "home-agent".to_string(),
+            source_path: home_root.join(".rara").join("agents").join("home-agent.md"),
+            definition: None,
+            error: Some("parse error".to_string()),
+        },
+    ]);
+
+    app.apply_runtime_snapshot(
+        &agent,
+        crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&agent, 0),
+    );
+
+    assert_eq!(app.snapshot.extension_agent_count, 2);
+    assert!(
+        app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("repo-agent"))
+    );
+    assert!(
+        app.snapshot
+            .extension_agent_status_lines
+            .iter()
+            .any(|line| line.contains("home-agent"))
+    );
+}
+
+#[test]
+fn parse_repo_slug_supports_common_github_remote_forms() {
+    assert_eq!(
+        parse_repo_slug("git@github.com:hawkingrei/rara.git").as_deref(),
+        Some("hawkingrei/rara")
+    );
+    assert_eq!(
+        parse_repo_slug("https://github.com/hawkingrei/rara.git").as_deref(),
+        Some("hawkingrei/rara")
+    );
+    assert_eq!(
+        parse_repo_slug("ssh://git@github.com/hawkingrei/rara.git").as_deref(),
+        Some("hawkingrei/rara")
+    );
+}
+
+#[test]
+fn new_does_not_detect_repo_context_synchronously() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    assert!(app.repo_context_task.is_none());
+    assert!(app.repo_slug.is_none());
+    assert!(app.current_pr_url.is_none());
+}
+
+#[test]
+fn new_starts_without_explicit_plugin_dirs() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    assert!(app.explicit_plugin_dirs.is_empty());
+}
+
+#[test]
+fn push_entry_keeps_manual_transcript_scroll_position() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.transcript_scroll = 6;
+
+    app.push_entry("System", "background update");
+
+    assert_eq!(app.transcript_scroll, 6);
+}
+
+#[test]
+fn finalize_agent_stream_keeps_manual_transcript_scroll_position() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.transcript_scroll = 4;
+    app.active_turn.entries.push(TranscriptEntry {
+        role: "Agent".into(),
+        message: "draft".into(),
+        payload: None,
+    });
+
+    app.finalize_agent_stream(Some("final answer".into()));
+
+    assert_eq!(app.transcript_scroll, 4);
+    assert_eq!(
+        app.active_turn
+            .entries
+            .last()
+            .map(|entry| entry.message.as_str()),
+        Some("final answer")
+    );
+}
+
+#[test]
+fn queued_follow_up_messages_preserve_fifo_order() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    assert_eq!(app.queue_follow_up_message("first"), 1);
+    assert_eq!(app.queue_follow_up_message("second"), 2);
+    assert_eq!(app.queued_follow_up_preview(), Some("first"));
+    assert_eq!(app.pop_queued_follow_up_message().as_deref(), Some("first"));
+    assert_eq!(
+        app.pop_queued_follow_up_message().as_deref(),
+        Some("second")
+    );
+    assert_eq!(app.pop_queued_follow_up_message(), None);
+}
+
+#[test]
+fn drain_queued_follow_up_messages_preserves_fifo_order() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.queue_follow_up_message("first");
+    app.queue_follow_up_message("second");
+
+    assert_eq!(
+        app.drain_queued_follow_up_messages(),
+        vec!["first".to_string(), "second".to_string()]
+    );
+    assert_eq!(app.pop_queued_follow_up_message(), None);
+}
+
+#[test]
+fn pending_follow_up_messages_release_on_tool_boundary() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.begin_running_turn();
+    assert_eq!(
+        app.queue_follow_up_message_after_next_tool_boundary("first pending"),
+        1
+    );
+    assert_eq!(app.pending_follow_up_preview(), Some("first pending"));
+    assert_eq!(app.queued_end_of_turn_preview(), None);
+
+    app.advance_running_tool_boundary();
+
+    assert_eq!(app.pending_follow_up_preview(), None);
+    assert_eq!(app.queued_end_of_turn_preview(), Some("first pending"));
+    assert_eq!(
+        app.pop_queued_follow_up_message().as_deref(),
+        Some("first pending")
+    );
+}
+
+#[test]
+fn openai_compatible_preset_sets_default_connection_fields() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    assert_eq!(
+        app.selected_provider_family(),
+        ProviderFamily::OpenAiCompatible
+    );
+
+    app.select_local_model(0);
+
+    assert_eq!(app.config.provider, "openai-compatible");
+    assert_eq!(
+        app.config.active_openai_profile_kind(),
+        Some(OpenAiEndpointKind::Custom)
+    );
+    assert_eq!(app.config.model.as_deref(), Some("gpt-4o-mini"));
+    assert_eq!(
+        app.config.base_url.as_deref(),
+        Some("https://api.openai.com/v1")
+    );
+    assert_eq!(app.config.revision, None);
+}
+
+#[test]
+fn openai_compatible_preset_preserves_custom_model_name() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.set_provider("openai-compatible");
+    app.config.set_model(Some("custom-model".to_string()));
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+
+    app.select_local_model(0);
+
+    assert_eq!(app.config.provider, "openai-compatible");
+    assert_eq!(app.config.model.as_deref(), Some("custom-model"));
+}
+
+#[test]
+fn deepseek_family_selects_deepseek_profile_and_model() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
+    app.select_local_model(0);
+    assert_eq!(
+        app.config.active_openai_profile_kind(),
+        Some(OpenAiEndpointKind::Deepseek)
+    );
+    assert_eq!(
+        app.config.base_url.as_deref(),
+        Some("https://api.deepseek.com/v1")
+    );
+    assert_eq!(app.config.model.as_deref(), Some("deepseek-flash"));
+}
+
+#[test]
+fn deepseek_catalog_options_keep_current_custom_model_selectable() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
+    app.config
+        .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
+    app.config
+        .set_model(Some("deepseek-v4-preview".to_string()));
+
+    app.set_deepseek_model_options(vec!["deepseek-chat".to_string()]);
+
+    assert!(
+        app.deepseek_model_options
+            .iter()
+            .any(|model| model == "deepseek-v4-preview")
+    );
+    assert_eq!(app.model_picker_idx, app.selected_preset_idx());
+    assert_eq!(
+        app.deepseek_model_options
+            .get(app.model_picker_idx)
+            .map(String::as_str),
+        Some("deepseek-v4-preview")
+    );
+}
+
+#[test]
+fn provider_catalog_context_window_flows_into_unified_model_presets() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let app = TuiApp::new(cm).expect("app");
+
+    let presets = app.all_unified_model_presets();
+    let kimi_k3 = presets
+        .iter()
+        .find(|preset| preset.provider_id == "kimi" && preset.model_id == "kimi-k3")
+        .expect("Kimi K3 catalog entry");
+
+    assert_eq!(kimi_k3.context_window, Some(1_048_576));
+}
+
+#[test]
+fn available_unified_model_presets_exclude_unconfigured_remote_providers() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config
+        .select_openai_profile("kimi-default", "Moonshot AI", OpenAiEndpointKind::Kimi);
+    app.config.set_api_key("test-kimi-key");
+    app.refresh_provider_connection_status();
+
+    let presets = app.available_unified_model_presets();
+    assert!(presets.iter().any(|preset| preset.provider_id == "kimi"));
+    assert!(
+        !presets
+            .iter()
+            .any(|preset| preset.provider_id == "deepseek")
+    );
+}
+
+#[test]
+fn model_catalog_snapshot_hydrates_provider_picker_state() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    let snapshot = ModelCatalogSnapshot {
+        provider_id: "kimi".to_string(),
+        models: vec![ModelCatalogEntry {
+            id: "kimi-runtime-model".to_string(),
+            context_window: Some(131_072),
+        }],
+        is_fallback: false,
+    };
+    app.apply_model_catalog_snapshots(&[snapshot]);
+
+    assert_eq!(app.kimi_model_options, vec!["kimi-runtime-model"]);
+    assert_eq!(
+        app.model_context_window(ProviderFamily::Kimi, "kimi-runtime-model"),
+        Some(131_072)
+    );
+}
+
+#[test]
+fn model_routing_view_infers_deepseek_auxiliary_model() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config
+        .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
+    app.config.set_model(Some("deepseek-v4-pro".to_string()));
+
+    let routing = app.model_routing_view();
+
+    assert_eq!(routing.main_model, "deepseek-v4-pro");
+    assert_eq!(routing.auxiliary_model, "deepseek-flash");
+    assert_eq!(routing.auxiliary_route, "provider_lite");
+    assert_eq!(routing.auxiliary_source, "inferred");
+    assert!(!routing.auxiliary_uses_main_model);
+}
+
+#[test]
+fn model_routing_view_falls_back_to_main_model_without_helper() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.set_provider("ollama");
+    app.config.set_model(Some("qwen3".to_string()));
+
+    let routing = app.model_routing_view();
+
+    assert_eq!(routing.main_model, "qwen3");
+    assert_eq!(routing.auxiliary_model, "qwen3");
+    assert_eq!(routing.auxiliary_route, "fallback");
+    assert_eq!(routing.auxiliary_source, "main_model");
+    assert!(routing.auxiliary_uses_main_model);
+}
+
+#[test]
+fn terminal_diagnostics_view_uses_live_tui_dimensions() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.terminal_width = 123;
+    app.terminal_focused = false;
+
+    let terminal = app.terminal_diagnostics_view();
+
+    assert_eq!(terminal.width_columns, 123);
+    assert!(!terminal.focused);
+    assert!(!terminal.user_agent.is_empty());
+    assert!(!terminal.history_mode.is_empty());
+}
+
+#[test]
+fn codex_preset_keeps_the_codex_model_label() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = 0;
+    app.set_codex_model_options(vec![CodexModelOption {
+        id: DEFAULT_CODEX_MODEL.to_string(),
+        model: DEFAULT_CODEX_MODEL.to_string(),
+        label: "gpt-5.4".to_string(),
+        description: "Latest frontier agentic coding model.".to_string(),
+        reasoning_options: vec![CodexReasoningOption {
+            value: "medium".to_string(),
+            label: "Medium".to_string(),
+            description: "Default reasoning effort.".to_string(),
+            is_default: true,
+        }],
+        default_reasoning_effort: Some("medium".to_string()),
+        is_default: true,
+    }]);
+    app.select_local_model(0);
+
+    assert_eq!(app.config.provider, "codex");
+    assert_eq!(app.config.model.as_deref(), Some(DEFAULT_CODEX_MODEL));
+    assert_eq!(app.config.base_url.as_deref(), Some(DEFAULT_CODEX_BASE_URL));
+}
+
+#[test]
+fn opening_openai_compatible_model_picker_restores_provider_scoped_state() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.set_provider("openai-compatible");
+    app.config
+        .set_base_url(Some("http://proxy.local/v1".to_string()));
+    app.config.set_model(Some("custom-model".to_string()));
+    app.config.set_provider("codex");
+    app.config.set_model(Some("codex".to_string()));
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    assert_eq!(app.config.provider, "openai-compatible");
+    assert_eq!(
+        app.config.base_url.as_deref(),
+        Some("http://proxy.local/v1")
+    );
+    assert_eq!(app.config.model.as_deref(), Some("custom-model"));
+}
+
+#[test]
+fn opening_openai_compatible_model_picker_excludes_deepseek_profile_kind() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config
+        .select_openai_profile("deepseek-default", "DeepSeek", OpenAiEndpointKind::Deepseek);
+    app.config.set_model(Some("deepseek-reasoner".to_string()));
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    assert_eq!(
+        app.config.active_openai_profile_kind(),
+        Some(OpenAiEndpointKind::Custom)
+    );
+    assert_eq!(app.config.model.as_deref(), Some("gpt-4o-mini"));
+}
+
+#[test]
+fn openai_compatible_model_picker_selects_profile_rows() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    assert_eq!(app.current_model_picker_len(), 1);
+    assert_eq!(app.model_picker_idx, 0);
+
+    assert_eq!(
+        app.selected_openai_model_picker_action(),
+        Some(crate::tui::state::OpenAiModelPickerAction::SelectProfile)
+    );
+
+    app.config.select_openai_profile(
+        "openrouter-default",
+        "OpenRouter",
+        OpenAiEndpointKind::Openrouter,
+    );
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    assert_eq!(app.current_model_picker_len(), 2);
+
+    app.model_picker_idx = 1;
+    assert_eq!(
+        app.selected_openai_model_picker_action(),
+        Some(crate::tui::state::OpenAiModelPickerAction::SelectProfile)
+    );
+}
+
+#[test]
+fn openai_compatible_model_picker_deletes_active_profile_and_keeps_next() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.config.select_openai_profile(
+        "custom-default",
+        "Custom endpoint",
+        OpenAiEndpointKind::Custom,
+    );
+    app.config.select_openai_profile(
+        "openrouter-default",
+        "OpenRouter",
+        OpenAiEndpointKind::Openrouter,
+    );
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    assert_eq!(
+        app.config.active_openai_profile_id(),
+        Some("openrouter-default")
+    );
+    assert_eq!(
+        app.delete_active_openai_profile().as_deref(),
+        Some("OpenRouter")
+    );
+    assert_eq!(
+        app.config.active_openai_profile_id(),
+        Some("custom-default")
+    );
+    assert_eq!(app.model_picker_idx, 0);
+    assert_eq!(app.current_model_picker_len(), 1);
+}
+
+#[test]
+fn openai_profile_active_state_survives_switching_to_codex_and_ollama() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.config.select_openai_profile(
+        "openrouter-main",
+        "OpenRouter Main",
+        OpenAiEndpointKind::Openrouter,
+    );
+    app.config
+        .set_model(Some("anthropic/claude-3.7-sonnet".to_string()));
+    app.config.set_api_key("sk-openrouter");
+    assert_eq!(
+        app.config.active_openai_profile_id(),
+        Some("openrouter-main")
+    );
+
+    app.provider_picker_idx = 0;
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    app.select_local_model(0);
+    assert_eq!(app.config.provider, "codex");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::Ollama);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    app.select_local_model(0);
+    assert_eq!(app.config.provider, "ollama");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+
+    assert_eq!(
+        app.config.active_openai_profile_id(),
+        Some("openrouter-main")
+    );
+    assert_eq!(
+        app.config.model.as_deref(),
+        Some("anthropic/claude-3.7-sonnet")
+    );
+    assert_eq!(app.model_picker_idx, 0);
+}
+
+#[test]
+fn opening_openai_profile_picker_prefers_active_profile_of_selected_kind() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.select_openai_profile(
+        "openrouter-main",
+        "OpenRouter Main",
+        OpenAiEndpointKind::Openrouter,
+    );
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.model_picker_idx = 4;
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
+
+    assert_eq!(
+        app.selected_openai_profile_kind(),
+        Some(OpenAiEndpointKind::Openrouter)
+    );
+    assert_eq!(app.openai_profile_picker_idx, 1);
+}
+
+#[test]
+fn openai_model_selection_keeps_non_default_profile_for_same_kind() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+    app.config.select_openai_profile(
+        "openrouter-main",
+        "OpenRouter Main",
+        OpenAiEndpointKind::Openrouter,
+    );
+
+    app.select_local_model(4);
+
+    assert_eq!(
+        app.config.active_openai_profile_id(),
+        Some("openrouter-main")
+    );
+    assert_eq!(
+        app.config.active_openai_profile_label(),
+        Some("OpenRouter Main")
+    );
+}
+
+#[test]
+fn model_name_editor_seeds_from_selected_provider_state() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.config.set_provider("openai-compatible");
+    app.config.set_model(Some("custom-model".to_string()));
+    app.config.set_provider("codex");
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::OpenAiCompatible);
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    app.open_overlay(Overlay::ModelNameEditor);
+
+    assert_eq!(app.model_name_input, "custom-model");
+}
+
+#[test]
+fn model_name_editor_does_not_panic_when_provider_has_no_presets() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    // DeepSeek has empty presets (&[])
+    app.provider_picker_idx = provider_family_idx(ProviderFamily::DeepSeek);
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
+    app.open_overlay(Overlay::ModelNameEditor);
+
+    // Should not panic, and model_name_input stays empty since
+    // config.model is None and there is no preset to fall back to.
+    assert_eq!(app.model_name_input, "");
+}
+
+#[test]
+fn closing_auth_mode_picker_with_empty_stack_returns_to_none() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
+    app.dismiss_overlay();
+
+    // Stack-based back-navigation: closing the only overlay returns to None.
+    assert!(app.overlay.is_none());
+}
+
+#[test]
+fn resume_picker_refreshes_recent_threads_on_open() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    assert!(app.recent_threads.is_empty());
+
+    app.state_db
+        .as_ref()
+        .expect("state db")
+        .upsert_session(
+            "thread-1",
+            "/tmp/workspace",
+            "main",
+            "ollama",
+            "qwen3",
+            None,
+            "execute",
+            "always",
+            None,
+            &PersistedPromptRuntimeState::default(),
+            1,
+            0,
+            &PersistedCompactState::default(),
+        )
+        .expect("upsert thread");
+
+    // Disable Cwd filter for deterministic test — the test sessions use
+    // different workspace directories than the test process cwd.
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+
+    assert_eq!(app.recent_threads.len(), 1);
+    assert_eq!(app.recent_threads[0].metadata.session_id, "thread-1");
+    assert_eq!(app.resume_picker_idx, 0);
+}
+
+#[test]
+fn resume_picker_loads_more_than_legacy_twenty_thread_cap() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    for idx in 0..25 {
+        app.state_db
+            .as_ref()
+            .expect("state db")
+            .upsert_session(
+                format!("thread-{idx:02}").as_str(),
+                "/tmp/workspace",
+                "main",
+                "ollama",
+                "qwen3",
+                None,
+                "execute",
+                "always",
+                None,
+                &PersistedPromptRuntimeState::default(),
+                1,
+                0,
+                &PersistedCompactState::default(),
+            )
+            .expect("upsert thread");
+    }
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+
+    assert_eq!(app.recent_threads.len(), 25);
+}
+
+#[test]
+fn resume_picker_search_filters_and_clear_restores_threads() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    for (thread_id, branch, model) in [
+        ("thread-alpha", "feature/resume-search", "qwen3"),
+        ("thread-beta", "main", "gpt-5.2"),
+    ] {
+        app.state_db
+            .as_ref()
+            .expect("state db")
+            .upsert_session(
+                thread_id,
+                "/tmp/workspace",
+                branch,
+                "codex",
+                model,
+                None,
+                "execute",
+                "always",
+                None,
+                &PersistedPromptRuntimeState::default(),
+                1,
+                0,
+                &PersistedCompactState::default(),
+            )
+            .expect("upsert thread");
+    }
+
+    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    assert_eq!(app.recent_threads.len(), 2);
+
+    for c in "resume-search".chars() {
+        app.push_resume_search_char(c);
+    }
+
+    assert_eq!(app.resume_search_query, "resume-search");
+    assert_eq!(app.resume_picker_idx, 0);
+    assert_eq!(app.recent_threads.len(), 1);
+    assert_eq!(app.recent_threads[0].metadata.session_id, "thread-alpha");
+
+    app.clear_resume_search();
+
+    assert!(app.resume_search_query.is_empty());
+    assert_eq!(app.resume_picker_idx, 0);
+    assert_eq!(app.recent_threads.len(), 2);
+}
+
+#[test]
+fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_late() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.committed_turns.push(TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "你好".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Agent".into(),
+                message: "你好！".into(),
+                payload: None,
+            },
+        ],
+    });
+
+    app.finalize_agent_stream(Some("你好！有什么我可以帮你的？".into()));
+
+    assert!(app.active_turn.entries.is_empty());
+    assert_eq!(
+        app.committed_turns
+            .last()
+            .and_then(|turn| turn.entries.last())
+            .map(|entry| entry.message.as_str()),
+        Some("你好！有什么我可以帮你的？")
+    );
+    assert_eq!(
+        app.committed_turns.last().map(|turn| turn
+            .entries
+            .iter()
+            .filter(|entry| entry.role == "Agent")
+            .count()),
+        Some(1)
+    );
+}
+
+#[test]
+fn streamed_agent_output_scrubs_internal_runtime_blocks_before_commit() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_delta("Visible answer.\n");
+    app.append_agent_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
+    let live_text = app
+        .agent_stream_lines()
+        .expect("agent stream")
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert!(live_text.contains("Visible answer."));
+    assert!(!live_text.contains("agent_runtime"));
+    assert!(!live_text.contains("tool_results_available"));
+
+    app.append_agent_delta("\n</agent_runtime>\nFinal answer.");
+    app.finalize_agent_stream(None);
+
+    let message = app
+        .active_turn
+        .entries
+        .iter()
+        .find(|entry| entry.role == "Agent")
+        .map(|entry| entry.message.as_str())
+        .expect("agent message");
+    assert!(message.contains("Visible answer."));
+    assert!(message.contains("Final answer."));
+    assert!(!message.contains("agent_runtime"));
+    assert!(!message.contains("tool_results_available"));
+}
+
+#[test]
+fn streamed_agent_output_appends_visible_text_after_internal_block() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_delta("Visible before.\n");
+    app.append_agent_delta("<agent_runtime>\nhidden");
+    app.append_agent_delta("\n</agent_runtime>\nVisible after.");
+
+    let live_text = app
+        .agent_stream_lines()
+        .expect("agent stream")
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert_eq!(live_text.matches("Visible before.").count(), 1);
+    assert_eq!(live_text.matches("Visible after.").count(), 1);
+    assert!(!live_text.contains("agent_runtime"));
+    assert!(!live_text.contains("hidden"));
+}
+
+#[test]
+fn finalized_agent_stream_does_not_replace_agent_text_before_tool_boundary() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Fix the rendering order");
+
+    app.append_agent_delta("First assistant segment.");
+    app.finalize_agent_stream(None);
+    app.push_entry("Running", "Run cargo check");
+    app.append_agent_delta("Second assistant segment.");
+    app.finalize_agent_stream(None);
+
+    let agent_entries = app
+        .active_turn
+        .entries
+        .iter()
+        .filter(|entry| entry.role == "Agent")
+        .map(|entry| entry.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        agent_entries,
+        vec!["First assistant segment.", "Second assistant segment."]
+    );
+
+    let first_agent = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "First assistant segment.")
+        .unwrap();
+    let running = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "Run cargo check")
+        .unwrap();
+    let second_agent = app
+        .active_turn
+        .entries
+        .iter()
+        .position(|entry| entry.message == "Second assistant segment.")
+        .unwrap();
+    assert!(first_agent < running);
+    assert!(running < second_agent);
+}
+
+#[test]
+fn committed_turn_keeps_thinking_before_final_agent_message() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Explain the ordering bug");
+
+    app.append_agent_thinking_delta("Trace the event stream.");
+    app.append_agent_delta("The transcript has two ordering sources.");
+    app.finalize_active_turn();
+
+    let entries = &app.committed_turns[0].entries;
+    let roles = entries
+        .iter()
+        .map(|entry| entry.role.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(roles, vec!["You", "Thinking", "Agent"]);
+    assert_eq!(entries[1].message, "Trace the event stream.");
+    assert_eq!(
+        entries[2].message,
+        "The transcript has two ordering sources."
+    );
+}
+
+#[test]
+fn committed_turn_preserves_interleaved_assistant_segments() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.push_entry("You", "Inspect, run a tool, and finish");
+
+    app.append_agent_thinking_delta("Inspect the implementation.");
+    app.append_agent_delta("I found the relevant state transition.");
+    app.finalize_agent_stream(None);
+    app.push_tool_entry(
+        Some("call-1"),
+        "cargo_check",
+        super::ToolTranscriptStatus::Completed,
+        "cargo check passed",
+    );
+    app.append_agent_thinking_delta("Interpret the tool result.");
+    app.append_agent_delta("The fix is ready.");
+    app.finalize_active_turn();
+
+    let entries = &app.committed_turns[0].entries;
+    let ordered = entries
+        .iter()
+        .map(|entry| (entry.role.as_str(), entry.message.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec![
+            ("You", "Inspect, run a tool, and finish"),
+            ("Thinking", "Inspect the implementation."),
+            ("Agent", "I found the relevant state transition."),
+            ("Tool Result", "cargo check passed"),
+            ("Thinking", "Interpret the tool result."),
+            ("Agent", "The fix is ready."),
+        ]
+    );
+}
+
+#[test]
+fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.append_agent_thinking_delta("Visible thought.\n");
+    app.append_agent_thinking_delta("<agent_runtime>\n{\"phase\":\"tool_results_available\"}");
+    app.append_agent_thinking_delta("\n</agent_runtime>\nNext thought.");
+    app.finalize_agent_thinking_stream();
+
+    assert_eq!(app.active_turn.entries.len(), 1);
+    let entry = app.active_turn.entries.first().expect("thinking entry");
+    assert_eq!(entry.role, "Thinking");
+    assert_eq!(entry.message, "Visible thought.\n\nNext thought.");
+    assert!(!entry.message.contains("agent_runtime"));
+    assert!(!entry.message.contains("tool_results_available"));
+}
+
+#[test]
+fn live_progress_events_sanitize_terminal_controls() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    app.record_running_action("Run\r\u{1b}[31mcargo check\u{1b}[0m\u{8}");
+    app.record_exploration_note("Read\tfile\u{7}");
+
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[0].message, "Run\ncargo check");
+    assert_eq!(app.active_turn.entries[1].message, "Read    file");
+    assert!(!app.active_turn.entries[0].message.contains('\r'));
+    assert!(!app.active_turn.entries[0].message.contains('\u{1b}'));
+    assert!(!app.active_turn.entries[1].message.contains('\u{7}'));
+}
+
+#[test]
+fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.active_turn = TranscriptTurn {
+        thinking_duration: None,
+        entries: vec![
+            TranscriptEntry {
+                role: "You".into(),
+                message: "你好".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Agent".into(),
+                message: "你好".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "System".into(),
+                message: "temporary runtime detail".into(),
+                payload: None,
+            },
+            TranscriptEntry {
+                role: "Agent".into(),
+                message: "你好！".into(),
+                payload: None,
+            },
+        ],
+    };
+
+    app.finalize_agent_stream(Some("你好！有什么我可以帮你的？".into()));
+
+    let agent_entries = app
+        .active_turn
+        .entries
+        .iter()
+        .filter(|entry| entry.role == "Agent")
+        .collect::<Vec<_>>();
+    assert_eq!(agent_entries.len(), 1);
+    assert_eq!(agent_entries[0].message, "你好！有什么我可以帮你的？");
+}
+
+#[test]
+fn restore_committed_turns_sets_inserted_counter_to_match() {
+    let dir = tempdir().unwrap();
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+
+    // Simulate session resume: restore N turns that were already on screen.
+    let turns = vec![
+        TranscriptTurn {
+            thinking_duration: None,
+            entries: vec![TranscriptEntry::new("You", "hello")],
+        },
+        TranscriptTurn {
+            thinking_duration: None,
+            entries: vec![TranscriptEntry::new("Agent", "hi there")],
+        },
+        TranscriptTurn {
+            thinking_duration: None,
+            entries: vec![TranscriptEntry::new("You", "bye")],
+        },
+    ];
+    let n = turns.len();
+    app.restore_committed_turns(turns);
+
+    assert_eq!(app.committed_turns.len(), n);
+    assert_eq!(app.active_turn.entries.len(), 0);
+}
+
+#[test]
+fn active_turn_entries_write_and_clear_live_log() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-entry-session".to_string();
+
+    app.push_entry("You", "hello");
+    app.push_entry("Agent", "hi");
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    );
+    assert_eq!(live_entries.len(), 2);
+    assert_eq!(live_entries[0].role, "You");
+    assert_eq!(live_entries[0].message, "hello");
+    assert_eq!(live_entries[1].role, "Agent");
+    assert_eq!(live_entries[1].message, "hi");
+
+    app.finalize_active_turn();
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    );
+    assert!(live_entries.is_empty());
+    let turn_records = thread_turn_log::load_turn_records(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-entry-session",
+    )
+    .expect("turn records");
+    assert_eq!(turn_records.len(), 1);
+    assert_eq!(turn_records[0].entries.len(), 2);
+}
+
+#[test]
+fn pending_plan_approval_persists_plan_ready_lifecycle() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.snapshot.session_id = "plan-ready-session".to_string();
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    app.show_pending_plan_approval(None);
+
+    let events = app
+        .state_db
+        .as_ref()
+        .expect("state db")
+        .load_rollout_events("plan-ready-session")
+        .expect("rollout events");
+    let ready_lifecycle = events.iter().find_map(|event| match event {
+        PersistedStructuredRolloutEvent::RuntimeState { plan_lifecycle, .. } => plan_lifecycle
+            .iter()
+            .find(|lifecycle| lifecycle.phase == "plan_ready"),
+        _ => None,
+    });
+    let ready_lifecycle = ready_lifecycle.expect("plan ready lifecycle");
+    assert_eq!(
+        ready_lifecycle.plan_path.as_deref(),
+        Some(".rara/sessions/plan-ready-session/plan.md")
+    );
+    assert!(ready_lifecycle.submitted_at.is_some());
+    assert_eq!(ready_lifecycle.decided_at, None);
+}
+
+#[test]
+fn completed_plan_approval_persists_decision_lifecycle() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.snapshot.session_id = "plan-approved-session".to_string();
+    app.attach_state_db(std::sync::Arc::new(state_db));
+
+    app.record_completed_interaction_with_metadata(
+        InteractionKind::PlanApproval,
+        "Plan Decision",
+        "copy can change",
+        Some("plan_approval:approve".to_string()),
+        Some("approved with tests".to_string()),
+        Some("sha256:abc".to_string()),
+    );
+
+    let events = app
+        .state_db
+        .as_ref()
+        .expect("state db")
+        .load_rollout_events("plan-approved-session")
+        .expect("rollout events");
+    let approved_lifecycle = events.iter().find_map(|event| match event {
+        PersistedStructuredRolloutEvent::RuntimeState { plan_lifecycle, .. } => plan_lifecycle
+            .iter()
+            .find(|lifecycle| lifecycle.phase == "plan_approved"),
+        _ => None,
+    });
+    let approved_lifecycle = approved_lifecycle.expect("plan approved lifecycle");
+    assert_eq!(approved_lifecycle.decision.as_deref(), Some("approve"));
+    assert_eq!(
+        approved_lifecycle.feedback.as_deref(),
+        Some("approved with tests")
+    );
+    assert_eq!(approved_lifecycle.plan_hash.as_deref(), Some("sha256:abc"));
+    assert_eq!(approved_lifecycle.submitted_at, None);
+    assert!(approved_lifecycle.decided_at.is_some());
+}
+
+#[test]
+fn push_system_redacts_live_log_entries() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-redaction-session".to_string();
+
+    app.push_system(
+        "token=supersecretvalue Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+        SystemMessageKind::Other,
+    );
+
+    let live_entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-redaction-session",
+    );
+    assert_eq!(live_entries.len(), 1);
+    assert!(live_entries[0].message.contains("[REDACTED_SECRET]"));
+    assert!(!live_entries[0].message.contains("supersecretvalue"));
+    assert!(
+        !live_entries[0]
+            .message
+            .contains("abcdefghijklmnopqrstuvwxyz")
+    );
+}
+
+#[test]
+fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-persist-failure-session".to_string();
+
+    app.push_entry("You", "keep me");
+    app.push_entry("Agent", "until canonical write succeeds");
+    let rollout_root = app.state_db.as_ref().unwrap().rollout_root();
+    let session_dir = rollout_root.join("live-persist-failure-session");
+    std::fs::create_dir(session_dir.join("turns.jsonl")).expect("turns path directory");
+
+    app.finalize_active_turn();
+
+    let live_entries =
+        thread_turn_log::load_live_entries(&rollout_root, "live-persist-failure-session");
+    assert_eq!(live_entries.len(), 2);
+    assert!(app.committed_turns.is_empty());
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[0].message, "keep me");
+    assert_eq!(
+        app.active_turn.entries[1].message,
+        "until canonical write succeeds"
+    );
+    assert!(
+        app.state_db_status
+            .as_deref()
+            .is_some_and(|status| status.contains("turn write failed"))
+    );
+}
+
+#[test]
+fn reset_transcript_clears_live_log() {
+    let dir = tempdir().expect("tempdir");
+    let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    app.attach_state_db(std::sync::Arc::new(state_db));
+    app.snapshot.session_id = "live-reset-session".to_string();
+
+    app.push_entry("You", "clear me");
+    assert_eq!(
+        thread_turn_log::load_live_entries(
+            &app.state_db.as_ref().unwrap().rollout_root(),
+            "live-reset-session"
+        )
+        .len(),
+        1
+    );
+
+    app.reset_transcript();
+
+    assert!(
+        thread_turn_log::load_live_entries(
+            &app.state_db.as_ref().unwrap().rollout_root(),
+            "live-reset-session"
+        )
+        .is_empty()
+    );
+}
+
+// ── Command palette selection persistence ──────────────────────────
+
+/// Typing more characters while the palette is open should NOT reset
+/// `command_palette_idx` back to 0.
+#[test]
+fn command_palette_selection_persists_while_typing() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette by typing slash
+    app.insert_active_input_char('/');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert_eq!(app.command_palette_idx, 0);
+
+    // Simulate arrow-down to move selection
+    let cmd_count = palette_commands(&app, app.command_query()).len();
+    assert!(cmd_count > 1, "need at least 2 commands for this test");
+    app.command_palette_idx = 1;
+
+    // Type more characters — this triggers sync_command_palette_with_input
+    // which must NOT reset command_palette_idx when the palette is already open.
+    app.insert_active_input_char('h');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert_eq!(
+        app.command_palette_idx, 1,
+        "selection idx should stay at 1 after typing more chars"
+    );
+
+    // Type another character — still should not reset
+    app.insert_active_input_char('e');
+    assert_eq!(
+        app.command_palette_idx, 1,
+        "selection idx should still be 1 after further typing"
+    );
+}
+
+/// Closing the palette (Esc) should clear the slash input and reset
+/// `command_palette_idx`.
+#[test]
+fn close_command_palette_clears_input_and_resets_idx() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette by typing slash
+    app.insert_active_input_char('/');
+    app.insert_active_input_char('h');
+    app.insert_active_input_char('e');
+    app.insert_active_input_char('l');
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette)));
+    assert!(!app.bottom_pane.input.is_empty());
+
+    // Move selection
+    app.command_palette_idx = 2;
+
+    // Close the palette
+    app.dismiss_overlay();
+
+    // After close: input should be cleared, idx reset
+    assert!(app.bottom_pane.input.is_empty(), "input should be cleared");
+    assert_eq!(
+        app.command_palette_idx, 0,
+        "command_palette_idx should reset to 0"
+    );
+    assert!(app.overlay.is_none(), "overlay should be closed");
+}
+
+/// Clearing the slash prefix should close the palette and reset idx.
+#[test]
+fn clearing_slash_closes_palette() {
+    let dir = tempdir().expect("tempdir");
+    let cm = ConfigManager {
+        path: dir.path().join("config.json"),
+    };
+    let mut app = TuiApp::new(cm).expect("app");
+    app.config = RaraConfig::default();
+
+    // Open palette and move to index 2
+    app.insert_active_input_char('/');
+    app.command_palette_idx = 2;
+
+    // Backspace to clear the slash — sync fires and closes the palette
+    app.backspace_active_input();
+    assert!(app.overlay.is_none());
+    assert_eq!(app.command_palette_idx, 0);
+    assert!(app.bottom_pane.input.is_empty());
+}
+
+#[test]
+fn ralph_goal_starts_pursuing_objective() {
+    let goal = crate::tui::state::RalphGoal::new("run tests".into(), None);
+    assert_eq!(goal.objective, "run tests");
+    assert_eq!(goal.status, crate::tui::state::GoalStatus::Pursuing);
+    assert_eq!(goal.tokens_used, 0);
+}
+
+#[test]
+fn ralph_goal_tracks_blocked_status() {
+    let mut goal = crate::tui::state::RalphGoal::new("test".into(), Some(100));
+    goal.status = crate::tui::state::GoalStatus::Blocked;
+    assert_eq!(goal.status, crate::tui::state::GoalStatus::Blocked);
+}
+
+#[test]
+fn ralph_goal_budget_defaults_to_none() {
+    let goal = crate::tui::state::RalphGoal::new("objective".into(), None);
+    assert!(goal.token_budget.is_none());
+    assert!(!goal.token_budget.is_some_and(|b| goal.tokens_used >= b));
+
+    let limited = crate::tui::state::RalphGoal::new("obj".into(), Some(0));
+    assert!(
+        limited
+            .token_budget
+            .is_some_and(|b| limited.tokens_used >= b)
+    );
+}
+
+#[test]
+fn todo_write_emit_update_on_empty_list_clears_sidebar() {
+    use serde_json::json;
+
+    use crate::todo::normalize_todo_write_input;
+
+    let empty = json!({"todos": []});
+    let state = normalize_todo_write_input(&empty).unwrap();
+    assert!(
+        state.items.is_empty(),
+        "empty todo_write input should produce empty state"
+    );
+    let view = crate::context::TodoContextView::from_state(Some(state));
+    assert_eq!(view.summary.total, 0);
+    assert!(view.items.is_empty());
+}

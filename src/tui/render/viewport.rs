@@ -5,11 +5,11 @@ use crate::tui::custom_terminal::Frame;
 pub(crate) struct TranscriptViewport {
     /// Authoritative visual rows, already wrapped and ready to draw.
     pub(crate) lines: Vec<Line<'static>>,
-    pub(crate) scroll_offset: usize,
+    pub(crate) scroll_offset: u16,
 }
 
 impl TranscriptViewport {
-    pub(crate) fn new(lines: Vec<Line<'static>>, scroll_offset: usize, width: u16) -> Self {
+    pub(crate) fn new(lines: Vec<Line<'static>>, scroll_offset: u16, width: u16) -> Self {
         Self {
             lines: crate::tui::transcript_text::wrap_lines(&lines, width),
             scroll_offset,
@@ -25,7 +25,7 @@ impl TranscriptViewport {
         // Breathing room is handled by the caller (transcript_viewport)
         // when computing scroll_offset.
         let visible_rows = usize::from(height);
-        let target_start = self.scroll_offset;
+        let target_start = usize::from(self.scroll_offset);
         let target_end = target_start.saturating_add(visible_rows);
 
         if target_start >= self.lines.len() {

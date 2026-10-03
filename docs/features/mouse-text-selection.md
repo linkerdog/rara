@@ -62,21 +62,6 @@ creating invisible selectable content.
 Mouse handling uses that latest snapshot to map screen coordinates back to
 wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
 
-Transcript scroll state explicitly distinguishes following the tail from an
-absolute top visual-row anchor. Rendering publishes the current wrapped row
-count and transcript dimensions to the numeric state model; scroll input
-refreshes those bounds before applying its delta. State modules do not build
-styled lines or terminal layout objects. A manual anchor remains fixed when
-visual rows are appended, while tail-following uses the newly measured end.
-Layout changes clamp an anchor without implicitly enabling tail-following.
-Reaching the bottom through manual scrolling restores tail-following.
-
-Offsets, viewport slices, and selection snapshot keys use `usize`. Only local
-terminal coordinates use `u16`; a long transcript must not be passed through
-`Paragraph::scroll`. The existing one-row breathing room at the tail remains.
-Reset and thread restoration explicitly return to tail-following. Scroll input
-before the first measured transcript frame is ignored.
-
 Clipboard output first emits OSC 52 so SSH sessions can copy to the local
 terminal clipboard when the terminal permits it. Platform clipboard commands are
 best-effort fallbacks for local sessions.
@@ -95,12 +80,6 @@ best-effort fallbacks for local sessions.
   including wrapped prose, long tokens, URLs, and explicit empty rows.
 - Edge autoscroll only starts once the cursor leaves the transcript viewport and
   uses the same transcript scroll direction as wheel and keyboard scrolling.
-- Keyboard, wheel, and drag autoscroll clamp every delta to the current visual
-  rows. Overscrolling cannot accumulate invisible scroll debt.
-- An up-scrolled view stays on its top visual row during append-only streaming;
-  width changes retain that numeric anchor subject to the new bounds, not a
-  semantic text-location anchor across reflow or content replacement.
-- Rendering, highlight, and copy remain reachable beyond 65,535 visual rows.
 - Clipboard failures must not terminate the TUI; they surface as notices.
 
 ## Validation Matrix
@@ -110,9 +89,6 @@ best-effort fallbacks for local sessions.
 | Wrapped text range extraction | Production viewport buffers and `TranscriptSelection` across narrow/wide widths, prose, CJK, emoji, combining marks, tabs, and URLs |
 | Exact rows and partial scrolling | Counted rows equal materialized/rendered rows; tail and partial-window buffer assertions |
 | Autoscroll selection extension | Unit tests for non-zero scroll offset |
-| Scroll bounds and tail-following | Pure state tests for extreme deltas, empty/short content, layout changes, appends, and return to tail |
-| Stable streaming anchor | Production key dispatch followed by appended stream deltas; visible buffer rows remain unchanged |
-| Long transcript reachability | Production renderer with 70,000 rows; tail buffer, highlight, and copied text agree |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
 | Clipboard fallback safety | Manual SSH/local verification |
 | Render highlight | Manual TUI verification; future snapshot if styling changes |
@@ -135,4 +111,3 @@ machine clipboard rather than the user's local desktop clipboard.
 
 - [2026-05-13-transcript-copy-selection](../journal/2026-05-13-transcript-copy-selection.md)
 - [2026-10-02-shared-transcript-wrapping](../journal/2026-10-02-shared-transcript-wrapping.md)
-- [2026-10-02-transcript-scroll-anchors](../journal/2026-10-02-transcript-scroll-anchors.md)
