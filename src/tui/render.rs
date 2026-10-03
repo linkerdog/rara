@@ -13,6 +13,8 @@ mod stream_rows;
 mod stream_rows_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod thinking_stream_tests;
 mod transcript_cache;
 #[cfg(test)]
 mod transcript_cache_tests;

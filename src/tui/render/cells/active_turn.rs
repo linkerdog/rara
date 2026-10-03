@@ -11,12 +11,11 @@ use super::plan::{compact_live_response_message, parse_render_plan_block};
 use super::plan_cells::{
     PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
 };
-use super::progress::{
-    ProgressRole, explicit_progress_entry_groups, push_progress_group, push_streaming_thinking,
-};
+use super::progress::{ProgressRole, explicit_progress_entry_groups, push_progress_group};
 use super::responding_cell::RespondingCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 use super::terminal::terminal_cell_from_entries;
+use super::thinking_cells::ThinkingBlockCell;
 use super::user_startup::UserCell;
 use super::{
     HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
@@ -242,7 +241,10 @@ impl ActiveTurnCell<'_> {
         }
 
         let has_live_thinking = turn_live && has_thinking_stream;
-        if has_live_thinking {
+        if let Some(stream_lines) = streaming_thinking_lines
+            .as_deref()
+            .filter(|lines| has_live_thinking && !lines.is_empty())
+        {
             let thinking_dur = self
                 .app
                 .active_live
@@ -250,14 +252,16 @@ impl ActiveTurnCell<'_> {
                 .map(|start| start.elapsed());
             // Live streaming thinking is always expanded (tail mode).
             // The toggle only affects committed (finalized) thinking blocks.
-            push_streaming_thinking(
-                &mut cells,
-                streaming_thinking_lines
-                    .as_deref()
-                    .filter(|_| has_live_thinking),
-                false,
-                thinking_dur,
+            let cell = ThinkingBlockCell::from_stream(stream_lines, thinking_dur);
+            #[cfg(test)]
+            let cell = cell.with_work_meter(
+                self.app
+                    .agent_thinking_stream
+                    .as_ref()
+                    .unwrap()
+                    .layout_work(),
             );
+            cells.push(Box::new(cell));
         }
 
         let explicit_progress_groups = (!uses_ordered_exploration_agent_segments
