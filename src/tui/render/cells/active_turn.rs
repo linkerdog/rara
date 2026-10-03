@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{cell::Ref, path::Path};
 
 use ratatui::text::Line;
 
@@ -11,12 +11,11 @@ use super::plan::{compact_live_response_message, parse_render_plan_block};
 use super::plan_cells::{
     PlanModeCell, PlanSummaryCell, PlanningSuggestionCell, planning_suggestion_text,
 };
-use super::progress::{
-    ProgressRole, explicit_progress_entry_groups, push_progress_group, push_streaming_thinking,
-};
+use super::progress::{ProgressRole, explicit_progress_entry_groups, push_progress_group};
 use super::responding_cell::RespondingCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 use super::terminal::terminal_cell_from_entries;
+use super::thinking_cells::ThinkingBlockCell;
 use super::user_startup::UserCell;
 use super::{
     HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
@@ -41,10 +40,13 @@ use crate::tui::state::{
 pub(crate) struct ActiveTurnCell<'a> {
     app: &'a TuiApp,
     cwd: Option<&'a Path>,
+    thinking_duration: Option<std::time::Duration>,
+    thinking_lines: Option<Ref<'a, [Line<'static>]>>,
 }
 
 pub(crate) struct ActiveTurnLayout {
     pub lines: Vec<Line<'static>>,
+    pub after_thinking: Option<Vec<Line<'static>>>,
     pub stream: Option<crate::tui::render::ResponseView>,
 }
 
@@ -52,6 +54,7 @@ impl ActiveTurnLayout {
     fn plain(lines: Vec<Line<'static>>) -> Self {
         Self {
             lines,
+            after_thinking: None,
             stream: None,
         }
     }
@@ -66,7 +69,52 @@ enum StreamPresentation {
 
 impl<'a> ActiveTurnCell<'a> {
     pub(crate) fn new(app: &'a TuiApp, cwd: Option<&'a Path>) -> Self {
-        Self { app, cwd }
+        Self::at_time(app, cwd, std::time::Instant::now())
+    }
+
+    pub(crate) fn at_time(app: &'a TuiApp, cwd: Option<&'a Path>, now: std::time::Instant) -> Self {
+        let thinking_duration = app
+            .has_agent_thinking_stream()
+            .then(|| {
+                app.active_live
+                    .thinking_started_at
+                    .map(|start| now.saturating_duration_since(start))
+            })
+            .flatten();
+        Self {
+            app,
+            cwd,
+            thinking_duration,
+            thinking_lines: app.agent_thinking_stream_lines(),
+        }
+    }
+
+    pub(crate) fn thinking_duration_label(&self) -> Option<String> {
+        self.thinking_duration
+            .map(|duration| format!("{:.1}", duration.as_secs_f64()))
+    }
+
+    pub(crate) fn has_visible_thinking(&self) -> bool {
+        self.thinking_lines
+            .as_ref()
+            .is_some_and(|lines| !lines.is_empty())
+    }
+
+    pub(crate) fn thinking_cell(&self) -> Option<ThinkingBlockCell<'_>> {
+        let lines = self
+            .thinking_lines
+            .as_deref()
+            .filter(|lines| !lines.is_empty())?;
+        let cell = ThinkingBlockCell::from_stream(lines, self.thinking_duration);
+        #[cfg(test)]
+        let cell = cell.with_work_meter(
+            self.app
+                .agent_thinking_stream
+                .as_ref()
+                .unwrap()
+                .layout_work(),
+        );
+        Some(cell)
     }
 
     pub(crate) fn shared_layout(&self, width: u16) -> ActiveTurnLayout {
@@ -81,6 +129,10 @@ impl<'a> ActiveTurnCell<'a> {
 
 impl ActiveTurnCell<'_> {
     fn assemble(&self, width: u16, presentation: StreamPresentation) -> ActiveTurnLayout {
+        #[cfg(test)]
+        self.app
+            .active_assembly_count
+            .set(self.app.active_assembly_count.get() + 1);
         let current_turn = self.app.active_turn.entries.iter().collect::<Vec<_>>();
         let turn_live = self.app.is_busy()
             || matches!(
@@ -156,7 +208,6 @@ impl ActiveTurnCell<'_> {
         let streaming_agent_lines = self.app.agent_stream_lines();
         let has_agent_stream = self.app.has_agent_stream();
         let mut stream_view = None;
-        let streaming_thinking_lines = self.app.agent_thinking_stream_lines();
         let has_thinking_stream = self.app.has_agent_thinking_stream();
         let latest_system = current_turn
             .iter()
@@ -242,22 +293,12 @@ impl ActiveTurnCell<'_> {
         }
 
         let has_live_thinking = turn_live && has_thinking_stream;
-        if has_live_thinking {
-            let thinking_dur = self
-                .app
-                .active_live
-                .thinking_started_at
-                .map(|start| start.elapsed());
+        let mut thinking_cell_index = None;
+        if has_live_thinking && let Some(cell) = self.thinking_cell() {
             // Live streaming thinking is always expanded (tail mode).
             // The toggle only affects committed (finalized) thinking blocks.
-            push_streaming_thinking(
-                &mut cells,
-                streaming_thinking_lines
-                    .as_deref()
-                    .filter(|_| has_live_thinking),
-                false,
-                thinking_dur,
-            );
+            thinking_cell_index = Some(cells.len());
+            cells.push(Box::new(cell));
         }
 
         let explicit_progress_groups = (!uses_ordered_exploration_agent_segments
@@ -630,8 +671,19 @@ impl ActiveTurnCell<'_> {
 
         let cell_count = cells.len();
         let mut lines = Vec::new();
+        let mut before_thinking = None;
         let mut previous_was_progress_stack_title = false;
         for (idx, cell) in cells.into_iter().enumerate() {
+            if presentation == StreamPresentation::Shared && thinking_cell_index == Some(idx) {
+                // Keep the separators in static sections; only the thinking
+                // window and its clock are replaced between retained blocks.
+                if idx > 0 {
+                    lines.push(Line::from(""));
+                }
+                before_thinking = Some(std::mem::take(&mut lines));
+                previous_was_progress_stack_title = false;
+                continue;
+            }
             let cell_lines = cell.display_lines(width);
             let current_is_progress_stack_title =
                 cell_lines.first().is_some_and(is_progress_stack_title);
@@ -651,8 +703,13 @@ impl ActiveTurnCell<'_> {
         } else {
             trim_trailing_empty_lines(&mut lines);
         }
+        let (lines, after_thinking) = match before_thinking {
+            Some(before) => (before, Some(lines)),
+            None => (lines, None),
+        };
         ActiveTurnLayout {
             lines,
+            after_thinking,
             stream: stream_view,
         }
     }

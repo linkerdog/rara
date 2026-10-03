@@ -134,7 +134,7 @@ async fn direct_submit_expands_pending_paste_before_consuming_the_draft() {
     let oauth =
         Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth"));
     let mut tui = harness();
-    let runtime = super::testing::FakeRuntimeClient::new(tui.app().snapshot.clone());
+    let runtime = super::testing::FakeRuntimeClient::new(tui.app().snapshot.clone().into_inner());
     let paste = "x".repeat(1200);
     handle_paste(paste.clone(), tui.app_mut());
     super::submit::handle_submit_with_port(tui.app_mut(), &mut None, &oauth, &runtime)

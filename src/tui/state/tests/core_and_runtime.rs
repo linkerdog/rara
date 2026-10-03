@@ -117,7 +117,8 @@ fn prioritizes_active_pending_interaction_in_ui_order() {
             },
         ],
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let active = app
         .active_pending_interaction()
@@ -168,7 +169,8 @@ fn clear_pending_command_approval_removes_only_shell_approval() {
             },
         ],
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     assert!(app.pending_command_approval().is_some());
 

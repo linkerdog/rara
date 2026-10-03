@@ -92,27 +92,28 @@ struct Fixture {
     screen: Rc<RefCell<EmulatedScreen>>,
 }
 
+async fn fixture_runtime(root: &std::path::Path) -> (RaraConfig, RuntimeClient) {
+    let mut config = RaraConfig::default();
+    config.builtin_plugins.nowledge_mem.enabled = false;
+    let options = RuntimeBootstrapOptions::with_plugin_dirs(Vec::new())
+        .with_rara_home(Some(root.join("state")))
+        .with_backend(Some(Arc::new(UnusedBackend)))
+        .with_tool_manager(Some(rara_tools::tool::ToolManager::new()))
+        .with_extension_discovery(false)
+        .with_memory_facilities(false)
+        .with_transcript_persistence(false);
+    let bootstrap =
+        initialize_rara_context_for_workspace_with_options(&config, Some(root), None, options)
+            .await
+            .unwrap();
+    let runtime = RuntimeClient::from_bootstrap(bootstrap).await;
+    (config, runtime)
+}
+
 impl Fixture {
     async fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = RaraConfig::default();
-        config.builtin_plugins.nowledge_mem.enabled = false;
-        let options = RuntimeBootstrapOptions::with_plugin_dirs(Vec::new())
-            .with_rara_home(Some(dir.path().join("state")))
-            .with_backend(Some(Arc::new(UnusedBackend)))
-            .with_tool_manager(Some(rara_tools::tool::ToolManager::new()))
-            .with_extension_discovery(false)
-            .with_memory_facilities(false)
-            .with_transcript_persistence(false);
-        let bootstrap = initialize_rara_context_for_workspace_with_options(
-            &config,
-            Some(dir.path()),
-            None,
-            options,
-        )
-        .await
-        .unwrap();
-        let runtime = RuntimeClient::from_bootstrap(bootstrap).await;
+        let (config, runtime) = fixture_runtime(dir.path()).await;
         let mut app = TuiApp::with_config(
             ConfigManager {
                 path: dir.path().join("config.json"),
@@ -129,7 +130,7 @@ impl Fixture {
                 runtime.agent().unwrap().memory_store.clone(),
             ),
         ));
-        let port = Arc::new(FakeRuntimeClient::new(app.snapshot.clone()));
+        let port = Arc::new(FakeRuntimeClient::new(app.snapshot.clone().into_inner()));
         let (commands, receiver) = mpsc::unbounded_channel();
         let controller = TuiController::new(app, port.clone(), receiver);
         let oauth = Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).unwrap());
@@ -401,6 +402,7 @@ async fn input_error_is_visible_and_eof_ends_the_loop() {
 #[tokio::test]
 async fn terminal_draw_and_maintenance_errors_end_the_session() {
     let mut fixture = Fixture::new().await;
+    tokio::time::pause();
     fixture.screen.borrow_mut().fail_next_write = true;
     let error = fixture.run().await.unwrap_err();
     assert!(
@@ -519,3 +521,10 @@ async fn joined_task_completion_is_consumed_and_painted_without_input() {
 
 #[path = "event_loop_goal_tests.rs"]
 mod goal_tests;
+
+#[path = "event_loop_exit_tests.rs"]
+mod exit_tests;
+
+#[cfg(unix)]
+#[path = "event_loop_session_tests.rs"]
+mod session_tests;

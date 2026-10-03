@@ -1,3 +1,8 @@
+mod active_prefix;
+#[cfg(test)]
+mod active_prefix_invalidation_tests;
+#[cfg(test)]
+mod active_prefix_tests;
 #[cfg(test)]
 mod active_stream_tests;
 mod bottom_pane;
@@ -13,6 +18,10 @@ mod stream_rows;
 mod stream_rows_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod thinking_layout_tests;
+#[cfg(test)]
+mod thinking_stream_tests;
 mod transcript_cache;
 #[cfg(test)]
 mod transcript_cache_tests;
