@@ -23,6 +23,7 @@ members = [
     "crates/rara-background-tasks",
     "crates/rara-core",
     "crates/rara-agent",
+    "crates/rara-runtime",
 ]
 resolver = "2"
 
@@ -62,6 +63,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+rara-runtime = { path = "crates/rara-runtime" }
 rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
 rara-memory = { path = "crates/rara-memory" }

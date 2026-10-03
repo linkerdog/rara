@@ -122,14 +122,7 @@ pub enum SessionEvent {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InputDiscardReason {
-    Cancelled,
-    Interrupted,
-    Shutdown,
-    Superseded,
-}
+pub use rara_runtime::InputDiscardReason;
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events
 #[allow(clippy::enum_variant_names)]

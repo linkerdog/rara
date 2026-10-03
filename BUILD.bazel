@@ -18,6 +18,7 @@ RARA_DEPS = all_crate_deps(normal = True) + [
     "//crates/rara-background-tasks:rara_background_tasks",
     "//crates/rara-core:rara_core",
     "//crates/rara-agent:rara_agent",
+    "//crates/rara-runtime:rara_runtime",
     "//crates/rara-mcp-client:rara_mcp_client",
     "//crates/rara-memory:rara_memory",
     "//crates/rara-observability:rara_observability",
