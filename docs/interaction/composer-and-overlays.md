@@ -46,7 +46,21 @@ not inherit the plain-list j/k shortcuts.
 ### INPUT-02: Composer Submission And Editing
 
 - Enter submits; Shift+Enter and Ctrl+J insert a newline.
-- Ctrl+C clears an idle composer, or requests cancellation while running.
+- Ctrl+C closes the top overlay without cancelling underlying work or arming
+  quit. Without an overlay, the first press clears an idle composer or requests
+  cancellation while running, preserving the running draft. It also shows
+  `Press Ctrl-C again to quit` for one second. A second Ctrl+C within that
+  window exits, including while cancellation is still draining.
+- Ctrl+D participates in the same one-second confirmation only with an empty
+  composer and no overlay. Otherwise it deletes forward in an editable field
+  or does nothing in a read-only surface; it never inserts a literal `d`.
+- Quit confirmation requires the same shortcut twice. Another key, paste,
+  mouse interaction, or suspension clears the confirmation. Expiry restores
+  the ordinary footer without requiring another input event. Reported key
+  repeats cannot confirm quit; terminals without repeat metadata remain
+  subject to their own key encoding. `/quit` remains an explicit direct exit.
+- Unix Ctrl+Z suspends the foreground process group through RUN-07. It never
+  edits the active input field; platforms without job control ignore it.
 - With no overlay, Esc requests cancellation while running and is otherwise a
   no-op, except for the explicit shell-approval rejection action in RUN-03.
 - Up/Down first follow the existing input-history boundary rules, otherwise
@@ -110,7 +124,7 @@ are clipped rather than wrapped a second time at degenerate widths.
 - Explicit palette dismissal clears its slash input so it does not reopen
   immediately, using the same complete draft/paste cleanup boundary. Selecting
   a command dismisses the palette before dispatch.
-- Palette Esc and direct close preserve their pre-paste dismissal intent:
+- Palette Esc, Ctrl+C, and direct close preserve their pre-paste dismissal intent:
   discard the pending draft without a preliminary flush that could hide the
   palette. Other keys still route against the complete flushed draft.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
@@ -164,6 +178,7 @@ fake does not prove that a live provider accepted the new model.
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
 | INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
+| Quit shortcuts | Overlay ownership, busy cancellation, same-key confirmation, expiry, input disarming, reported repeats, and footer rendering through production key dispatch |
 | Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
@@ -191,3 +206,4 @@ fake does not prove that a live provider accepted the new model.
 - [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
+- [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)

@@ -1,7 +1,9 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crossterm::event::{Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 
 use super::app_event::AppEvent;
 use super::selection::ScreenPosition;
@@ -24,15 +26,32 @@ pub enum UiEvent {
     Draw,
     Paste(String),
     FocusChanged(bool),
+    #[cfg(unix)]
+    Suspend,
 }
 
 pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
     match event {
         Event::Key(key_event) => {
             if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                // Flushing can hide the palette before its Esc intent is routed.
+                let control = key_event.modifiers == KeyModifiers::CONTROL;
+                if control
+                    && matches!(key_event.code, KeyCode::Char('c' | 'd' | 'z'))
+                    && key_event.kind == KeyEventKind::Repeat
+                {
+                    return None;
+                }
+                if control && key_event.code == KeyCode::Char('z') {
+                    app.quit_shortcut.clear();
+                    #[cfg(unix)]
+                    return Some(UiEvent::Suspend);
+                    #[cfg(not(unix))]
+                    return Some(UiEvent::App(AppEvent::Noop));
+                }
+                // Flushing can hide the palette before dismissal intent is routed.
                 let discarding_palette = matches!(app.overlay, Some(Overlay::CommandPalette))
-                    && key_event.code == KeyCode::Esc;
+                    && (key_event.code == KeyCode::Esc
+                        || (control && key_event.code == KeyCode::Char('c')));
                 if app.composer_input_is_active() && !discarding_palette {
                     app.flush_composer_paste();
                 }
@@ -41,9 +60,15 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 None
             }
         }
-        Event::Mouse(mouse_event) => Some(UiEvent::App(map_mouse_to_event(mouse_event, app))),
+        Event::Mouse(mouse_event) => {
+            app.quit_shortcut.clear();
+            Some(UiEvent::App(map_mouse_to_event(mouse_event, app)))
+        }
         Event::Resize(_, _) => Some(UiEvent::Draw),
-        Event::Paste(text) => Some(UiEvent::Paste(text)),
+        Event::Paste(text) => {
+            app.quit_shortcut.clear();
+            Some(UiEvent::Paste(text))
+        }
         Event::FocusGained | Event::FocusLost => {
             let focused = matches!(event, Event::FocusGained);
             app.terminal_focused = focused;

@@ -207,6 +207,13 @@ fn build_footer_view(app: &TuiApp) -> FooterView {
 }
 
 pub(super) fn footer_summary_text(app: &TuiApp) -> String {
+    if let Some(key) = app.quit_shortcut.key() {
+        let key = match key {
+            crate::tui::state::QuitShortcutKey::CtrlC => "Ctrl-C",
+            crate::tui::state::QuitShortcutKey::CtrlD => "Ctrl-D",
+        };
+        return format!("Press {key} again to quit");
+    }
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(hint) = app.repo_context_hint() {

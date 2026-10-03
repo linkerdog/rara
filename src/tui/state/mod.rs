@@ -4,6 +4,8 @@ mod overlay_state;
 mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
+mod quit_shortcut;
+pub(crate) use quit_shortcut::{QuitShortcutAction, QuitShortcutKey, QuitShortcutState};
 mod runtime_snapshot;
 mod shared_tasks;
 mod state_presets;

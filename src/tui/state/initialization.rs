@@ -99,6 +99,7 @@ impl TuiApp {
             tool_progress: crate::tui::tool_progress::ToolProgressState::default(),
             running_tool_boundary_count: 0,
             terminal_focused: true,
+            quit_shortcut: super::QuitShortcutState::default(),
             state_db: None,
             state_db_status: None,
             shared_task_root: None,

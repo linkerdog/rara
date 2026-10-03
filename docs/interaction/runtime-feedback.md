@@ -37,7 +37,8 @@ hide a pending decision. Queued input is not rendered as a completed response.
 
 ### RUN-02: Cancellation Is A Transition
 
-Ctrl+C with no overlay requests cancellation of a running turn. Esc does the
+The first Ctrl+C with no overlay requests cancellation of a running turn and
+arms the quit shortcut in INPUT-02. Esc does the
 same unless it is handling the shell-approval rejection action in RUN-03. The
 cancel command, cancellation-requested notice, terminal runtime event, and
 task completion are separate states. Do not show successful completion merely
@@ -159,9 +160,8 @@ such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent
 and does not modify keyboard enhancement stacks that the TUI never enabled.
-This contract does not cover uncatchable termination such as SIGKILL or imply
-suspend/resume guarantees. Viewport and normal shell handoff are covered by
-RUN-06.
+This contract does not cover uncatchable termination such as SIGKILL. Viewport
+and normal shell handoff are covered by RUN-06; Unix job control by RUN-07.
 
 ### RUN-06: Viewport Ownership And Shell Handoff
 
@@ -186,6 +186,30 @@ Focus reporting is enabled with the other terminal modes and disabled during
 cleanup. Focus gained/lost updates the presentation state before publishing
 the next status projection.
 
+### RUN-07: Unix Suspend And Resume
+
+Ctrl+Z yields the foreground process group with SIGTSTP. Before signalling,
+stop the input event stream, hand off the inline viewport on a clean line, and
+restore all owned terminal modes. Do not stop a job whose terminal cleanup
+failed. Signal failures surface and still attempt to reacquire terminal modes.
+
+After the shell resumes the job with `fg`, reacquire terminal modes and the
+input stream, then reserve and fully redraw the viewport relative to the
+current shell cursor and terminal size. Preserve composer, overlay, transcript,
+and running work. Shell output written during suspension stays in native
+scrollback. Repeated suspend/resume cycles use the same ownership rules;
+temporary restoration must not disable later panic or exit cleanup.
+
+A shell can restore its saved job termios after SIGCONT, including after the
+first mode reacquisition. After suspension, the existing maintenance tick checks
+the controlling terminal's native state and repairs raw-mode drift without
+trusting the input library's cached flag or relying on a fixed sleep. A late
+shell write must not leave single-key input waiting for a newline.
+
+Suspension does not issue a runtime cancellation or change goal policy.
+Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
+control are outside this keyboard-driven contract.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -196,6 +220,7 @@ the next status projection.
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
 | RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
+| RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
 
 ## Open Risks
 
@@ -216,3 +241,4 @@ the next status projection.
 
 - [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)
 - [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
+- [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
