@@ -94,6 +94,12 @@ Active backlog only. Keep this file small and current.
 - [x] Construct `TuiController` directly from an injected port and add
       deterministic scripted lifecycle controls to the shared harness.
 
+## Thread Goals
+
+- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
+      restored pursuing goal only when the runtime is idle, ready, and free of
+      pending interactions. Keep richer goal controls in that follow-up.
+
 ## Memory Lifecycle
 
 - [x] Own incremental session capture, compaction flush, fail-open warnings,
