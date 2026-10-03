@@ -45,10 +45,19 @@ The render path owns the authoritative visible transcript snapshot. Each frame:
 4. renders the transcript;
 5. applies selection highlight over the rendered buffer.
 
-Snapshot rebuilding is guarded by a lightweight key derived from the viewport
-area, scroll offset, transcript size, and transcript edge content. Unchanged
-frames reuse the previous screen-area-to-text mapping instead of reallocating
-wrapped rows.
+Transcript rendering first materializes styled visual rows through the shared
+text layout boundary. Word wrapping is the transcript profile; grapheme wrapping
+with explicit indents is the composer profile. Both profiles measure display
+columns, keep grapheme clusters indivisible, and expand tabs to four spaces.
+Row counting, viewport slicing, and selection consume those materialized rows;
+the renderer must not wrap them again. Soft-wrap word separators are omitted
+from display and copied text, while explicit blank lines are retained.
+
+Snapshot rebuilding is guarded by the viewport area, scroll offset, and complete
+visual-row content. Unchanged frames reuse the previous screen-area-to-text
+mapping. Styles do not change copied text. Graphemes wider than the available
+transcript row are displayed as a single replacement character rather than
+creating invisible selectable content.
 
 Mouse handling uses that latest snapshot to map screen coordinates back to
 wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
@@ -65,6 +74,10 @@ best-effort fallbacks for local sessions.
   row.
 - A zero-width selection does not copy anything.
 - Copied text is plain text reconstructed from visible wrapped transcript rows.
+- Selection endpoints snap to whole graphemes, including combining sequences
+  and joined emoji; highlight and copy must cover the same terminal cells.
+- Transcript row counts include exactly the rows that rendering can display,
+  including wrapped prose, long tokens, URLs, and explicit empty rows.
 - Edge autoscroll only starts once the cursor leaves the transcript viewport and
   uses the same transcript scroll direction as wheel and keyboard scrolling.
 - Clipboard failures must not terminate the TUI; they surface as notices.
@@ -73,7 +86,8 @@ best-effort fallbacks for local sessions.
 
 | Behavior | Validation |
 | --- | --- |
-| Wrapped text range extraction | Unit tests for `TranscriptSelection` |
+| Wrapped text range extraction | Production viewport buffers and `TranscriptSelection` across narrow/wide widths, prose, CJK, emoji, combining marks, tabs, and URLs |
+| Exact rows and partial scrolling | Counted rows equal materialized/rendered rows; tail and partial-window buffer assertions |
 | Autoscroll selection extension | Unit tests for non-zero scroll offset |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
 | Clipboard fallback safety | Manual SSH/local verification |
@@ -88,12 +102,12 @@ machine clipboard rather than the user's local desktop clipboard.
 
 ## Open Risks
 
-- The first implementation reconstructs copied text from wrapped visual rows,
-  so extremely wide Unicode grapheme clusters may not match terminal emulator
-  selection exactly.
+- Emoji display width depends on terminal policy; the application uses the
+  pinned `unicode-width` policy consistently across layout and selection.
 - The transcript snapshot is frame-based. If a mouse event arrives before the
   first transcript frame, selection start is ignored.
 
 ## Source Journals
 
 - [2026-05-13-transcript-copy-selection](../journal/2026-05-13-transcript-copy-selection.md)
+- [2026-10-02-shared-transcript-wrapping](../journal/2026-10-02-shared-transcript-wrapping.md)

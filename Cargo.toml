@@ -119,6 +119,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 pulldown-cmark = "0.13"
 textwrap = "0.16.2"
 unicode-width = "0.2"
+unicode-segmentation = "1.13"
 nom = "8.0"
 syntect = "5"
 portable-pty = "0.9"

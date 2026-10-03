@@ -19,7 +19,6 @@ mod input_ownership_tests;
 mod interaction_tests;
 mod interaction_text;
 mod keymap;
-mod layout_utils;
 mod line_utils;
 mod list_picker;
 mod markdown;
@@ -56,8 +55,10 @@ mod terminal_ui;
 mod testing;
 #[cfg(test)]
 mod tests;
+mod text_wrap;
 mod theme;
 mod tool_text;
+mod transcript_text;
 
 #[cfg(test)]
 pub(crate) use self::event_dispatch::dispatch_event;
