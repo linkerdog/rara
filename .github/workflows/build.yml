@@ -29,5 +29,26 @@ jobs:
       - name: Build
         run: cargo build
 
-      - name: Check portable LLM contracts
+      - name: Check portable contracts
         run: cargo check --locked --target wasm32-unknown-unknown -p rara-core
+
+  downstream-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout candidate revision
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-02
+          targets: wasm32-unknown-unknown
+
+      - name: Check fresh downstream Git dependency
+        env:
+          CONTRACT_REPOSITORY: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
+          CONTRACT_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/check_downstream_core.py --repository "$CONTRACT_REPOSITORY" --rev "$CONTRACT_REVISION"

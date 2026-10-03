@@ -9074,6 +9074,7 @@ dependencies = [
  "rara-observability",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -9222,15 +9223,14 @@ dependencies = [
  "async-trait",
  "glob",
  "rara-apply-patch",
+ "rara-core",
  "rara-file-search",
  "rara-memory",
- "rara-observability",
  "rara-tool-macros",
  "regex",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
  "tokio",
  "walkdir",
 ]

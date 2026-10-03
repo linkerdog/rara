@@ -48,6 +48,8 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
+- `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation
+  context, compatibility exports, and standalone Git dependency verification.
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
 - `support-acp-integration.md`: ACP client integration guidance boundary,

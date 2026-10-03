@@ -355,8 +355,10 @@ usage events are not yet public; they remain required Nowledge Mem parity work.
 The public tool contract carries trusted session, turn, call, workspace, and
 cancellation context. Host tool implementations can own approval, budgeting,
 safety filtering, audit behavior, and authority rather than accepting those
-values from model arguments. A distinct injectable middleware stack remains
-target work.
+values from model arguments. Its canonical types now live in the
+[portable core tool contract](portable-tool-contracts.md), with compatibility
+re-exports through the existing tool path. A distinct injectable middleware
+stack and lightweight runtime package remain target work.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
