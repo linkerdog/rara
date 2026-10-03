@@ -1,4 +1,8 @@
+mod stream;
+
 use std::borrow::Cow;
+
+pub(crate) use stream::ControlTokenReplay;
 
 use crate::llm::deepseek_dsml;
 
@@ -21,15 +25,6 @@ const INTERNAL_BLOCK_TAGS: [InternalBlockTag; 3] = [
         open: "<rara_internal_history_context>",
         close: "</rara_internal_history_context>",
     },
-];
-const CONTROL_PREFIX_TOKENS: [&str; 7] = [
-    "<think>",
-    "<agent_runtime>",
-    "<agent_runtime_error>",
-    "<rara_internal_history_context>",
-    "<｜DSML｜tool_calls>",
-    "<|DSML|tool_calls>",
-    "<｜end▁of▁sentence｜>",
 ];
 pub(crate) const DEEPSEEK_EOS: &str = "<｜end▁of▁sentence｜>";
 
@@ -72,13 +67,6 @@ pub(crate) fn scrub_deepseek_visible_text(message: &str, has_control_evidence: b
         Cow::Borrowed(message)
     };
     message.replace(DEEPSEEK_EOS, "")
-}
-
-pub(crate) fn has_pending_internal_control_context(message: &str) -> bool {
-    has_open_internal_block(message)
-        || has_open_leading_think_block(message)
-        || has_open_deepseek_dsml_tool_block(message)
-        || ends_with_possible_control_prefix(message)
 }
 
 fn strip_legacy_control_markers(message: &str) -> String {
@@ -170,60 +158,6 @@ fn push_visible_boundary_separator(cleaned: &mut String, next: &str) {
     if !prev.is_whitespace() && !next.is_whitespace() {
         cleaned.push('\n');
     }
-}
-
-fn has_open_internal_block(message: &str) -> bool {
-    INTERNAL_BLOCK_TAGS.iter().any(|tag| {
-        let Some(open_idx) = message.rfind(tag.open) else {
-            return false;
-        };
-        !message[open_idx + tag.open.len()..].contains(tag.close)
-    })
-}
-
-fn has_open_leading_think_block(message: &str) -> bool {
-    let trimmed = message.trim_start();
-    trimmed.starts_with("<think>") && !trimmed.contains("</think>")
-}
-
-fn has_open_deepseek_dsml_tool_block(message: &str) -> bool {
-    ["<｜DSML｜tool_calls>", "<|DSML|tool_calls>"]
-        .into_iter()
-        .any(|open| {
-            let Some(open_idx) = message.rfind(open) else {
-                return false;
-            };
-            let close = if open.contains("｜DSML｜") {
-                "</｜DSML｜tool_calls>"
-            } else {
-                "</|DSML|tool_calls>"
-            };
-            !message[open_idx + open.len()..].contains(close)
-        })
-}
-
-fn ends_with_possible_control_prefix(message: &str) -> bool {
-    let Some(start) = message.rfind('<') else {
-        return false;
-    };
-    let suffix = &message[start..];
-    if suffix.is_empty() {
-        return false;
-    }
-    CONTROL_PREFIX_TOKENS
-        .into_iter()
-        .any(|token| token.starts_with(suffix))
-        || is_possible_legacy_control_marker_prefix(suffix)
-}
-
-fn is_possible_legacy_control_marker_prefix(suffix: &str) -> bool {
-    let Some(candidate) = suffix.strip_prefix('<') else {
-        return false;
-    };
-    !candidate.contains("|>")
-        && candidate
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn strip_deepseek_leading_think_block(message: &str) -> Cow<'_, str> {

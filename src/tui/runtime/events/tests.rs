@@ -10,7 +10,6 @@ use super::helpers::{
 use super::{apply_tui_event, format_memory_event_notice, runtime_event_from_agent_event};
 use crate::agent::{AgentEvent, AgentExecutionMode};
 use crate::config::ConfigManager;
-use crate::control_tokens::has_pending_internal_control_context;
 use crate::runtime_control::{MemoryEvent, MemoryRecordSummary, RuntimeEvent, RuntimeProvenance};
 use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionPlan,
