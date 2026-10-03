@@ -106,14 +106,17 @@ no accidental stream activation, persisted spelling, and a second restore.
   including per-request resequencing and concurrent publication ordering.
 - `cargo clippy --locked --workspace --all-targets --no-deps -- -D warnings`:
   passed without new warnings.
-- Default Bazel: final result pending dependency-cache recovery.
+- `bazel test //:rara_unit_tests --test_arg=tui::`: 931 passed, the same three
+  isolated fixtures skipped directly and exercised by parents. The final test
+  run passed on its first attempt after dependency recovery.
 - Test-name inventory retains all 45 moved cases; existing snapshots unchanged.
   Formatting, whitespace, source-size, and source-inclusion audits pass.
 
 Initial default Bazel resolution encountered the recurring missing external
-`rules_rust` cache package. A scoped force fetch is restoring dependencies; thread/process inspection locates
-three upstream Git fetches with growing pack files. No Bazel configuration or
-BUILD files are changed. Final local Bazel and remote CI results remain pending.
+`rules_rust` cache package. A scoped force fetch restored dependencies; thread/process inspection located
+three slow upstream Git fetches with growing pack files. No Bazel configuration
+or BUILD files changed. The existing gold-linker warning remains unrelated to
+this change. Local validation is complete; remote CI is a separate gate.
 
 ## Remaining Work
 
