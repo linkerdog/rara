@@ -307,18 +307,12 @@ where
             Some("tool_calls_available"),
             turn.assistant_message_recorded,
         );
-        turn.tool_results = self
+        let output = self
             .agent
             .execute_tool_calls(std::mem::take(&mut turn.output.tool_calls), self.report)
             .await?;
-        let outcome = if self.agent.pending_approval.is_some()
-            || self.agent.pending_plan_exit_tool_id.is_some()
-        {
-            ToolBatchOutcome::AwaitingApproval
-        } else {
-            ToolBatchOutcome::ResultsAvailable
-        };
-        Ok(outcome)
+        turn.tool_results = output.messages;
+        Ok(output.outcome)
     }
 
     async fn commit_tool_results(&mut self, progress: LoopProgress) -> Result<()> {

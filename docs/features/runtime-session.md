@@ -366,8 +366,10 @@ tool/approval, and finalization decisions. Its `LoopEffects` adapter retains
 native model/tool execution, persistence, hooks, and cancellation cleanup.
 Model dispatch and response collection use the shared `execute_model_turn`
 effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
-Only machine control state is serializable. Portable context/tool adapters and
-session assembly remain necessary for a lightweight host runtime.
+Serial tool batches and trusted-context invocation use shared tool effects;
+native admission, result policy, and batch budgets remain explicit adapters.
+Only machine control state is serializable. Portable context/policy assembly and
+session ownership remain necessary for a lightweight host runtime.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
