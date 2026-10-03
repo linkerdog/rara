@@ -152,3 +152,50 @@ fn identity_free_completion_cannot_retire_identified_calls() {
         .expect("identified stream retained");
     assert_eq!(text, "bash stdout:\nfirst-tail\n");
 }
+
+#[test]
+fn structured_terminal_result_retires_both_call_and_terminal_ids() {
+    use crate::runtime_control::{RuntimeEvent, ToolEvent};
+    use crate::tui::runtime::apply_tui_event;
+    use crate::tui::state::TuiEvent;
+    use crate::tui::terminal_event::{
+        TerminalEvent, TerminalOutputDeltaEvent, TerminalStream, TerminalTarget,
+    };
+
+    let mut harness = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
+    append_tool_progress(
+        harness.app_mut(),
+        source("call-a", ToolOutputStream::Stdout),
+        "call\u{1b}]",
+    );
+    append_tool_progress(
+        harness.app_mut(),
+        source("other", ToolOutputStream::Stdout),
+        "other",
+    );
+    apply_tui_event(
+        harness.app_mut(),
+        TuiEvent::Terminal(TerminalEvent::OutputDelta(TerminalOutputDeltaEvent {
+            target: TerminalTarget::Pty,
+            id: Some("terminal-a".into()),
+            stream: TerminalStream::Stdout,
+            chunk: "terminal\u{1b}]".into(),
+        })),
+    );
+    assert_eq!(harness.app().tool_progress.sources.len(), 3);
+    let bus = crate::runtime_event_bus::RuntimeEventBus::new(8);
+    let mut events = bus.subscribe_control();
+    bus.publish_control(RuntimeEvent::Tool(ToolEvent::Result {
+        call_id: Some("call-a".into()),
+        name: "pty_read".into(),
+        content: serde_json::json!({"session_id": "terminal-a", "status": "completed"}).to_string(),
+        is_error: false,
+    }));
+    apply_tui_event(
+        harness.app_mut(),
+        TuiEvent::Runtime(Box::new(events.try_recv().unwrap())),
+    );
+    let sources = &harness.app().tool_progress.sources;
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].source.call_id.as_deref(), Some("other"));
+}

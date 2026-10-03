@@ -51,6 +51,16 @@ impl StreamSanitizer {
     pub(crate) fn write(&mut self, input: &str, mut emit: impl FnMut(char)) {
         for ch in input.chars() {
             let after_cr = std::mem::take(&mut self.after_cr);
+            // A transcript line is a recovery boundary, even inside an
+            // unfinished escape. Do not let malformed metadata hide later lines.
+            if matches!(ch, '\r' | '\n') {
+                self.escape = EscapeState::Ground;
+                if ch == '\r' || !after_cr {
+                    emit('\n');
+                }
+                self.after_cr = ch == '\r';
+                continue;
+            }
             if matches!(ch, '\u{18}' | '\u{1a}') {
                 self.escape = EscapeState::Ground;
                 continue;
@@ -61,15 +71,6 @@ impl StreamSanitizer {
                     '\u{9b}' => self.escape = EscapeState::Csi,
                     '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => {
                         self.escape = EscapeState::StringControl;
-                    }
-                    '\r' => {
-                        emit('\n');
-                        self.after_cr = true;
-                    }
-                    '\n' => {
-                        if !after_cr {
-                            emit('\n');
-                        }
                     }
                     '\t' => match self.tabs {
                         Tabs::Expand => {
@@ -88,6 +89,8 @@ impl StreamSanitizer {
                         ']' | 'P' | 'X' | '^' | '_' => EscapeState::StringControl,
                         ' '..='/' => EscapeState::Intermediate,
                         '\u{1b}' => EscapeState::Escape,
+                        // Inline controls such as NUL do not terminate an
+                        // escape; logical newlines recover before this match.
                         ch if ch.is_control() => EscapeState::Escape,
                         _ => EscapeState::Ground,
                     };
@@ -232,6 +235,59 @@ mod tests {
             ),
             "startred\nnext!    end"
         );
+    }
+
+    #[test]
+    fn review_regression_unterminated_controls_recover_at_line_boundaries() {
+        for prefix in [
+            "\u{1b}]payload",
+            "\u{1b}Ppayload",
+            "\u{1b}Xpayload",
+            "\u{1b}^payload",
+            "\u{1b}_payload",
+            "\u{90}payload",
+            "\u{98}payload",
+            "\u{9d}payload",
+            "\u{9e}payload",
+            "\u{9f}payload",
+            "\u{1b}]payload\u{1b}",
+            "\u{1b}[31",
+            "\u{1b}(",
+        ] {
+            for newline in ["\n", "\r", "\r\n"] {
+                let source = format!("before{prefix}{newline}after\u{1b}[31mred\u{1b}[0m");
+                assert_eq!(
+                    sanitize_display_text(&source),
+                    "before\nafterred",
+                    "{source:?}"
+                );
+                let boundaries = source
+                    .char_indices()
+                    .map(|(index, _)| index)
+                    .chain([source.len()])
+                    .collect::<Vec<_>>();
+                for &first in &boundaries {
+                    for &second in boundaries.iter().filter(|&&index| index >= first) {
+                        let mut sanitizer = super::StreamSanitizer::default();
+                        let output = [&source[..first], &source[first..second], &source[second..]]
+                            .into_iter()
+                            .map(|chunk| sanitizer.push_delta(chunk))
+                            .collect::<String>();
+                        assert_eq!(output, "before\nafterred", "{source:?} at {first}/{second}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn review_regression_escape_newline_preserves_next_printable_character() {
+        for newline in ["\n", "\r", "\r\n"] {
+            let mut sanitizer = super::StreamSanitizer::default();
+            assert_eq!(sanitizer.push_delta("\u{1b}"), "");
+            assert_eq!(sanitizer.push_delta(newline), "\n");
+            assert_eq!(sanitizer.push_delta("abc"), "abc");
+        }
     }
 
     #[test]

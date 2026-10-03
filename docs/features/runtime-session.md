@@ -240,12 +240,28 @@ session/turn identity, including the terminal event. A stop racing with task
 return is serialized; a finished task rejects the request and the first accepted
 stop kind cannot be relabelled.
 
+The accepted stop wins over a later successful execution return, including a
+newly raised approval; pending interactions are discarded and automatic goal
+continuation is not entered. An execution error remains available as a diagnostic
+and in the returned error chain even when the stop determines terminal status.
+
 The TUI completion barrier requires both task return and the matching ordered
-terminal event. Foreign-session, mismatched-turn, duplicate, and post-terminal
-turn events cannot mutate presentation or satisfy the barrier. Unscoped runtime
-catalog/status events remain compatible; unscoped turn output is not valid once
-a scoped query owns the presentation. A task join failure remains an explicit
-error boundary rather than waiting for a producer that no longer exists.
+terminal event. Each local task also retains ordered event receipts in its
+existing task channel, with the same bus-assigned identity and sequence. A receipt
+is enqueued before its broadcast becomes visible. Before applying a broadcast
+event, the controller applies query receipts up to that sequence; later receipts
+remain pending. After joining the producer it drains the remaining receipts
+through the same fence before completing the task. A lagged or dropped broadcast
+terminal event cannot strand completion or discard its preceding tail; a replayed event cannot
+be applied twice. This recovery does not accept an unscoped completion as proof
+that an identified query ended. Foreign-session, mismatched-turn, duplicate, and
+post-terminal turn events cannot mutate presentation or satisfy the barrier. Unscoped runtime
+catalog/status events remain compatible; unscoped turn output is not valid while
+a scoped query owns the presentation. After its terminal boundary and task
+completion, unscoped maintenance events may be presented again; closed query IDs
+remain fenced. A task join failure closes live output while preserving its
+partial transcript and surfaces an explicit error rather than waiting for a
+producer that no longer exists.
 
 ### Shutdown Receipts
 

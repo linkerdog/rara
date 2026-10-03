@@ -54,6 +54,19 @@ not inherit the plain-list j/k shortcuts.
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
+  Pending paste is applied before interpreting the next pressed/repeated key
+  or applying an input action, except palette dismissal described in INPUT-03.
+  Immediate submission includes the complete paste, and cursor/history/approval
+  routing sees the resulting composer.
+  Clearing discards pending bursts, deadlines, placeholder payloads, and the
+  current paste-generated notice, while preserving unrelated warnings/status.
+  Submission expands and consumes the complete draft through the same cleanup
+  boundary, including whitespace-only input; submitted paste notices do not
+  linger after their content is sent or discarded.
+  Outside the command palette, Esc retains its existing cancellation/no-op
+  behavior and preserves the draft. Palette dismissal discards its draft as
+  specified in INPUT-03; no paste may appear later in a cleared or submitted
+  composer.
 - Paste removes escape/control sequences before active-surface routing and
   burst buffering, preserving tabs and normalizing CR/CRLF to one newline.
   Editable overlays receive sanitized text with line breaks converted to
@@ -95,7 +108,11 @@ are clipped rather than wrapped a second time at degenerate widths.
 - A slash token opens the command palette; adding argument whitespace returns
   to the composer so arguments can be entered explicitly.
 - Explicit palette dismissal clears its slash input so it does not reopen
-  immediately. Selecting a command dismisses the palette before dispatch.
+  immediately, using the same complete draft/paste cleanup boundary. Selecting
+  a command dismisses the palette before dispatch.
+- Palette Esc and direct close preserve their pre-paste dismissal intent:
+  discard the pending draft without a preliminary flush that could hide the
+  palette. Other keys still route against the complete flushed draft.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
   flow; it must not implicitly submit a credential or change permissions.
 - Model-search dismissal resets only its query, cursor, and selection. It
@@ -146,7 +163,7 @@ fake does not prove that a live provider accepted the new model.
 | Contract | Observable check |
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
-| INPUT-02 | Cursor, history, newline, paste, and busy-input tests; indent cache isolation and rendered vertical movement across sidebar/resize widths |
+| INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
 | Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
@@ -159,11 +176,18 @@ fake does not prove that a live provider accepted the new model.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
 - A configurable Vim mode remains outside the current editor contract.
+- Large-paste placeholders are not atomic editing elements yet; editing their
+  label can prevent expansion on submit. Grapheme-safe editing does not imply
+  placeholder-safe editing.
+- Snapping a stale explicit cursor offset scans grapheme boundaries up to that
+  offset. Repeated reads can be linear in draft length; a shared editor index
+  remains separate performance work.
 
 ## Source Journals
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
+- [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)
 - [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)

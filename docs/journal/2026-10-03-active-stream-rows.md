@@ -44,7 +44,8 @@ history rewriting is needed.
 
 ## Key Decisions
 
-- The source collector owns the response layout cache and a replay epoch.
+- The stream state owns separate source and response layout caches. The source
+  collector owns the replay epoch and exposes a borrowed styled-row description.
   Append-only byte length is a revision only within that epoch. Replacement,
   finalization, reference invalidation, and conservative fence replay advance
   the epoch, including replay that restyles already displayed code.
@@ -141,3 +142,44 @@ merge, and terminal acceptance are separate from these source checks.
 - Forest metadata and indexed access are logarithmic, not constant-cost.
 - Stateful sanitizer/control-token and bounded progress retention remain #923.
 - Exact-head CI, review, merge, and real-terminal acceptance are separate gates.
+
+## Review Integration
+
+Merged the updated #940 parent, `5860794db222b57f7ad765ee2c747a0dd9684ffd`,
+without rewriting history. The merge retains current main, recovered scroll
+navigation, timed-paste bookkeeping, plain-fence blank spans, and theme revision
+invalidation. Theme resets advance the existing row replay epoch, so previously
+promoted response styles are rebuilt as well as the logical source rows.
+
+The review's borrow concern is reproducible: retaining `agent_stream_lines()`
+while reading the production shared layout panics with `RefCell already borrowed`.
+The focused regression holds that immutable view across multiple layout widths.
+The fix gives stream state separate source/layout cells and borrows source
+immutably once it is materialized. The collector now exposes only styled rows,
+source revision, replay epoch, and stable boundaries; it no longer imports
+renderer types. The absent-source case in shared response assembly has an
+explicit invariant assertion instead of an implicit prefix-only fallback.
+
+This follows the previously inspected Codex source-collection/pager-cache
+separation and Claude Code's content-token versus presentation memo boundary.
+The adaptation preserves cached stable blocks and the persistent history forest;
+cloning complete source rows to avoid the borrow conflict would lose the work
+bounds that this change is intended to establish.
+
+Validation additions compare live response rows with canonical rendering from
+raw source at each character for headings, Unicode, lists, fences, quotes, and
+references. The existing ten-source layout suite also uses fresh complete-source
+rendering at finalization, including intentionally held tables. An app-render
+regression resizes between deltas, compares source-derived styled response rows,
+and checks that repeating the same width performs no extra wrapping. The theme
+regression now primes the shared response layout before changing palettes and
+checks both semantic and syntax restyling of promoted rows.
+
+Review validation: the full TUI filter passes 804 tests with one intentionally
+ignored terminal child fixture. All added borrow, canonical-source, resize,
+and theme guards pass. The broader `stream` filter passed 114 tests but also
+selected an unrelated inference HTTP fixture whose localhost bind was denied by
+the sandbox. The exact fixture passes when local loopback binding is allowed;
+no test assertion was weakened. Snapshots and Cargo/generated dependency inputs
+are unchanged, touched Rust sources stay below 1,000 lines, and the cells facade
+contains only module declarations and imports/exports.

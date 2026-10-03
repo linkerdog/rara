@@ -34,6 +34,8 @@ mod message_role;
 mod model_search;
 mod pane_geometry;
 #[cfg(test)]
+mod paste_input_tests;
+#[cfg(test)]
 mod permission_controls_tests;
 mod permission_policy;
 mod plan_display;
@@ -48,12 +50,12 @@ pub(crate) use self::runtime_port::{
 };
 mod selection;
 mod session_restore;
-mod session_restore_goal;
 pub(crate) mod state;
 mod status_display;
 mod sub_agent_display;
 mod submit;
 mod terminal_event;
+mod terminal_modes;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;

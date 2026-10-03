@@ -5,6 +5,7 @@ use std::rc::Rc;
 use ratatui::text::Line;
 
 use super::RespondingCell;
+use crate::tui::markdown_stream::RenderedStream;
 use crate::tui::transcript_rows::{RowBlock, SharedHistory, TranscriptRows};
 #[cfg(test)]
 use crate::tui::transcript_work::{WorkKind, WorkMeter};
@@ -13,13 +14,6 @@ use crate::tui::transcript_work::{WorkKind, WorkMeter};
 pub(crate) enum ResponseView {
     Full,
     Compact,
-}
-
-pub(crate) struct RenderedStream<'a> {
-    pub epoch: u64,
-    pub revision: usize,
-    pub stable_lines: usize,
-    pub lines: &'a [Line<'static>],
 }
 
 #[derive(PartialEq, Eq)]

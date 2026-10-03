@@ -13,6 +13,61 @@ fn stream_harness() -> TuiHarness {
     harness
 }
 
+#[test]
+fn response_layout_can_be_read_while_source_lines_are_borrowed() {
+    let mut harness = stream_harness();
+    harness.app_mut().append_agent_delta("Stable.\n\nPreview.");
+    let lines = harness.app().agent_stream_lines().expect("source lines");
+    let retained = lines.to_vec();
+    for width in [80, 12, 80] {
+        let rows = super::renderable_transcript_lines(harness.app(), width);
+        assert!(rows.iter().any(|line| line.to_string().contains("Stable.")));
+        assert_eq!(&*lines, retained);
+    }
+}
+
+#[test]
+fn streaming_resize_matches_full_source_rows_through_app_rendering() {
+    let mut harness = stream_harness();
+    let mut source = String::new();
+    for chunk in [
+        "# Resize\n\n",
+        "A wide \u{4e2d}\u{6587} and 👩‍💻 paragraph with enough text to wrap.\n\n",
+        "```rust\nlet first = 1;\n",
+        "let next = 2;\n",
+        "```\n\nLast paragraph.",
+    ] {
+        source.push_str(chunk);
+        harness.app_mut().append_agent_delta(chunk);
+        for screen_width in [80, 20, 140, 40] {
+            harness.screen_buffer(screen_width, 30);
+            let app = harness.app();
+            let width = app
+                .transcript_scroll
+                .layout()
+                .expect("painted layout")
+                .width;
+            let prefix = super::active_turn_cell(app).shared_layout(width);
+            let view = prefix.stream.expect("eligible live response");
+            let full_source = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source, None, None,
+            )
+            .lines;
+            let mut expected = crate::tui::transcript_text::wrap_lines(&prefix.lines, width);
+            expected.extend(super::stream_rows_tests::canonical_response(
+                &full_source,
+                width,
+                view,
+            ));
+            let rows = super::renderable_transcript_lines(app, width);
+            assert_eq!(rows.iter().cloned().collect::<Vec<_>>(), expected);
+            let before = work(&harness);
+            harness.screen_buffer(screen_width, 30);
+            assert_eq!(work(&harness).wrapped_lines, before.wrapped_lines);
+        }
+    }
+}
+
 fn work(harness: &TuiHarness) -> TranscriptWork {
     let render = harness.app().committed_render_cache.borrow().work.get();
     let stream = harness

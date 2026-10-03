@@ -22,6 +22,9 @@ not bound a single long line.
 - Emulating a terminal, interpreting cursor movement, or retaining ANSI colors.
 - Bounding complete assistant responses or the entire conversation history.
 - Distinguishing concurrent legacy events that have no invocation identity.
+- A general Unicode spoofing detector or visible annotations for invisible
+  formatting. Physical rows follow the zero-width projection contract below;
+  visible clusters retain their joiners and variation selectors.
 
 ## Architecture
 
@@ -46,7 +49,11 @@ does not first allocate a huge sanitized or formatted display string.
 
 - CSI, OSC, DCS, SOS, PM, APC, generic escape sequences, and nonprinting C0/C1
   controls are removed regardless of chunk boundaries. Partial sequences never
-  enter display storage. Unterminated control strings are discarded, not shown.
+  enter display storage. A CR or LF ends any unfinished control sequence and
+  preserves that logical line boundary; later lines resume ordinary parsing.
+  This intentionally does not emulate multiline terminal control payloads.
+  Before a terminator or line boundary, string payload remains discarded with
+  constant-size state, including arbitrarily long single-line payloads.
 - CR becomes a newline immediately; an immediately following LF is suppressed
   even when it arrives in a later delta. Ordinary explicit newlines remain.
 - Display tabs expand to four spaces. Paste preserves tabs and normalizes CRLF
@@ -106,6 +113,9 @@ large chunk still requires work proportional to its input size.
 
 - Tests do not prove physical-terminal latency or native clipboard acceptance.
 - Legacy progress without a call/terminal ID cannot separate same-name calls.
+- Column normalization is not a general Unicode spoofing detector. Raw source
+  and visually confusable Unicode require a separate inspection/annotation
+  policy that preserves legitimate text and emoji.
 
 ## Source Journals
 

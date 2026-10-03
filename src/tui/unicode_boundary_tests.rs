@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -12,8 +10,8 @@ use tempfile::tempdir;
 
 use super::render::cells::{HistoryCell, LspDiagnosticsCell};
 use super::selection::{ScreenPosition, TranscriptSelection};
+use super::state::TuiApp;
 use super::state::{ApiKeyTarget, Overlay};
-use super::state::{RalphGoal, TuiApp};
 use super::text_wrap::display_width;
 use super::transcript_rows::TranscriptRows;
 use crate::config::ConfigManager;
@@ -66,6 +64,8 @@ fn composer_navigation_uses_unicode_boundaries() {
         "\u{1f44d}\u{1f3fd}",
         "\u{754c}",
         "\u{200b}",
+        "\u{1100}\u{1161}\u{11a8}",
+        "\t",
     ] {
         app.set_input(format!("x{cluster}y"));
         app.bottom_pane.input_cursor_offset = Some(1 + cluster.chars().count());
@@ -84,6 +84,8 @@ fn composer_backspace_uses_unicode_boundaries() {
         "a\u{301}",
         "\u{1f469}\u{200d}\u{1f4bb}",
         "\u{1f1f8}\u{1f1ec}",
+        "\u{1100}\u{1161}\u{11a8}",
+        "\t",
     ] {
         app.set_input(format!("x{cluster}"));
         app.backspace_active_input();
@@ -100,6 +102,8 @@ fn composer_delete_uses_unicode_boundaries() {
         "a\u{301}",
         "\u{1f469}\u{200d}\u{1f4bb}",
         "\u{1f1f8}\u{1f1ec}",
+        "\u{1100}\u{1161}\u{11a8}",
+        "\t",
     ] {
         app.set_input(format!("x{cluster}y"));
         app.bottom_pane.input_cursor_offset = Some(1);
@@ -117,6 +121,42 @@ fn inserted_joiner_snaps_to_unicode_boundary() {
     app.bottom_pane.input_cursor_offset = Some(1);
     app.insert_active_input_char('\u{200d}');
     assert_eq!(app.composer_cursor_offset(), 3);
+}
+
+#[test]
+fn hangul_jamo_insertion_and_vertical_tab_navigation_preserve_boundaries() {
+    use super::composer_text::{WrapConfig, wrapped_text};
+
+    let temp = tempdir().unwrap();
+    let mut app = app_in(&temp);
+    app.set_input("\u{1100}\u{11a8}".into());
+    app.bottom_pane.input_cursor_offset = Some(1);
+    app.insert_active_input_char('\u{1161}');
+    assert_eq!(app.bottom_pane.input, "\u{1100}\u{1161}\u{11a8}");
+    assert_eq!(app.composer_cursor_offset(), 3);
+
+    app.terminal_width = 12;
+    app.sidebar_visible = false;
+    app.set_input("\u{1100}\u{1161}\u{11a8}\tz\nab\tz".into());
+    let layout = wrapped_text(&app.bottom_pane.input, WrapConfig::composer(12));
+    assert_eq!(layout.rows(), &["› \u{1100}\u{1161}\u{11a8}\tz", "  ab\tz"]);
+    for (offset, row, column) in [(3, 0, 4), (4, 0, 8), (8, 1, 4), (9, 1, 8)] {
+        let position = layout.cursor_position(offset);
+        assert_eq!((position.row, position.column), (row, column));
+        assert_eq!(layout.offset_for_position(position), offset);
+    }
+    app.bottom_pane.input_cursor_offset = Some(4);
+    app.move_composer_cursor_down();
+    assert_eq!(app.composer_cursor_offset(), 9);
+    app.move_composer_cursor_up();
+    assert_eq!(app.composer_cursor_offset(), 4);
+
+    let expanded = super::composer_text::expand_tabs(&layout.rows()[0]);
+    let area = Rect::new(0, 0, 12, 1);
+    let mut buffer = Buffer::empty(area);
+    Line::from(expanded).render(area, &mut buffer);
+    assert_eq!(buffer[(2, 0)].symbol(), "\u{1100}\u{1161}\u{11a8}");
+    assert_eq!(buffer[(8, 0)].symbol(), "z");
 }
 
 #[test]
@@ -314,83 +354,5 @@ fn terminal_cell_width_matches_shared_unicode_boundaries() {
                 assert!(display_width(&row.to_string()) <= usize::from(width));
             }
         }
-    }
-}
-
-#[test]
-fn goal_restore_rejects_overflow_at_unicode_boundary_checkpoint() {
-    for field in ["token_budget", "tokens_used", "turns_completed"] {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let state_root = root.join(".rara");
-        std::fs::create_dir_all(&state_root).expect("state root");
-        let state_db = Arc::new(
-            rara_state::state_db::StateDb::new_for_root_dir(state_root.clone()).expect("state db"),
-        );
-        let agent = crate::agent::Agent::new(
-            rara_tools::tool::ToolManager::new(),
-            Arc::new(crate::llm::MockLlm),
-            Arc::new(rara_memory::memory_handle::MemoryHandle::new(
-                &state_root.join("memory").display().to_string(),
-            )),
-            Arc::new(crate::session::SessionManager {
-                storage_dir: state_root.join("rollouts"),
-                legacy_storage_dir: state_root.join("sessions"),
-            }),
-            Arc::new(crate::workspace::WorkspaceMemory::from_paths(
-                root, state_root,
-            )),
-        );
-        let mut app = app_in(&temp);
-        app.attach_state_db(state_db.clone());
-        app.apply_runtime_snapshot(
-            &agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&agent, 0),
-        );
-        let mut snapshot = json!({"objective": "stored objective", "status": "Paused", "token_budget": 100, "tokens_used": 3, "turns_completed": 2});
-        snapshot[field] = json!(u64::from(u32::MAX) + 1);
-        state_db
-            .save_goal(&agent.session_id, &snapshot)
-            .expect("save goal");
-        let stored = state_db.load_goal(&agent.session_id).expect("stored goal");
-        app.goal = Some(RalphGoal::new("previous thread".into(), None));
-        *app.goal_handle.write().expect("goal lock") = app.goal.clone();
-        let session_id = agent.session_id.clone();
-        let mut agent_slot = Some(agent);
-        super::session_restore::restore_thread_by_id(&session_id, &mut app, &mut agent_slot)
-            .expect("restore thread");
-        assert!(
-            app.goal.is_none(),
-            "{field} must not wrap or become unlimited"
-        );
-        assert!(app.goal_handle.read().expect("goal lock").is_none());
-        assert!(
-            app.bottom_pane
-                .notice
-                .as_deref()
-                .expect("notice")
-                .contains(field)
-        );
-        assert_eq!(state_db.load_goal(&session_id), Some(stored));
-        snapshot[field] = json!(u32::MAX);
-        state_db
-            .save_goal(&session_id, &snapshot)
-            .expect("save valid goal");
-        super::session_restore::restore_thread_by_id(&session_id, &mut app, &mut agent_slot)
-            .expect("restore exact limit");
-        let goal = app.goal.as_ref().expect("valid restored goal");
-        assert_eq!(
-            goal.token_budget.map(u64::from),
-            snapshot["token_budget"].as_u64()
-        );
-        assert_eq!(
-            u64::from(goal.tokens_used),
-            snapshot["tokens_used"].as_u64().expect("used")
-        );
-        assert_eq!(
-            u64::from(goal.turns_completed),
-            snapshot["turns_completed"].as_u64().expect("turns")
-        );
-        assert_eq!(goal.status, super::state::GoalStatus::Paused);
     }
 }

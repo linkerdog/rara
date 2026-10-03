@@ -206,15 +206,19 @@ impl RuntimeEventBus {
     /// Control-plane dispatch assigns request-local sequence numbers. Local
     /// runtime consumers need one monotonically increasing stream across
     /// requests.
+    /// Retain the receipt before broadcasting it, while publication order is
+    /// locked. The callback must not re-enter this bus.
     pub(crate) fn publish_resequenced_control_event(
         &self,
         mut event: RuntimeControlEvent,
+        retain_receipt: impl FnOnce(RuntimeControlEvent),
     ) -> usize {
         let _publication = self.lock_publication();
         let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
         event.event_id = format!("ctl-{sequence:016x}");
         event.sequence = sequence;
         self.record_control_event(event.clone());
+        retain_receipt(event.clone());
         if self.control_sender.receiver_count() > 0 {
             self.control_sender.send(event).unwrap_or(0)
         } else {
@@ -423,7 +427,10 @@ mod tests {
                 sequence: 1,
                 event,
             };
-            assert_eq!(bus.publish_resequenced_control_event(local_event), 1);
+            assert_eq!(
+                bus.publish_resequenced_control_event(local_event, |_| {}),
+                1
+            );
         }
 
         let started = control.try_recv().expect("turn started");
@@ -433,6 +440,29 @@ mod tests {
         assert_eq!(finished.event_id, "ctl-0000000000000002");
         assert_eq!(started.provenance, provenance);
         assert_eq!(finished.provenance, provenance);
+    }
+
+    #[test]
+    fn query_receipt_is_retained_before_its_broadcast_is_visible() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let mut retained = None;
+        bus.publish_resequenced_control_event(
+            wrap_agent_event(
+                "dispatch",
+                99,
+                RuntimeProvenance::local_tui("session"),
+                AgentEvent::AgentStart,
+            ),
+            |receipt| {
+                assert!(matches!(
+                    control.try_recv(),
+                    Err(broadcast::error::TryRecvError::Empty)
+                ));
+                retained = Some(receipt);
+            },
+        );
+        assert_eq!(control.try_recv().unwrap(), retained.unwrap());
     }
 
     #[test]

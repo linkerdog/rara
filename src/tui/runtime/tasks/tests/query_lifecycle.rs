@@ -17,9 +17,13 @@ use crate::tui::runtime_port::{
 use crate::tui::state::RuntimeSnapshot;
 use crate::tui::testing::FakeRuntimeClient;
 
+#[path = "query_lifecycle/review_tests.rs"]
+mod review_tests;
+
 #[derive(Clone, Copy)]
 enum BackendOutcome {
     Answer,
+    PlanApproval,
     Failure,
     Panic,
 }
@@ -57,6 +61,7 @@ impl LlmBackend for DrainingBackend {
                 stop_reason: Some("end_turn".into()),
                 usage: Some(TokenUsage::default()),
             }),
+            BackendOutcome::PlanApproval => ExitPlanModeBackend.ask(_messages, _tools).await,
             BackendOutcome::Failure => Err(anyhow::anyhow!("scripted provider failure")),
             BackendOutcome::Panic => panic!("scripted provider panic"),
         }
@@ -100,10 +105,14 @@ impl Fixture {
         let backend = Arc::new(DrainingBackend::new(outcome));
         let mut config = RaraConfig::default();
         config.builtin_plugins.nowledge_mem.enabled = false;
+        let mut tools = ToolManager::new();
+        if matches!(outcome, BackendOutcome::PlanApproval) {
+            tools.register(Box::new(ExitPlanModeTool));
+        }
         let options = RuntimeBootstrapOptions::with_plugin_dirs(Vec::new())
             .with_rara_home(Some(dir.path().join("state")))
             .with_backend(Some(backend.clone()))
-            .with_tool_manager(Some(ToolManager::new()))
+            .with_tool_manager(Some(tools))
             .with_extension_discovery(false)
             .with_memory_facilities(false)
             .with_transcript_persistence(false);
@@ -137,6 +146,9 @@ impl Fixture {
         app.hook_registry = Some(hook_registry);
         let mut processor = RuntimeCommandProcessor::new(runtime);
         processor.sync_snapshot(&mut app);
+        if matches!(outcome, BackendOutcome::PlanApproval) {
+            app.set_agent_execution_mode(AgentExecutionMode::Plan);
+        }
         let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
         let projections = port.subscribe();
         let (commands, receiver) = mpsc::unbounded_channel();
@@ -150,7 +162,9 @@ impl Fixture {
             )
             .await
             .unwrap();
-        backend.entered.notified().await;
+        tokio::time::timeout(Duration::from_secs(5), backend.entered.notified())
+            .await
+            .expect("query should enter the scripted backend");
         Self {
             _dir: dir,
             controller,
@@ -180,15 +194,19 @@ impl Fixture {
 
     async fn task_return(&mut self) -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
         Box::new(
-            (&mut self
-                .controller
-                .app_mut()
-                .bottom_pane
-                .running_task
-                .as_mut()
-                .unwrap()
-                .handle)
-                .await,
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                &mut self
+                    .controller
+                    .app_mut()
+                    .bottom_pane
+                    .running_task
+                    .as_mut()
+                    .unwrap()
+                    .handle,
+            )
+            .await
+            .expect("released query should return"),
         )
     }
 }
@@ -276,17 +294,17 @@ async fn query_stop_drains_tail_before_terminal_in_both_completion_orders() {
             }
             if completion_first {
                 assert!(
-                    !fixture
+                    fixture
                         .controller
                         .receive_runtime_task_completion(&mut fixture.processor, completion)
                         .await
                         .unwrap()
                 );
                 for event in events {
-                    assert!(fixture.deliver(event).await);
+                    assert!(!fixture.deliver(event).await);
                 }
                 assert!(
-                    fixture
+                    !fixture
                         .controller
                         .complete_query_if_ready(&mut fixture.processor)
                         .await
@@ -367,20 +385,13 @@ async fn task_return_rejects_cancel_before_ui_observes_completion() {
         event.event,
         RuntimeEvent::Session(SessionEvent::TurnCancelled)
     )));
-    assert!(
-        !fixture
-            .controller
-            .receive_runtime_task_completion(&mut fixture.processor, completion)
-            .await
-            .unwrap()
-    );
     for event in events {
         assert!(fixture.deliver(event).await);
     }
     assert!(
         fixture
             .controller
-            .complete_query_if_ready(&mut fixture.processor)
+            .receive_runtime_task_completion(&mut fixture.processor, completion)
             .await
             .unwrap()
     );
@@ -419,25 +430,23 @@ async fn query_failure_publishes_diagnostic_before_one_terminal_boundary() {
             .count(),
         1
     );
+    for event in events {
+        assert!(fixture.deliver(event).await);
+        assert!(
+            !fixture
+                .controller
+                .complete_query_if_ready(&mut fixture.processor)
+                .await
+                .unwrap()
+        );
+    }
     assert!(
-        !fixture
+        fixture
             .controller
             .receive_runtime_task_completion(&mut fixture.processor, completion)
             .await
             .unwrap()
     );
-    let final_index = events.len() - 1;
-    for (index, event) in events.into_iter().enumerate() {
-        assert!(fixture.deliver(event).await);
-        assert_eq!(
-            fixture
-                .controller
-                .complete_query_if_ready(&mut fixture.processor)
-                .await
-                .unwrap(),
-            index == final_index
-        );
-    }
     assert_eq!(fixture.controller.app().runtime_phase, RuntimePhase::Failed);
 }
 
@@ -490,6 +499,18 @@ async fn query_join_failure_closes_identity_without_waiting_for_terminal() {
     };
     assert!(!fixture.deliver(late).await);
     assert!(!fixture.controller.app().has_agent_stream());
+    assert_eq!(fixture.controller.app().runtime_phase, RuntimePhase::Failed);
+    let text = fixture
+        .controller
+        .app()
+        .committed_turns
+        .iter()
+        .flat_map(|turn| &turn.entries)
+        .filter(|entry| entry.role == "Agent")
+        .map(|entry| entry.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(text, "Before. Tail.");
 }
 
 #[tokio::test]
@@ -528,20 +549,13 @@ async fn cancelled_turn_tail_cannot_finish_or_modify_queued_query() {
         .unwrap();
     fixture.backend.release.notify_one();
     let completion = fixture.task_return().await;
-    assert!(
-        !fixture
-            .controller
-            .receive_runtime_task_completion(&mut fixture.processor, completion)
-            .await
-            .unwrap()
-    );
     for event in fixture.drain_events() {
         assert!(fixture.deliver(event).await);
     }
     assert!(
         fixture
             .controller
-            .complete_query_if_ready(&mut fixture.processor)
+            .receive_runtime_task_completion(&mut fixture.processor, completion)
             .await
             .unwrap()
     );
@@ -595,20 +609,13 @@ async fn cancelled_turn_tail_cannot_finish_or_modify_queued_query() {
     );
     fixture.backend.release.notify_one();
     let completion = fixture.task_return().await;
-    assert!(
-        !fixture
-            .controller
-            .receive_runtime_task_completion(&mut fixture.processor, completion)
-            .await
-            .unwrap()
-    );
     for event in fixture.drain_events() {
         assert!(fixture.deliver(event).await);
     }
     assert!(
         fixture
             .controller
-            .complete_query_if_ready(&mut fixture.processor)
+            .receive_runtime_task_completion(&mut fixture.processor, completion)
             .await
             .unwrap()
     );

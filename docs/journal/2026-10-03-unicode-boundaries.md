@@ -123,3 +123,44 @@ Current source checks:
 Exact-head CI/review/merge and physical-terminal/clipboard acceptance are not
 established by source tests. Resume-search full cursor editing and an opt-in Vim
 mode remain separate work.
+
+## Review Integration Checkpoint
+
+Merged updated parent `35c5df3d462d0fb2356c546cab51854c26b35818` normally, retaining
+main's goal persistence, terminal restoration and paste ordering plus all stack
+review fixes. There is no dependency, schema or build-configuration change
+relative to the parent.
+
+Main's `GoalStore::restore_for_thread` already owns checked goal deserialization.
+The earlier presentation-local `session_restore_goal` decoder is therefore
+removed, including its obsolete lock-based fixtures. Thread restore retains
+main's staged reads, `disable_after_persistence_failure`, visible warning and
+healthy-restore recovery; no fallback decoder or memory-only writer is added.
+The current checkpoint supersedes the earlier journal's decoder ownership and
+field-specific-notice implementation details.
+
+Numeric coverage now exercises the canonical production restore tests:
+overflowing budgets, used tokens and turn counters, negative counters, unchanged
+stored rows, stale-goal clearing, disabled writes after invalid restore, and
+re-enabled durable writes after repair. The lifecycle round trip also preserves
+exact `u32::MAX` counters/budget and the original creation time.
+
+The editing matrix adds decomposed Hangul L/V/T jamo and tabs to navigation,
+Backspace and Delete. A focused app/layout/buffer test inserts a medial jamo
+that joins its neighbors, verifies whole-cluster cursor snapping, compares tab
+and Hangul display columns, and navigates vertically between equal columns.
+The reference review reconfirmed Codex's textarea atomic/grapheme boundaries and
+Claude Code's measured-text segment index; this change retains character-offset
+storage without NFC normalization.
+
+The halfwidth sound-mark policy and standalone-zero-width physical-row
+projection remain intentional Ratatui compatibility contracts. Large-paste
+placeholder atomicity and repeated linear cursor-boundary scans remain explicit
+editor follow-ups. Neither is claimed fixed by whole-grapheme editing, and a
+new cache or atomic-element model is not introduced in this integration.
+
+Current validation: `cargo test --offline --locked --lib tui:: -- --nocapture`
+reports 878 passed, one existing ignored test, and no failures. The added cases
+extend integration coverage; they are not new behavioral RED claims. Main's
+production `session_restore.rs` is unchanged relative to the updated parent.
+No snapshots changed, and every touched Rust file remains below 1000 lines.

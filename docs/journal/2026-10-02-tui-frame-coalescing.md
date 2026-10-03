@@ -99,3 +99,23 @@ viewport restoration, or clipboard acceptance. No snapshots are regenerated.
   and selection hash still process accumulated content.
 - Keep exact-head remote CI, review, merge, and manual terminal acceptance
   separate from scheduler/model/renderer checks.
+
+## Mainline Integration (2026-10-03)
+
+The parent is now the scroll recovery in PR #945 (`fdf3bf7d`), which retains
+mainline terminal ownership, paste ordering, and GoalStore persistence. Merge
+history is preserved. The new parent-relative source delta remains the frame
+scheduler and its event-loop wiring.
+
+The integrated loop calls `check_composer_paste_flush` before requesting a
+frame so a timed paste retains the composer edit/history bookkeeping introduced
+on main. Terminal cleanup still belongs to `TerminalModeGuard::run_owner`.
+Resize retains its clear request until the next due frame; quit retains the
+existing behavior of leaving without an extra final frame.
+
+The review correctly distinguishes scheduler/controller tests from a real
+OS event-loop oracle. The latter remains part of #927; this integration does
+not claim to close that test-infrastructure issue or all of #921. Validate the
+integrated scheduler, paste ordering, terminal guard, and broader TUI tests on
+this head. Cargo inputs match the recovery parent; use its generated Bazel lock
+as the regeneration input rather than merging embedded crate-universe JSON.

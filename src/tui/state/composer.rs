@@ -30,6 +30,18 @@ impl TuiApp {
         self.active_text_input_target() == Some(TextInputTarget::Composer)
     }
 
+    pub(crate) fn flush_composer_paste(&mut self) -> bool {
+        let flushed = self.bottom_pane.flush_paste_burst();
+        if flushed {
+            self.update_after_active_input_edit(TextInputTarget::Composer);
+        }
+        flushed
+    }
+
+    pub(crate) fn check_composer_paste_flush(&mut self) -> bool {
+        self.bottom_pane.paste_burst_is_due() && self.flush_composer_paste()
+    }
+
     fn text_and_cursor_mut(
         &mut self,
         target: TextInputTarget,
@@ -367,5 +379,32 @@ impl TuiApp {
             column: position.column,
         });
         self.bottom_pane.input_cursor_offset = Some(target);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use crate::tui::state::RuntimeSnapshot;
+    use crate::tui::testing::TuiHarness;
+
+    #[test]
+    fn timed_paste_flush_resets_history_navigation_without_sleeping() {
+        let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
+        let app = tui.app_mut();
+        app.record_input_history("old prompt");
+        app.navigate_input_history(-1);
+        assert!(app.input_history_cursor.is_some());
+        app.bottom_pane.handle_paste_burst_chunk("first\nsecond");
+        app.bottom_pane.paste_burst_deadline = Some(Instant::now());
+        assert!(app.check_composer_paste_flush());
+        assert_eq!(app.bottom_pane.input, "old promptfirst\nsecond");
+        assert!(app.input_history_cursor.is_none());
+        assert!(!app.check_composer_paste_flush());
+        app.bottom_pane.clear_input();
+        assert!(app.bottom_pane.notice.is_none());
+        assert!(app.bottom_pane.paste_burst_deadline.is_none());
+        assert!(!app.check_composer_paste_flush());
     }
 }

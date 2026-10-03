@@ -526,7 +526,7 @@ mod tests {
     fn complete_output_preview_sanitizes_before_splitting_lines() {
         assert_eq!(
             output_tail_preview("before\u{1b}]payload\nsecret\u{1b}\\after\r\nend"),
-            Some(vec!["beforeafter".into(), "end".into()])
+            Some(vec!["before".into(), "secretafter".into(), "end".into()])
         );
         let preview = output_tail_preview(&format!("{}END", "x".repeat(10 * 1024 * 1024)))
             .expect("visible preview");
@@ -555,7 +555,7 @@ mod tests {
         assert_eq!(event.id.as_deref(), Some("pty"));
         assert_eq!(event.status, "completed");
         assert_eq!(event.command.as_deref(), Some("echo ok"));
-        assert_eq!(event.output, ["beforeafter"]);
+        assert_eq!(event.output, ["before", "moreafter"]);
         assert_eq!(event.output_path.as_deref(), Some("file"));
     }
 

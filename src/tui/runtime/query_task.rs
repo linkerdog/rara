@@ -86,10 +86,11 @@ impl QueryTaskControl {
         mut event: RuntimeControlEvent,
     ) {
         event.turn_id = Some(self.turn_id.clone());
-        bus.publish_resequenced_control_event(event.clone());
-        if let Err(error) = sender.send(TuiEvent::Runtime(Box::new(event))) {
-            log::warn!("query compatibility receiver closed: {error}");
-        }
+        bus.publish_resequenced_control_event(event, |receipt| {
+            if let Err(error) = sender.send(TuiEvent::Runtime(Box::new(receipt))) {
+                log::warn!("query event receipt receiver closed: {error}");
+            }
+        });
     }
 
     /// Preserve intermediate diagnostics while task return owns dispatch's final error.
@@ -120,24 +121,36 @@ impl QueryTaskControl {
     pub(crate) fn publish_finished(
         &self,
         bus: &RuntimeEventBus,
+        sender: &tokio::sync::mpsc::UnboundedSender<TuiEvent>,
         result: anyhow::Result<()>,
     ) -> anyhow::Result<()> {
+        let execution_error = result.as_ref().err().map(|error| format!("{error:#}"));
         let (result, terminal) = self.finish(result);
         let provenance = RuntimeProvenance::local_tui(self.session_id.clone());
-        if let SessionEvent::TurnFailed { reason } = &terminal {
+        let publish = |event| {
+            self.publish_event(
+                bus,
+                sender,
+                RuntimeControlEvent {
+                    event_id: String::new(),
+                    provenance: provenance.clone(),
+                    turn_id: None,
+                    sequence: 0,
+                    event,
+                },
+            );
+        };
+        if let Some(message) = execution_error {
             bus.publish_raw(AgentEvent::AgentError {
-                message: reason.clone(),
+                message: message.clone(),
                 recoverable: false,
             });
-            bus.publish_control_with_turn(
-                RuntimeEvent::Error(ErrorEvent::RuntimeError {
-                    message: reason.clone(),
-                    recoverable: false,
-                }),
-                provenance.clone(),
-                Some(&self.turn_id),
-            );
-        } else {
+            publish(RuntimeEvent::Error(ErrorEvent::RuntimeError {
+                message,
+                recoverable: false,
+            }));
+        }
+        if !matches!(terminal, SessionEvent::TurnFailed { .. }) {
             let reason = match self.stop_kind() {
                 Some(QueryStopKind::Cancel) => "cancelled by user",
                 Some(QueryStopKind::Interrupt) => "interrupted by user",
@@ -147,11 +160,7 @@ impl QueryTaskControl {
                 reason: reason.into(),
             });
         }
-        bus.publish_control_with_turn(
-            RuntimeEvent::Session(terminal),
-            provenance,
-            Some(&self.turn_id),
-        );
+        publish(RuntimeEvent::Session(terminal));
         result
     }
 
@@ -165,14 +174,19 @@ impl QueryTaskControl {
         };
         *state = QueryState::Finished(stop);
         match stop {
-            Some(QueryStopKind::Cancel) => (
-                Err(anyhow::anyhow!("cancelled by user")),
-                SessionEvent::TurnCancelled,
-            ),
-            Some(QueryStopKind::Interrupt) => (
-                Err(anyhow::anyhow!("interrupted by user")),
-                SessionEvent::TurnInterrupted,
-            ),
+            Some(kind) => {
+                let (reason, terminal) = match kind {
+                    QueryStopKind::Cancel => ("cancelled by user", SessionEvent::TurnCancelled),
+                    QueryStopKind::Interrupt => {
+                        ("interrupted by user", SessionEvent::TurnInterrupted)
+                    }
+                };
+                let error = match result {
+                    Ok(()) => anyhow::anyhow!(reason),
+                    Err(error) => error.context(reason),
+                };
+                (Err(error), terminal)
+            }
             None => {
                 let terminal = match &result {
                     Ok(()) => SessionEvent::TurnFinished {

@@ -126,7 +126,7 @@ impl TuiApp {
             permission_mode: PermissionMode::Custom,
             pending_permission_mode: None,
             goal: None,
-            goal_handle: Arc::new(std::sync::RwLock::new(None)),
+            goal_handle: Arc::new(crate::runtime_goals::GoalStore::default()),
             event_bus: None,
             mcp_tool_cache: None,
         };

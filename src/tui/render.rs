@@ -18,6 +18,9 @@ mod transcript_cache;
 mod transcript_cache_tests;
 #[cfg(test)]
 mod transcript_scroll_tests;
+#[cfg(test)]
+#[path = "render/transcript_theme_tests.rs"]
+mod transcript_theme_tests;
 mod viewport;
 
 use std::path::Path;
@@ -37,7 +40,7 @@ use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
 pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;
 pub(crate) use self::overlay::popup_block;
-pub(crate) use self::stream_rows::{RenderedStream, ResponseView, StreamRowCache};
+pub(crate) use self::stream_rows::{ResponseView, StreamRowCache};
 pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
