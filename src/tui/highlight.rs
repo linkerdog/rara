@@ -77,7 +77,7 @@ pub(crate) fn install_syntax_theme(name: Option<&str>) {
     }
 }
 
-fn syntax_theme_revision() -> u64 {
+pub(crate) fn syntax_theme_revision() -> u64 {
     THEME_REVISION.load(Ordering::Acquire)
 }
 

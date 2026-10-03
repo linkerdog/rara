@@ -18,6 +18,7 @@ struct HistoryKey {
     width: u16,
     thinking_collapsed: bool,
     cwd: String,
+    theme: crate::tui::theme::ThemeRevision,
 }
 
 #[derive(Default)]
@@ -61,6 +62,7 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
         width,
         thinking_collapsed: app.thinking_collapsed,
         cwd: app.snapshot.cwd.clone(),
+        theme: crate::tui::theme::revision(),
     };
     let mut cache = app.committed_render_cache.borrow_mut();
     if cache.key.as_ref() != Some(&key) || cache.rendered_turns > app.committed_turns.len() {

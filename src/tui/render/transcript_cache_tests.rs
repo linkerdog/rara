@@ -162,7 +162,7 @@ fn committed_appends_retain_prior_row_allocations() {
     assert_eq!(after.hashed_rows, before.hashed_rows);
 }
 
-fn canonical_rows(
+pub(super) fn canonical_rows(
     app: &crate::tui::state::TuiApp,
     width: u16,
 ) -> Vec<ratatui::text::Line<'static>> {
@@ -309,4 +309,66 @@ fn active_and_committed_middle_replacements_refresh_copy_text() {
         canonical_rows(harness.app(), 80)
     );
     assert_eq!(rows.get(middle).unwrap().text.trim(), "old");
+}
+
+#[test]
+fn mixed_mutations_match_fresh_wrapping_and_preserve_old_snapshots() {
+    let messages = [
+        "# Heading\n\n**Styled** text with a [link](./src/main.rs).",
+        "```rust\nlet value = 42;\n\n```",
+        "- first\n- second\n\nWide \u{4e2d}\u{6587} and 👩‍💻 text.",
+    ];
+    for seed in [7_u32, 29, 113, 997] {
+        let mut random = seed;
+        let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
+        let mut width = 80;
+        let mut retained = super::renderable_transcript_lines(harness.app(), width);
+        let mut retained_lines = Vec::new();
+        for step in 0..120 {
+            // Fixed seeds make the mixed sequence reproducible without a new dependency.
+            random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let choice = (random >> 16) as usize;
+            let message = messages[(choice / 9) % messages.len()];
+            match choice % 9 {
+                0 => {
+                    harness
+                        .app_mut()
+                        .push_entry("You", format!("Question {step}"));
+                    harness
+                        .app_mut()
+                        .push_entry("Thinking", "Summary.\nPreview.\nDetail.");
+                    harness.app_mut().push_entry("Agent", message);
+                }
+                1 => harness.app_mut().finalize_active_turn(),
+                2 => harness
+                    .app_mut()
+                    .finalize_agent_stream(Some(message.into())),
+                3 => harness.app_mut().thinking_collapsed = !harness.app().thinking_collapsed,
+                4 => harness.app_mut().snapshot.cwd = format!("/workspace/{step}"),
+                5 => harness
+                    .app_mut()
+                    .restore_committed_turns(vec![TranscriptTurn {
+                        thinking_duration: None,
+                        entries: vec![TranscriptEntry::new("Agent", message)],
+                    }]),
+                6 => harness.app_mut().reset_transcript(),
+                7 => harness
+                    .app_mut()
+                    .append_agent_delta("Another **streamed** paragraph.\n\n"),
+                8 => width = [1, 2, 8, 20, 80, 120][(choice / 9) % 6],
+                _ => unreachable!("bounded mutation choice"),
+            }
+            let rows = super::renderable_transcript_lines(harness.app(), width);
+            assert_eq!(
+                rows.iter().cloned().collect::<Vec<_>>(),
+                canonical_rows(harness.app(), width),
+                "seed {seed}, step {step}, width {width}"
+            );
+            assert_eq!(retained.iter().cloned().collect::<Vec<_>>(), retained_lines);
+            if step % 11 == 0 {
+                retained_lines = rows.iter().cloned().collect();
+                retained = rows;
+            }
+        }
+    }
 }

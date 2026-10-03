@@ -13,6 +13,9 @@ mod transcript_cache;
 mod transcript_cache_tests;
 #[cfg(test)]
 mod transcript_scroll_tests;
+#[cfg(test)]
+#[path = "render/transcript_theme_tests.rs"]
+mod transcript_theme_tests;
 mod viewport;
 
 use std::path::Path;

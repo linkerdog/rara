@@ -113,3 +113,38 @@ it is not a new Rust compiler or Clippy warning.
   many-short-turn costs remain separate from historical row-content reuse.
 - Stateful sanitization and progress retention remain separate #923 work.
 - Remote CI, review, merge, and real-terminal acceptance are separate gates.
+
+## Review Integration
+
+Merged the updated #939 parent, `409b57a148206e4cdd5e16b5d229bde429f3c009`,
+without rewriting the branch. This includes current main, the recovered scroll
+change, timed-paste bookkeeping, and the plain-fence blank-span correction.
+Cargo inputs and generated dependency state remain the parent's versions.
+
+The review identified missing theme invalidation in both committed rows and
+the live Markdown cache. Before implementation, rechecked Codex's
+`pager_overlay.rs` live-tail key (width plus presentation revision) and Claude
+Code's `Markdown.tsx`: tokens are cached independently of styling, while the
+render memo includes the active theme. The adaptation retains existing caches
+and adds semantic/syntax revision keys, rebuilding styled source rows on the
+next presentation read even if no new delta arrives. Installing the same
+resolved theme does not increment either revision. This fixes cache behavior
+without introducing a theme-switch command or a new runtime handle.
+
+Two isolated child-process tests reproduced stale heading colors in committed
+and streamed rows before the fix. They then check both semantic and syntax
+changes against fresh canonical rendering, and check reuse after reinstalling
+the same theme. Child processes prevent global palette mutation from racing
+other app fixtures. A deterministic mixed-mutation guard compares all styled
+rows with fresh wrapping through 480 append, commit, replacement, visibility,
+cwd, restore, reset, stream, and width transitions while retaining old snapshots.
+
+Documented the UI-task ownership behind `Rc`. The retained block-handle copy
+cost is still explicit; its persistent-index follow-up is in #941 and is not
+silently counted as constant-time work here.
+
+Review validation: `cargo test --offline --locked --lib transcript_ -- --nocapture`
+passes 110 tests. The full TUI filter passes 781 tests with one intentionally
+ignored terminal child fixture. No snapshots changed; touched Rust sources stay
+below 1,000 lines. Formatting, strict Clippy, and exact-head remote CI remain
+required delivery checks.

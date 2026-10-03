@@ -51,7 +51,10 @@ active tail. Viewport counting, visible rendering, and selection share the same
 materialized styled rows and plain text. Frame/scroll updates must not clone,
 wrap, stringify, or hash unchanged historical rows. Appended committed turns
 reuse prior blocks; width, thinking visibility, cwd, replacement, and reset
-invalidate the appropriate blocks. Active-tail layout reuse compares complete
+invalidate the appropriate blocks. Semantic and syntax theme revisions invalidate
+committed styles and the stream's materialized Markdown, even without a new
+delta. Reinstalling the same resolved theme preserves the caches. Active-tail
+layout reuse compares complete
 styled logical lines rather than an edge-only or text-length fingerprint.
 This layout boundary does not itself eliminate active-cell row assembly.
 
@@ -73,6 +76,10 @@ This layout boundary does not itself eliminate active-cell row assembly.
 - Terminal input, resize, focus, and runtime feedback use the same frame gate.
   Input/projection changes are immediate; resize requests are retained and the
   frame measures current terminal dimensions. Painting may wait one interval.
+- A due composer paste is flushed through the composer edit boundary before
+  frame admission, preserving history/cursor bookkeeping and requesting a paint.
+- Exiting the session may discard a pending repaint. Terminal restoration does
+  not depend on drawing that final frame.
 
 ### Incremental Markdown And Rows
 
@@ -90,6 +97,10 @@ boundaries for issue #921:
 - Closing fences, table delimiters/rows, list tightness, and references must not
   leave duplicated or stale committed output. Complete-message rendering is
   the final correctness oracle.
+- Open-fence fast paths preserve canonical styled rows, including empty code
+  lines, for both labelled and unlabelled fences at every chunk boundary.
+- Committing raw stream text does not render rows that are immediately
+  discarded; the committed-cell renderer owns complete-message presentation.
 
 ## Validation Matrix
 
@@ -102,7 +113,7 @@ boundaries for issue #921:
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
 | Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
-| Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, append, replacement, reset, and restore |
+| Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
 | Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
 
