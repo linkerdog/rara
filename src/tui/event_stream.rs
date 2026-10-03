@@ -50,6 +50,7 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 None
             }
         }
+        Event::Mouse(mouse_event) if mouse_event.kind == MouseEventKind::Moved => None,
         Event::Mouse(mouse_event) => {
             app.quit_shortcut.clear();
             Some(UiEvent::App(map_mouse_to_event(mouse_event, app)))
@@ -65,18 +66,6 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
             Some(UiEvent::FocusChanged(focused))
         }
     }
-}
-
-#[cfg(test)]
-#[test]
-fn review_regression_terminal_focus_updates_display_state() {
-    let mut harness = super::testing::TuiHarness::new(Default::default()).expect("harness");
-    translate_event(Event::FocusLost, harness.app_mut());
-    assert!(!harness.app().terminal_focused);
-    assert!(!harness.app().terminal_diagnostics_view().focused);
-    translate_event(Event::FocusGained, harness.app_mut());
-    assert!(harness.app().terminal_focused);
-    assert!(harness.app().terminal_diagnostics_view().focused);
 }
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
@@ -128,22 +117,38 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
 }
 
 #[cfg(test)]
-#[test]
-fn scroll_acceleration_is_isolated_between_sessions() {
-    let mut first = super::testing::TuiHarness::new(Default::default()).expect("first session");
-    let mut second = super::testing::TuiHarness::new(Default::default()).expect("second session");
-    let wheel = Event::Mouse(MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: 0,
-        row: 0,
-        modifiers: KeyModifiers::NONE,
-    });
-    assert!(matches!(
-        translate_event(wheel.clone(), first.app_mut()),
-        Some(UiEvent::App(AppEvent::ScrollTranscript(3)))
-    ));
-    assert!(matches!(
-        translate_event(wheel, second.app_mut()),
-        Some(UiEvent::App(AppEvent::ScrollTranscript(3)))
-    ));
+mod tests {
+    use super::*;
+    use crate::tui::testing::TuiHarness;
+
+    #[test]
+    fn terminal_focus_updates_display_state() {
+        let mut harness = TuiHarness::new(Default::default()).expect("harness");
+        translate_event(Event::FocusLost, harness.app_mut());
+        assert!(!harness.app().terminal_focused);
+        assert!(!harness.app().terminal_diagnostics_view().focused);
+        translate_event(Event::FocusGained, harness.app_mut());
+        assert!(harness.app().terminal_focused);
+        assert!(harness.app().terminal_diagnostics_view().focused);
+    }
+
+    #[test]
+    fn scroll_acceleration_is_isolated_between_sessions() {
+        let mut first = TuiHarness::new(Default::default()).expect("first session");
+        let mut second = TuiHarness::new(Default::default()).expect("second session");
+        let wheel = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(matches!(
+            translate_event(wheel.clone(), first.app_mut()),
+            Some(UiEvent::App(AppEvent::ScrollTranscript(3)))
+        ));
+        assert!(matches!(
+            translate_event(wheel, second.app_mut()),
+            Some(UiEvent::App(AppEvent::ScrollTranscript(3)))
+        ));
+    }
 }

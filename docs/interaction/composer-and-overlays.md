@@ -55,7 +55,8 @@ not inherit the plain-list j/k shortcuts.
   composer and no overlay. Otherwise it deletes forward in an editable field
   or does nothing in a read-only surface; it never inserts a literal `d`.
 - Quit confirmation requires the same shortcut twice. Another key, paste,
-  mouse interaction, or suspension clears the confirmation. Expiry restores
+  mouse button/drag/wheel interaction, or suspension clears the confirmation.
+  Passive pointer motion preserves the armed shortcut. Expiry restores
   the ordinary footer without requiring another input event. Reported key
   repeats cannot confirm quit; terminals without repeat metadata remain
   subject to their own key encoding. `/quit` remains an explicit direct exit.
@@ -207,3 +208,4 @@ fake does not prove that a live provider accepted the new model.
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
+- [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)

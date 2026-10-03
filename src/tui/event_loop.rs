@@ -315,7 +315,6 @@ fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::path::PathBuf;
 
     use super::should_start_initial_rebuild;

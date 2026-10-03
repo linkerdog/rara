@@ -148,6 +148,22 @@ async fn different_shortcuts_and_ordinary_input_do_not_confirm_quit() {
 }
 
 #[tokio::test]
+async fn passive_pointer_motion_preserves_quit_confirmation() {
+    let mut tui = TuiHarness::new(Default::default()).expect("harness");
+    assert!(!tui.press_key(ctrl('c')).await.expect("arm"));
+    tui.send_terminal_event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: 3,
+        row: 2,
+        modifiers: KeyModifiers::NONE,
+    }))
+    .await
+    .expect("move pointer");
+    assert_eq!(tui.app().quit_shortcut.key(), Some(QuitShortcutKey::CtrlC));
+    assert!(tui.press_key(ctrl('c')).await.expect("confirm"));
+}
+
+#[tokio::test]
 async fn paste_mouse_and_suspend_disarm_confirmation() {
     for event in [
         Event::Paste("text".into()),
