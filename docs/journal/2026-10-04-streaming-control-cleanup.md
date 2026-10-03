@@ -87,9 +87,13 @@ recognition is compared with canonical cleanup for every ASCII byte in a name,
 empty names, and non-ASCII names across every character boundary. Production
 grammar and replay costs are unchanged.
 
+Both grammar guards and all eight existing control-stream regressions pass.
+The default Bazel control-token target and Cargo format/Clippy commit checks
+also pass. The regression filter uses the actual `control_stream_tests` module.
+
 ```bash
 cargo test --locked --lib control_tokens::
-cargo test --locked --lib tui::state::tests::control_stream::
+cargo test --locked --lib control_stream_tests::
 bazel test //:rara_unit_tests --test_arg=control_tokens::
 ```
 
