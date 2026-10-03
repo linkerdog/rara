@@ -86,7 +86,9 @@ Active backlog only. Keep this file small and current.
       goal restoration have focused automated coverage. See
       [the Unicode checkpoint](journal/2026-10-03-unicode-boundaries.md).
 - [ ] Finish [#925](https://github.com/linkerdog/rara/issues/925): bounded
-      interactive terminal acceptance, including tmux and macOS. Viewport
+      interactive terminal acceptance, including tmux and macOS native resize
+      reflow and stale frame fragments in scrollback. The vt100 backend does
+      not model terminal-native reflow. Viewport
       ownership, shell handoff, and focus mode are covered by
       [the viewport checkpoint](journal/2026-10-03-inline-terminal-viewport.md).
       Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by

@@ -101,7 +101,7 @@ fn resize_repaints_blank_first_columns_without_erasing_screen() {
 }
 
 #[test]
-fn startup_without_cursor_reply_still_preserves_the_shell_line() {
+fn startup_preserves_shell_history_without_querying_cursor() {
     let mut backend = EmulatorBackend::new(5, 30);
     backend
         .write_all(b"FIRST\r\nSECOND\r\nCURRENT-SHELL-LINE")
@@ -110,6 +110,7 @@ fn startup_without_cursor_reply_still_preserves_the_shell_line() {
     let screen = backend.screen.clone();
     let mut terminal = Terminal::new(backend).unwrap();
     terminal.draw_inline(|_| {}).unwrap();
+    assert_eq!(terminal.backend.cursor_queries, 0);
     let mut screen = screen.borrow_mut();
     screen.parser.screen_mut().set_scrollback(1000);
     let history = screen.parser.screen().contents();

@@ -168,21 +168,17 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
-    /// Creates a new [`Terminal`] with the given [`Backend`] and [`TerminalOptions`].
-    pub fn new(mut backend: B) -> io::Result<Self> {
+    /// Creates an unreserved terminal without querying the cursor position.
+    pub fn new(backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;
-        let cursor_pos = backend.get_cursor_position().unwrap_or_else(|error| {
-            log::warn!("Failed to query initial terminal cursor position: {error}");
-            Position { x: 0, y: 0 }
-        });
         Ok(Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
             current: 0,
             hidden_cursor: false,
-            viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
+            viewport_area: Rect::ZERO,
             last_known_screen_size: screen_size,
-            last_known_cursor_pos: cursor_pos,
+            last_known_cursor_pos: Position::default(),
             inline_viewport_owned: false,
         })
     }

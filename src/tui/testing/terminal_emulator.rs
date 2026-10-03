@@ -34,6 +34,7 @@ impl Write for EmulatorWriter {
 pub(crate) struct EmulatorBackend {
     pub screen: Rc<RefCell<EmulatedScreen>>,
     pub fail_cursor_query: bool,
+    pub cursor_queries: usize,
     backend: CrosstermBackend<EmulatorWriter>,
 }
 
@@ -48,6 +49,7 @@ impl EmulatorBackend {
             backend: CrosstermBackend::new(EmulatorWriter(screen.clone())),
             screen,
             fail_cursor_query: false,
+            cursor_queries: 0,
         }
     }
 }
@@ -95,6 +97,7 @@ impl Backend for EmulatorBackend {
     }
 
     fn get_cursor_position(&mut self) -> io::Result<Position> {
+        self.cursor_queries += 1;
         if self.fail_cursor_query {
             return Err(io::Error::other("injected cursor query failure"));
         }
