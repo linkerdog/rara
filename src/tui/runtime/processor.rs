@@ -76,23 +76,31 @@ impl RuntimeCommandProcessor {
                 if !app.goal_handle.matches_resume_ticket(&ticket) {
                     return Ok(());
                 }
-                if self.agent().is_none() || !crate::tui::goal_resume::idle_for_goal(app, mode) {
+                let agent = if crate::tui::goal_resume::idle_for_goal(app, mode) {
+                    self.runtime.agent_mut().take()
+                } else {
+                    None
+                };
+                let Some(agent) = agent else {
                     app.pending_goal_resume = Some(crate::tui::goal_resume::PendingGoalResume {
                         ticket,
                         mode,
                         enqueued: false,
                     });
                     return Ok(());
-                }
+                };
                 app.pending_goal_resume = None;
                 let goal = match app.goal_handle.claim_continuation(&ticket, mode) {
-                    Ok(Some(goal)) => goal,
-                    Ok(None) => return Ok(()),
+                    Ok(goal) => goal,
                     Err(error) => {
                         log::warn!("Goal admission failed: {error:#}");
                         app.push_notice(format!("Goal resume failed: {error:#}"));
-                        return Ok(());
+                        None
                     }
+                };
+                let Some(goal) = goal else {
+                    *self.runtime.agent_mut() = Some(agent);
+                    return Ok(());
                 };
                 let prompt = if goal.status == crate::runtime_goals::GoalStatus::BudgetLimited {
                     crate::runtime_client::goal_budget_limit_prompt(&goal)
@@ -106,11 +114,6 @@ impl RuntimeCommandProcessor {
                 );
                 app.goal = Some(goal);
                 let services = self.runtime.task_services();
-                let agent = self
-                    .runtime
-                    .agent_mut()
-                    .take()
-                    .expect("ready agent checked before admission");
                 super::tasks::start_goal_continuation_task_with_services(
                     app, prompt, agent, services,
                 );

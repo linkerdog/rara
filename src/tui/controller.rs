@@ -323,7 +323,7 @@ impl TuiController {
                 );
             }
             RuntimeProjectionEvent::Snapshot(snapshot) => {
-                self.app.snapshot = *snapshot;
+                self.app.snapshot = (*snapshot).into();
                 let catalogs = self.app.snapshot.model_catalogs.clone();
                 self.app.apply_model_catalog_snapshots(&catalogs);
             }
@@ -360,7 +360,7 @@ impl TuiController {
 
     pub(super) fn publish_snapshot_projection(&self) {
         self.runtime_port
-            .publish_snapshot(self.app.snapshot.clone());
+            .publish_snapshot(self.app.snapshot.clone().into_inner());
     }
 
     /// Sync snapshot from the active agent (must be called at the top of the event loop).
@@ -369,7 +369,7 @@ impl TuiController {
         processor: &mut RuntimeCommandProcessor,
     ) -> anyhow::Result<()> {
         processor.sync_snapshot(&mut self.app);
-        self.app.snapshot = self.runtime_port.snapshot().await?;
+        self.app.snapshot = self.runtime_port.snapshot().await?.into();
         Ok(())
     }
 

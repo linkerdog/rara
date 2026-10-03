@@ -191,6 +191,34 @@ fn final_table_matches_canonical_styled_rows() {
 }
 
 #[test]
+fn table_interrupting_a_mutable_paragraph_preserves_preceding_prose_at_every_split() {
+    for before in [
+        "Intro.\n",
+        "Stable.\n\nA mutable **paragraph**.\nContinued prose.\n",
+        "Stable.\r\n\r\nUnicode \u{4e16}\u{754c} e\u{301}.\r\n",
+        "See [id].\n\n[id]: https://example.com\n\nMore prose.\n",
+    ] {
+        let source = format!("{before}| A | B |\n| --- | --- |\n| long | value |\n\nAfter.\n");
+        let expected_live = canonical(before, None);
+        let expected_final = canonical(&source, None);
+        for (split, _) in source.char_indices().chain([(source.len(), '\0')]) {
+            let mut stream = collector();
+            for chunk in [&source[..split], &source[split..]] {
+                stream.push_delta(chunk);
+                stream.lines();
+            }
+            assert!(
+                stream.held_table_start.is_some(),
+                "split {split}: {source:?}"
+            );
+            assert_eq!(stream.lines(), expected_live, "split {split}: {source:?}");
+            stream.finalize();
+            assert_eq!(stream.lines(), expected_final, "split {split}: {source:?}");
+        }
+    }
+}
+
+#[test]
 fn loose_list_matches_canonical_styled_rows() {
     assert_live_equals_full(&["- first\n", "- second\n\n", "  another paragraph\n"]);
 }

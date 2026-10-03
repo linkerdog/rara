@@ -16,7 +16,8 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![
         ("pending".into(), "Generalize instruction discovery".into()),
         (
@@ -58,7 +59,8 @@ fn active_turn_cell_renders_updated_plan_checklist() {
             message: "Improve the plan rendering".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![
         ("completed".into(), "Inspect the current plan UI".into()),
         (
@@ -101,7 +103,8 @@ fn active_turn_cell_hides_stale_updated_plan_after_plan_turn_finishes() {
             message: "Implement the approved fix".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![("pending".into(), "Inspect the config loading flow".into())];
     app.snapshot.plan_explanation = Some("This should not keep rendering after plan exit.".into());
 
@@ -138,7 +141,8 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -172,7 +176,8 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.snapshot
         .pending_interactions
         .push(crate::tui::state::PendingInteractionSnapshot {
@@ -236,7 +241,8 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
             message: "Run a shell command".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.queue_follow_up_message("then review the diff");
     app.snapshot
         .pending_interactions
@@ -285,7 +291,8 @@ fn active_turn_cell_does_not_render_completed_plan_decision() {
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::PlanApproval,
         "Plan Decision",
@@ -331,7 +338,8 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
@@ -381,7 +389,8 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
@@ -421,7 +430,8 @@ fn active_turn_cell_keeps_streaming_response_without_responding_card() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("streaming model output".into()),
@@ -456,7 +466,8 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
             message: "Approve the plan".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::PlanApproval,
         "Plan Decision",
@@ -471,7 +482,8 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
             message: "Continue with the next task".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -497,7 +509,8 @@ fn active_turn_cell_labels_delegated_plan_questions() {
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_local_request_input(
         "plan_agent",
         "Which discovery strategy should we keep?",
@@ -537,7 +550,8 @@ fn active_turn_cell_labels_delegated_completed_questions() {
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::RequestInput,
         "Which discovery strategy should we keep?",

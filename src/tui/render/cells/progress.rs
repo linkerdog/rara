@@ -1,5 +1,3 @@
-use ratatui::text::Line;
-
 use super::super::compact_summary_lines;
 use super::HistoryCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
@@ -119,22 +117,4 @@ pub(super) fn push_progress_group<'a>(
             active,
         ))),
     }
-}
-
-pub(super) fn push_streaming_thinking<'a>(
-    cells: &mut Vec<Box<dyn HistoryCell + 'a>>,
-    streaming_thinking_lines: Option<&'a [Line<'static>]>,
-    collapsed: bool,
-    thinking_duration: Option<std::time::Duration>,
-) {
-    let Some(stream_lines) = streaming_thinking_lines.filter(|lines| !lines.is_empty()) else {
-        return;
-    };
-    cells.push(Box::new(ThinkingBlockCell::with_stream_lines(
-        String::new(),
-        Some(stream_lines),
-        4,
-        collapsed,
-        thinking_duration,
-    )));
 }
