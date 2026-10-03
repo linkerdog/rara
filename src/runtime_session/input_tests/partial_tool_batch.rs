@@ -38,9 +38,16 @@ fn result_blocks(messages: &[Message]) -> Vec<Value> {
 
 #[tokio::test]
 async fn approval_pause_retains_completed_results_in_readback_checkpoint_and_resume() {
-    for decision in [
-        ShellApprovalDecision::Once,
-        ShellApprovalDecision::Suggestion,
+    enum Resolution {
+        Answer(ShellApprovalDecision),
+        Cancel,
+        Interrupt,
+    }
+    for resolution in [
+        Resolution::Answer(ShellApprovalDecision::Once),
+        Resolution::Answer(ShellApprovalDecision::Suggestion),
+        Resolution::Cancel,
+        Resolution::Interrupt,
     ] {
         let root = tempfile::tempdir().expect("workspace");
         let backend = Arc::new(ScriptedBackend::new(vec![
@@ -136,30 +143,47 @@ async fn approval_pause_retains_completed_results_in_readback_checkpoint_and_res
             completed
         );
 
-        let reply = finish(
-            session
-                .submit_input(RuntimeInput::Answer {
-                    waiting_turn: first.turn_id,
-                    answer: RuntimeInputAnswer::Shell { decision },
-                })
-                .await
-                .expect("approval answer"),
-        )
-        .await;
+        let next_input = match resolution {
+            Resolution::Answer(decision) => RuntimeInput::Answer {
+                waiting_turn: first.turn_id.clone(),
+                answer: RuntimeInputAnswer::Shell { decision },
+            },
+            Resolution::Cancel | Resolution::Interrupt => {
+                match resolution {
+                    Resolution::Cancel => session.cancel_turn(&first.turn_id).await,
+                    Resolution::Interrupt => session.interrupt_turn(&first.turn_id).await,
+                    Resolution::Answer(_) => unreachable!(),
+                }
+                .expect("stop approval wait");
+                assert!(session.snapshot().pending_input.is_none());
+                assert_eq!(
+                    backend.request_count(),
+                    1,
+                    "stopping must not call the model"
+                );
+                RuntimeInput::Prompt("continue after abandoning the batch".into())
+            }
+        };
+        let reply = finish(session.submit_input(next_input).await.expect("resume turn")).await;
         assert_eq!(backend.request_count(), 2);
         assert_eq!(
             completed_calls.load(Ordering::SeqCst),
             1,
             "no replay or later call"
         );
-        let expected_shell_calls = usize::from(decision == ShellApprovalDecision::Once);
+        let approved = matches!(resolution, Resolution::Answer(ShellApprovalDecision::Once));
+        let expected_shell_calls = usize::from(approved);
         assert_eq!(
             shell.calls.lock().expect("shell calls").len(),
             expected_shell_calls
         );
         let requests = backend.requests.lock().expect("requests").clone();
-        for messages in [&requests[1], &reply.transcript] {
+        let resumed_checkpoint = storage
+            .load_thread_history(session.id().as_str())
+            .expect("resumed checkpoint");
+        for messages in [&requests[1], &reply.transcript, &resumed_checkpoint] {
             let results = result_blocks(messages);
+            assert_eq!(results.len(), 3, "every provider call must have a result");
             assert_eq!(
                 results
                     .iter()
@@ -174,9 +198,15 @@ async fn approval_pause_retains_completed_results_in_readback_checkpoint_and_res
                 .filter(|block| block["tool_use_id"] == "pending-2")
                 .collect::<Vec<_>>();
             assert_eq!(pending_results.len(), 1);
+            assert_eq!(pending_results[0]["is_error"] == true, !approved);
+            let later = results
+                .iter()
+                .filter(|block| block["tool_use_id"] == "later-3")
+                .collect::<Vec<_>>();
+            assert_eq!(later.len(), 1);
             assert_eq!(
-                pending_results[0]["is_error"] == true,
-                decision == ShellApprovalDecision::Suggestion
+                later[0]["is_error"], true,
+                "unexecuted work must not look successful"
             );
         }
         session.shutdown().await.expect("shutdown");
