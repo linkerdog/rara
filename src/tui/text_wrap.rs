@@ -23,8 +23,15 @@ pub(crate) struct WrapOptions {
 pub(crate) fn grapheme_width(grapheme: &str) -> usize {
     if grapheme == "\t" {
         TAB_WIDTH
+    } else if grapheme.contains(char::is_control) {
+        0
     } else {
+        // Match Ratatui's cell-width policy for visible halfwidth sound marks.
         UnicodeWidthStr::width(grapheme)
+            + grapheme
+                .chars()
+                .filter(|ch| matches!(ch, '\u{ff9e}' | '\u{ff9f}'))
+                .count()
     }
 }
 
@@ -34,6 +41,40 @@ pub(crate) fn expand_tabs(text: &str) -> String {
 
 pub(crate) fn display_width(text: &str) -> usize {
     text.graphemes(true).map(grapheme_width).sum()
+}
+
+/// Returns a source prefix ending at a whole-grapheme display-column boundary.
+pub(crate) fn truncate_to_width(text: &str, width: usize) -> &str {
+    if width == 0 {
+        return "";
+    }
+    let mut remaining = width;
+    let mut end = 0;
+    for (offset, grapheme) in text.grapheme_indices(true) {
+        let Some(next) = remaining.checked_sub(grapheme_width(grapheme)) else {
+            break;
+        };
+        remaining = next;
+        end = offset + grapheme.len();
+    }
+    &text[..end]
+}
+
+/// Returns a source suffix starting at a whole-grapheme display-column boundary.
+pub(crate) fn suffix_to_width(text: &str, width: usize) -> &str {
+    if width == 0 {
+        return "";
+    }
+    let mut remaining = width;
+    let mut start = text.len();
+    for (offset, grapheme) in text.grapheme_indices(true).rev() {
+        let Some(next) = remaining.checked_sub(grapheme_width(grapheme)) else {
+            break;
+        };
+        remaining = next;
+        start = offset;
+    }
+    &text[start..]
 }
 
 fn is_break_space(grapheme: &str) -> bool {
@@ -166,5 +207,23 @@ mod tests {
         assert_eq!(expand_tabs("a\tb"), "a    b");
         assert_eq!(grapheme_width("\u{1f469}\u{200d}\u{1f4bb}"), 2);
         assert_eq!(grapheme_width("a\u{301}"), 1);
+    }
+
+    #[test]
+    fn prefix_and_suffix_clipping_preserve_unicode_boundaries() {
+        let source = "a\u{301}\u{754c}\u{1f469}\u{200d}\u{1f4bb}\u{ff76}\u{ff9e}";
+        let boundaries = source
+            .grapheme_indices(true)
+            .map(|(offset, _)| offset)
+            .chain([source.len()])
+            .collect::<Vec<_>>();
+        for width in 0..16 {
+            let prefix = truncate_to_width(source, width);
+            let suffix = suffix_to_width(source, width);
+            assert!(boundaries.contains(&prefix.len()));
+            assert!(boundaries.contains(&(source.len() - suffix.len())));
+            assert!(display_width(prefix) <= width);
+            assert!(display_width(suffix) <= width);
+        }
     }
 }

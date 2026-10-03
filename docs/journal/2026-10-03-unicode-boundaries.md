@@ -1,0 +1,166 @@
+# Unicode Display And Editing Boundaries
+
+## Summary
+
+Issue [#924](https://github.com/linkerdog/rara/issues/924) covers terminal-column
+truncation, UTF-8-safe session titles, grapheme editing, canonical selection,
+and checked goal restoration. The source baseline is
+`c33161184e31bd078dc7642b56d928ff712eefb4`, stacked on the display-ingestion work.
+
+## Reference Patterns
+
+- Codex `ea2046f36d5ee12d39c8e168fc3e5129301afa2b`: width and styled-line
+  truncation share column measurement; textarea movement uses atomic grapheme
+  boundaries. Its additional text-element and Thai-mark policies are not
+  adopted by this focused whole-grapheme editor change.
+- Claude Code reference checkout `4b9d30f7953273e567a18eb819f4eddd45fcc877`:
+  `MeasuredText` exposes grapheme boundaries and offset snapping; truncation
+  accumulates column widths without splitting segments. Offset units and NFC
+  normalization are not copied into the existing character-offset model.
+- Pinned Ratatui 0.30.2 / core 0.1.2: buffer output skips standalone zero-width
+  graphemes, but includes halfwidth dakuten/handakuten in cell width. Selection
+  must consume the same display projection, preserving visible joined clusters.
+
+## Implementation Plan
+
+1. Diagnostic and title boundaries: capture real width/UTF-8 failures, sanitize
+   full styled physical lines, clip all diagnostic chrome and prefixes, and
+   abbreviate session titles by whole-grapheme display columns. Exit requires
+   narrow width and Unicode matrix assertions while preserving ASCII labels.
+2. Editing and selection: keep stored character offsets; share explicit
+   floor/ceil/previous/next grapheme boundaries across existing text targets
+   and paste bursts. Normalize complete styled rows before selection so
+   invisible standalone clusters cannot leak into copy or split visible
+   clusters across spans. Exit requires state, rendered-buffer, and drag/copy
+   assertions, including clusters joined by insertion or deletion.
+3. Goal restore: validate persisted numeric fields without changing the durable
+   schema. Invalid snapshots leave the thread usable, clear stale session-local
+   goals, retain the stored snapshot, and provide a field-specific notice. Exit
+   requires production restore-path coverage and exact-limit decoding checks.
+
+No protocol, package dependency, persistence schema, Bazel configuration, or
+history rewrite is part of this plan. Local source checks, exact-head remote
+CI, review/merge, and physical-terminal acceptance remain separate gates.
+
+## Implementation Checkpoint
+
+- Shared prefix/suffix column primitives replace scalar/byte truncation in
+  diagnostics, startup labels/paths, and session titles. Every diagnostic row
+  is normalized and clipped once, including oversized prefixes and chrome.
+  Maximum LSP coordinates convert to `u64` before one-based formatting.
+- Character-offset storage remains unchanged. Shared editor navigation,
+  deletion, insertion, and paste bursts now use whole-grapheme boundaries.
+  Deletion repairs boundaries if neighboring regional indicators join;
+  insertion/paste snaps past newly completed ZWJ clusters.
+- Styled physical rows omit standalone zero-width clusters and repair
+  cross-span clusters. Removing an invisible separator triggers final
+  re-segmentation, making normalization idempotent. Already valid style-span
+  boundaries stay intact, preserving the existing cache equality contract.
+- Goal restore uses checked numeric admission, field-specific warning/notices,
+  exact-limit acceptance, and non-destructive rejection. Absent/invalid target
+  snapshots clear stale session-local goals. Replacing validated state recovers
+  a poisoned goal handle; this is not a general panic-site audit.
+- The shared startup/path helpers had the same scalar truncation defect and a
+  zero-width marker overflow, so they now reuse the column/grapheme boundary.
+  ASCII marker styles remain unchanged (`...` for diagnostics; `…` elsewhere).
+
+## Initial Validation
+
+- Ten production-path baseline regressions failed at `c331611`: diagnostic
+  overflow, multibyte title panic, scalar navigation/deletion, joiner insertion
+  and paste, invisible/cross-style row projection, and overflowing goal restore.
+- An additional pre-fix test against unchanged startup/path helpers exposed
+  their zero-column ellipsis overflow. Both shared truncation paths now satisfy
+  narrow/CJK/ZWJ/combining/zero-width matrices.
+- Twenty-five added focused tests cover these boundaries. The existing ASCII
+  truncation test moved to the shared styled clipping module without losing
+  its assertions. No snapshots were changed.
+- `cargo test --quiet`: 1,690 root unit tests passed, one explicit paid-provider
+  cache trial remains ignored; both integration suites passed (1 and 8 tests).
+- `cargo test --quiet --lib tui::`: all 825 TUI tests passed on the final source.
+- `bazel test //:rara_unit_tests --test_output=errors`: 1,690 passed with the same
+  paid trial ignored. Invocation `6cafef26-7f38-4c9e-8377-cf1b8f009cb8` used the
+  unmodified default configuration and completed successfully.
+- `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, and
+  `git diff --check`: passed. Touched source files remain below 1,000 lines.
+- The existing macOS debug-linker compact-unwind warning appeared in both the
+  baseline and final Cargo checks; no new Rust/Clippy warning was introduced.
+
+## Terminal Writer Follow-Up
+
+The #925 lifecycle audit found a missed final consumer: the custom terminal
+diff writer still measured halfwidth sound marks with raw `unicode-width`
+and carried its own escape parser. Ratatui buffer correctness alone did not
+prove the emitted erase/skip boundaries. The follow-up keeps the existing
+diff algorithm but routes cell measurement through the shared width policy
+and sanitizer. Dedicated regressions compare measured cells and the actual
+trailing erase command; fixture compilation errors are not RED evidence.
+
+Two added regressions fail against the unchanged writer at
+`3f1a035aa570bf9865f5988f31e2de2062381ff2`: its sound-mark width is zero
+instead of Ratatui's one cell, and its trailing erase starts inside the
+two-cell halfwidth cluster. A preliminary fixture used `set_string` as though
+it returned coordinates; correcting it to `set_stringn` preceded the RED
+checks and is not defect evidence.
+
+The follow-up adds two tests (27 added tests across this PR), removes the
+duplicate escape parser, and preserves the control-free measurement fast path.
+Current source checks:
+
+- `cargo test --quiet --lib tui::`: 827 passed.
+- `cargo test --quiet`: 1,692 root tests passed, the existing paid-provider
+  trial ignored; integration suites passed (1 and 8 tests).
+- Default Bazel actual execution `60c45a3e-41dc-47f3-b14b-643124b0d533`
+  passed with 1,692 tests and the same ignored trial. Subsequent default
+  invocation `1b9f0067-c80c-446f-b0da-116446f8249a` reused that same-source
+  result; it executed zero tests and is a cache readback, not a fresh run.
+- Strict all-target Clippy, formatting, and diff checks pass. The pre-existing
+  macOS linker diagnostic is unchanged. No dependencies, snapshots, protocol,
+  persistence, or build configuration changed.
+
+## Follow-Ups
+
+Exact-head CI/review/merge and physical-terminal/clipboard acceptance are not
+established by source tests. Resume-search full cursor editing and an opt-in Vim
+mode remain separate work.
+
+## Review Integration Checkpoint
+
+Merged updated parent `35c5df3d462d0fb2356c546cab51854c26b35818` normally, retaining
+main's goal persistence, terminal restoration and paste ordering plus all stack
+review fixes. There is no dependency, schema or build-configuration change
+relative to the parent.
+
+Main's `GoalStore::restore_for_thread` already owns checked goal deserialization.
+The earlier presentation-local `session_restore_goal` decoder is therefore
+removed, including its obsolete lock-based fixtures. Thread restore retains
+main's staged reads, `disable_after_persistence_failure`, visible warning and
+healthy-restore recovery; no fallback decoder or memory-only writer is added.
+The current checkpoint supersedes the earlier journal's decoder ownership and
+field-specific-notice implementation details.
+
+Numeric coverage now exercises the canonical production restore tests:
+overflowing budgets, used tokens and turn counters, negative counters, unchanged
+stored rows, stale-goal clearing, disabled writes after invalid restore, and
+re-enabled durable writes after repair. The lifecycle round trip also preserves
+exact `u32::MAX` counters/budget and the original creation time.
+
+The editing matrix adds decomposed Hangul L/V/T jamo and tabs to navigation,
+Backspace and Delete. A focused app/layout/buffer test inserts a medial jamo
+that joins its neighbors, verifies whole-cluster cursor snapping, compares tab
+and Hangul display columns, and navigates vertically between equal columns.
+The reference review reconfirmed Codex's textarea atomic/grapheme boundaries and
+Claude Code's measured-text segment index; this change retains character-offset
+storage without NFC normalization.
+
+The halfwidth sound-mark policy and standalone-zero-width physical-row
+projection remain intentional Ratatui compatibility contracts. Large-paste
+placeholder atomicity and repeated linear cursor-boundary scans remain explicit
+editor follow-ups. Neither is claimed fixed by whole-grapheme editing, and a
+new cache or atomic-element model is not introduced in this integration.
+
+Current validation: `cargo test --offline --locked --lib tui:: -- --nocapture`
+reports 878 passed, one existing ignored test, and no failures. The added cases
+extend integration coverage; they are not new behavioral RED claims. Main's
+production `session_restore.rs` is unchanged relative to the updated parent.
+No snapshots changed, and every touched Rust file remains below 1000 lines.

@@ -13,6 +13,8 @@ not bound a single long line.
 - Paste sanitization before active-surface routing and burst buffering.
 - Stateful per-source tool progress, bounded by bytes and logical lines.
 - Canonical visual rows and content-sensitive selection snapshots.
+- Grapheme-safe display-column truncation of diagnostic rows, startup labels,
+  paths, and session titles.
 
 ## Non-Goals
 
@@ -20,9 +22,9 @@ not bound a single long line.
 - Emulating a terminal, interpreting cursor movement, or retaining ANSI colors.
 - Bounding complete assistant responses or the entire conversation history.
 - Distinguishing concurrent legacy events that have no invocation identity.
-- Rewriting Unicode directional formatting, joiners, variation selectors, or
-  other visible-text semantics. Terminal-control removal is not a Unicode
-  spoofing detector.
+- A general Unicode spoofing detector or visible annotations for invisible
+  formatting. Physical rows follow the zero-width projection contract below;
+  visible clusters retain their joiners and variation selectors.
 
 ## Architecture
 
@@ -69,6 +71,22 @@ does not first allocate a huge sanitized or formatted display string.
 - Selection uses the latest canonical immutable visual rows. A same-length
   middle edit must refresh copy/highlight even when edges and row counts match.
   Unchanged history does not require a full-content hash on every frame.
+- Physical styled rows remove standalone zero-width graphemes that Ratatui
+  does not render. Combining marks and joiners inside visible clusters remain
+  intact, even across style boundaries; the first contributing span owns the
+  cluster style. Rendering, widths, highlight, and copy consume this projection.
+  Removing an invisible separator can join visible clusters; the final
+  projection is re-segmented so repeated normalization cannot change its layout.
+- Diagnostic rows sanitize all metadata before display-column truncation.
+  Every row, including headings, prefixes, summaries, and hidden counts, fits
+  the requested width. Truncation never splits a grapheme. Session-title middle
+  abbreviation likewise uses display columns rather than UTF-8 byte slices.
+  Shared startup/path truncation uses the same grapheme-column primitives;
+  zero available columns produce empty text, not an overflowing marker.
+- The custom terminal diff writer uses that same column policy for glyph
+  invalidation, skipped continuation cells, and trailing erase boundaries.
+  Legacy escaped cell symbols are measured through the shared sanitizer rather
+  than a second ANSI parser; halfwidth sound marks must remain visible cells.
 
 ## Validation Matrix
 
@@ -80,6 +98,9 @@ does not first allocate a huge sanitized or formatted display string.
 | Paste | Composer, burst expansion, editable overlays, and read-only ownership after sanitization |
 | Display coverage | Complete/restored constructors and styled tool-output rows contain no terminal controls |
 | Selection identity | Production rows and drag/copy after a same-sized middle replacement |
+| Unicode columns | Diagnostic chrome/prefix/message and startup/path/title matrices at zero, narrow, and wide widths; styled cross-span clusters and halfwidth sound marks |
+| Visible projection | Standalone zero-width removal, cross-style combining/ZWJ preservation, idempotent re-segmentation, and buffer/highlight/copy agreement |
+| Final terminal diff | Halfwidth sound-mark widths agree with Ratatui cells, including escaped legacy symbols; trailing erase starts after the complete cluster |
 
 ## Operational Notes
 
@@ -92,10 +113,11 @@ large chunk still requires work proportional to its input size.
 
 - Tests do not prove physical-terminal latency or native clipboard acceptance.
 - Legacy progress without a call/terminal ID cannot separate same-name calls.
-- Unicode directional overrides and invisible formatting can still affect
-  visual interpretation; escaping or annotating them requires a separate
-  source-display policy that preserves legitimate Unicode text and emoji.
+- Column normalization is not a general Unicode spoofing detector. Raw source
+  and visually confusable Unicode require a separate inspection/annotation
+  policy that preserves legitimate text and emoji.
 
 ## Source Journals
 
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
+- [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)

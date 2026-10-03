@@ -156,6 +156,7 @@ fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
 
 /// Measures the displayed prefix of a clipped, single-line editor.
 pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> usize {
+    let offset = super::input_text::floor_grapheme_offset(input, offset);
     let prefix = input
         .chars()
         .take(offset)
@@ -167,6 +168,14 @@ pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipped_cursor_never_measures_an_interior_emoji_prefix() {
+        let input = "\u{1f469}\u{200d}\u{1f4bb}z";
+        assert_eq!(clipped_cursor_column(input, 1, 8), 0);
+        assert_eq!(clipped_cursor_column(input, 2, 8), 0);
+        assert_eq!(clipped_cursor_column(input, 3, 8), 2);
+    }
 
     #[test]
     fn soft_wrap_boundary_belongs_to_the_following_character_row() {

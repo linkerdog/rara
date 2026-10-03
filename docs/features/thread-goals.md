@@ -118,6 +118,16 @@ The model-facing tool contract is intentionally narrower:
 
 ## Contracts
 
+### Snapshot Numeric Safety
+
+The runtime `GoalStore` checks token budgets, used tokens, and completed turns
+against the in-memory `u32` range. An invalid or out-of-range numeric field
+rejects that goal with a visible notice while keeping the thread resumable and
+the stored data untouched. The TUI disables goal persistence after a failed
+restore; it must not wrap counts, turn an invalid budget into an unlimited goal,
+or keep another thread's in-memory goal. A healthy subsequent restore re-enables
+durable writes. No separate presentation-local goal decoder owns this contract.
+
 ### Tool Response Shape
 
 `get_goal`, `create_goal`, and `update_goal` return:
@@ -199,6 +209,9 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   classifier-injected system reason.
 - Budget-limit prompts ask for wrap-up without new work.
 - Bottom-pane rendering keeps the goal label compact and uses `tokens` units.
+- Production thread restoration rejects overflowing counters/budgets without
+  rewriting stored rows, then admits exact `u32` limits after repair. Rejection
+  disables goal persistence until a healthy restore, retaining main runtime ownership.
 - Fresh-app round trips preserve all five statuses, counters, budgets, and the
   original creation time through both command and tool mutations.
 - Clear remains absent after restoration, including a switch from another
@@ -264,4 +277,5 @@ status, zero usage, or a fresh creation time to hide corrupted data.
 - `docs/journal/2026-05-08-codex-129-goals.md`
 - `docs/journal/2026-09-16-codex-v0154-goals.md`
 - `docs/journal/2026-09-16-goal-resume-permission-tui.md`
+- [Unicode boundary checkpoint](../journal/2026-10-03-unicode-boundaries.md)
 - `docs/journal/2026-10-02-thread-goal-persistence.md`

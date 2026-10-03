@@ -8,6 +8,7 @@ mod controller;
 mod custom_terminal;
 #[cfg(test)]
 mod display_boundary_tests;
+mod display_clip;
 mod display_sanitize;
 mod display_tail;
 mod event_dispatch;
@@ -19,6 +20,7 @@ mod highlight;
 mod input_control;
 #[cfg(test)]
 mod input_ownership_tests;
+mod input_text;
 #[cfg(test)]
 mod interaction_tests;
 mod interaction_text;
@@ -67,6 +69,8 @@ mod transcript_rows;
 mod transcript_text;
 #[cfg(test)]
 mod transcript_work;
+#[cfg(test)]
+mod unicode_boundary_tests;
 
 #[cfg(test)]
 pub(crate) use self::event_dispatch::dispatch_event;
