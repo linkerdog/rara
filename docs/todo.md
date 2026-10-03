@@ -15,7 +15,7 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
       LLM/tool contracts and the [shared loop machine](features/portable-agent-loop.md):
-      provider crates, portable effect drivers, browser HTTP/SSE transport,
+      provider crates, portable model/tool effects, browser HTTP/SSE transport,
       host-compatible accounting clocks and future bounds, and browser runtime
       tests. The [contract](features/portable-llm-contracts.md) currently proves
       browser-target compilation only.
@@ -305,8 +305,8 @@ Active backlog only. Keep this file small and current.
 - [ ] Extract the minimal runtime dependency graph so external Rust hosts do
       not pull TUI, local-model, ACP, or OAuth implementations
       ([#860](https://github.com/linkerdog/rara/issues/860)). The Git fixture
-      validates portable contracts and shared control transitions; extend it to
-      portable execution adapters and the
+      validates portable contracts and the shared asynchronous executor; extend
+      it to portable model/tool adapters and the
       real `RuntimeSession` with cancellation and transcript readback before
       closing the issue. Follow the [extraction sequence](features/portable-tool-contracts.md#runtime-extraction-sequence).
 - [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,

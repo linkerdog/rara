@@ -48,8 +48,8 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
-- `portable-agent-loop.md`: serializable shared loop decisions, effect receipts,
-  native driver boundaries, and external dependency validation.
+- `portable-agent-loop.md`: serializable shared loop decisions, asynchronous
+  execution, host effect boundaries, and external dependency validation.
 - `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation
   context, compatibility exports, and standalone Git dependency verification.
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
