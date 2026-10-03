@@ -41,6 +41,123 @@ fn restore(fixture: &mut Fixture) {
 }
 
 #[tokio::test]
+async fn refused_or_failed_goal_admission_keeps_the_ready_agent() {
+    for status in [GoalStatus::Paused, GoalStatus::Pursuing] {
+        let mut fixture = Fixture::new().await;
+        seed_thread(&mut fixture, status);
+        restore(&mut fixture);
+        let expected_session = fixture.processor.agent().unwrap().session_id.clone();
+        let app = fixture.controller.app_mut();
+        if status == GoalStatus::Pursuing {
+            app.goal_handle
+                .mutate(|goal| {
+                    let goal = goal.as_mut().unwrap();
+                    goal.token_budget = Some(1);
+                    goal.tokens_used = 1;
+                    Ok(())
+                })
+                .unwrap();
+            let db = app.state_db.as_ref().unwrap();
+            rusqlite::Connection::open(db.path()).unwrap().execute_batch(
+                "CREATE TRIGGER reject_goal_write BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected admission failure'); END;"
+            ).unwrap();
+        }
+        let expected_goal = app.goal_handle.snapshot();
+        let ticket = app.goal_handle.resume_ticket().unwrap();
+        fixture
+            .processor
+            .apply_command(
+                app,
+                RuntimeCommand::ContinueGoal {
+                    ticket,
+                    mode: crate::runtime_goals::GoalContinuationMode::Automatic,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture.processor.agent().unwrap().session_id,
+            expected_session
+        );
+        assert_eq!(app.goal_handle.snapshot(), expected_goal);
+        assert!(app.bottom_pane.running_task.is_none());
+        assert!(app.pending_goal_resume.is_none());
+        if status == GoalStatus::Pursuing {
+            assert!(
+                app.bottom_pane
+                    .notice
+                    .as_deref()
+                    .unwrap()
+                    .contains("injected admission failure")
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn plan_mode_retains_automatic_goal_until_execute_admission() {
+    let mut fixture = Fixture::new().await;
+    seed_thread(&mut fixture, GoalStatus::Pursuing);
+    restore(&mut fixture);
+    fixture.controller.app_mut().agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
+    let ticket = fixture
+        .controller
+        .app()
+        .goal_handle
+        .resume_ticket()
+        .unwrap();
+    fixture
+        .controller
+        .queue_restored_goal(&fixture.processor)
+        .await;
+    assert!(fixture.port.commands().is_empty());
+    fixture
+        .processor
+        .apply_command(
+            fixture.controller.app_mut(),
+            RuntimeCommand::ContinueGoal {
+                ticket,
+                mode: crate::runtime_goals::GoalContinuationMode::Automatic,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(fixture.processor.agent().is_some());
+    assert!(
+        fixture
+            .controller
+            .app()
+            .pending_goal_resume
+            .as_ref()
+            .is_some_and(|pending| !pending.enqueued)
+    );
+    fixture.controller.app_mut().agent_execution_mode = crate::agent::AgentExecutionMode::Execute;
+    fixture
+        .controller
+        .queue_restored_goal(&fixture.processor)
+        .await;
+    let commands = fixture.port.commands();
+    assert_eq!(commands.len(), 1);
+    fixture
+        .processor
+        .apply_command(fixture.controller.app_mut(), commands[0].clone())
+        .await
+        .unwrap();
+    assert!(fixture.controller.app().pending_goal_resume.is_none());
+    let task = fixture
+        .controller
+        .app_mut()
+        .bottom_pane
+        .running_task
+        .take()
+        .unwrap();
+    assert!(matches!(
+        task.handle.await.unwrap(),
+        TaskCompletion::Query { .. }
+    ));
+}
+
+#[tokio::test]
 async fn actual_loop_queues_restored_goal_once_without_a_keypress() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);

@@ -73,7 +73,7 @@ impl TuiHarness {
         let mut app = TuiApp::new(ConfigManager {
             path: config_dir.path().join("config.json"),
         })?;
-        app.snapshot = snapshot.clone();
+        app.snapshot = snapshot.clone().into();
         let oauth_manager = Arc::new(OAuthManager::new_for_config_dir(
             config_dir.path().join("oauth"),
         )?);
@@ -297,7 +297,7 @@ impl TuiHarness {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&self.app.active_turn))
+            .chain(std::iter::once(&*self.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .any(|entry| entry.message.contains(expected));
         assert!(found, "transcript does not contain {expected:?}");
@@ -306,7 +306,7 @@ impl TuiHarness {
     pub(crate) async fn pump_one(&mut self) {
         let event = self.events.next().await.expect("fake runtime event");
         match event {
-            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
+            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = (*snapshot).into(),
             RuntimeProjectionEvent::Runtime(event) => {
                 if !accept_runtime_event(&mut self.last_runtime_event, &event) {
                     return;
@@ -448,7 +448,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting"))
             .count();
@@ -465,7 +465,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting again"))
             .count();

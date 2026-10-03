@@ -30,7 +30,8 @@ fn footer_summary_text_reports_permission_and_approval_when_idle() {
         estimated_history_tokens: 1234,
         context_window_tokens: Some(32768),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert_eq!(rendered, "perm=custom approval=suggestion");
@@ -52,7 +53,8 @@ fn footer_summary_text_shows_tokens_while_busy() {
         total_input_tokens: 111,
         total_output_tokens: 22,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert_eq!(rendered, "perm=custom approval=suggestion  tokens=2.0k");
@@ -77,7 +79,8 @@ fn footer_summary_text_shows_cache_hit_rate_when_usage_has_cache_tokens() {
         total_cache_hit_tokens: 80,
         total_cache_miss_tokens: 20,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert!(rendered.contains("cache_hit=80.0%"));

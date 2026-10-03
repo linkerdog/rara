@@ -4,7 +4,12 @@ use std::{path::Path, rc::Rc};
 
 use ratatui::text::Line;
 
-use super::{active_turn_cell, committed_turn_lines, turn_divider_line};
+use super::{
+    ResponseView,
+    active_prefix::{ActivePrefixKey, LiveThinkingKey},
+    cells::HistoryCell,
+};
+use super::{active_turn_cell, cells::ActiveTurnCell, committed_turn_lines, turn_divider_line};
 #[cfg(test)]
 use crate::tui::transcript_work::{WorkKind, WorkMeter};
 use crate::tui::{
@@ -22,13 +27,40 @@ struct HistoryKey {
 }
 
 #[derive(Default)]
+struct CachedRows {
+    width: u16,
+    logical: Vec<Line<'static>>,
+    block: Rc<RowBlock>,
+}
+
+impl CachedRows {
+    fn update(&mut self, lines: Vec<Line<'static>>, width: u16, #[cfg(test)] work: &WorkMeter) {
+        // Compare all styles after an input-key miss, retaining wrapped rows
+        // when the changed inputs have no visible effect.
+        if self.width != width || self.logical != lines {
+            #[cfg(test)]
+            work.record(WorkKind::Wrap, lines.len());
+            let block = Rc::new(RowBlock::wrap(&lines, width));
+            #[cfg(test)]
+            work.record(WorkKind::Text, block.len());
+            self.block = block;
+            self.logical = lines;
+            self.width = width;
+        }
+    }
+}
+
+#[derive(Default)]
 pub(crate) struct CommittedTranscriptRenderCache {
     key: Option<HistoryKey>,
     rendered_turns: usize,
     history: SharedHistory,
-    active_width: u16,
-    active_logical: Vec<Line<'static>>,
-    active: Rc<RowBlock>,
+    active: CachedRows,
+    after_thinking: Option<CachedRows>,
+    thinking: CachedRows,
+    thinking_key: Option<LiveThinkingKey>,
+    active_key: Option<ActivePrefixKey>,
+    active_stream_view: Option<ResponseView>,
     #[cfg(test)]
     pub(crate) work: WorkMeter,
 }
@@ -41,22 +73,20 @@ impl CommittedTranscriptRenderCache {
     }
 
     fn update_active(&mut self, active: Vec<Line<'static>>, width: u16) {
-        // Presentation writes are not yet encapsulated by exhaustive revisions.
-        // Compare every styled logical row, never only edges/counts/text lengths.
-        if self.active_width != width || self.active_logical != active {
+        self.active.update(
+            active,
+            width,
             #[cfg(test)]
-            self.work.record(WorkKind::Wrap, active.len());
-            let block = Rc::new(RowBlock::wrap(&active, width));
-            #[cfg(test)]
-            self.work.record(WorkKind::Text, block.len());
-            self.active = block;
-            self.active_logical = active;
-            self.active_width = width;
-        }
+            &self.work,
+        );
     }
 }
 
 pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
+    materialize_cell(app, width, active_turn_cell(app))
+}
+
+fn materialize_cell(app: &TuiApp, width: u16, cell: ActiveTurnCell<'_>) -> TranscriptRows {
     let key = HistoryKey {
         generation: app.committed_render_generation,
         width,
@@ -93,13 +123,67 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
     }
     cache.rendered_turns = app.committed_turns.len();
 
-    let mut active = active_turn_cell(app).shared_layout(width);
-    if (!active.lines.is_empty() || active.stream.is_some()) && !cache.history.is_empty() {
-        active.lines.insert(0, turn_divider_line(width));
+    let key = ActivePrefixKey::new(
+        app,
+        width,
+        !cache.history.is_empty(),
+        cell.has_visible_thinking(),
+    );
+    #[cfg(test)]
+    let work = cache.work.clone();
+    if cache.active_key.as_ref() != Some(&key) {
+        let mut active = cell.shared_layout(width);
+        if (!active.lines.is_empty() || active.after_thinking.is_some() || active.stream.is_some())
+            && !cache.history.is_empty()
+        {
+            active.lines.insert(0, turn_divider_line(width));
+        }
+        cache.update_active(active.lines, width);
+        if let Some(lines) = active.after_thinking {
+            cache
+                .after_thinking
+                .get_or_insert_with(CachedRows::default)
+                .update(
+                    lines,
+                    width,
+                    #[cfg(test)]
+                    &work,
+                );
+        } else {
+            cache.after_thinking = None;
+            cache.thinking = CachedRows::default();
+            cache.thinking_key = None;
+        }
+        cache.active_stream_view = active.stream;
+        cache.active_key = Some(key);
     }
-    cache.update_active(active.lines, width);
-    let rows = TranscriptRows::new(cache.history.clone(), cache.active.clone());
-    if let Some(view) = active.stream {
+    let mut rows = TranscriptRows::new(cache.history.clone(), cache.active.block.clone());
+    if let Some(suffix) = cache
+        .after_thinking
+        .as_ref()
+        .map(|suffix| suffix.block.clone())
+    {
+        let key = LiveThinkingKey::new(app, width, cell.thinking_duration_label());
+        if cache.thinking_key.as_ref() != Some(&key) {
+            let lines = cell
+                .thinking_cell()
+                .map(|thinking| thinking.display_lines(width))
+                .unwrap_or_default();
+            cache.thinking.update(
+                lines,
+                width,
+                #[cfg(test)]
+                &work,
+            );
+            cache.thinking_key = Some(key);
+        }
+        rows = TranscriptRows::joined(
+            rows,
+            TranscriptRows::new(SharedHistory::default(), cache.thinking.block.clone()),
+        );
+        rows = TranscriptRows::joined(rows, TranscriptRows::new(SharedHistory::default(), suffix));
+    }
+    if let Some(view) = cache.active_stream_view {
         let Some(stream) = &app.agent_markdown_stream else {
             debug_assert!(
                 false,
@@ -116,3 +200,7 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
 #[cfg(test)]
 #[path = "transcript_cache_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "active_prefix_time_tests.rs"]
+mod time_tests;

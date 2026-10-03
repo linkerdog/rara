@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::{char_offset_to_byte_index, effective_cursor_offset};
 use crate::tui::input_text::ceil_grapheme_offset;
+use crate::tui::presentation_revision::PresentationInput;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
 
@@ -19,9 +20,9 @@ pub struct BottomPaneModel {
     pub input: String,
     pub input_cursor_offset: Option<usize>,
     pub composer_scroll: usize,
-    pub pending_planning_suggestion: Option<String>,
-    pub pending_follow_up_messages: Vec<PendingFollowUpMessage>,
-    pub queued_follow_up_messages: Vec<String>,
+    pub pending_planning_suggestion: PresentationInput<Option<String>>,
+    pub pending_follow_up_messages: PresentationInput<Vec<PendingFollowUpMessage>>,
+    pub queued_follow_up_messages: PresentationInput<Vec<String>>,
     pub running_task: Option<RunningTask>,
     pub notice: Option<String>,
     // Track the paste-owned notice so discarding a draft preserves newer warnings.
@@ -44,9 +45,9 @@ impl BottomPaneModel {
             input: String::new(),
             input_cursor_offset: None,
             composer_scroll: 0,
-            pending_planning_suggestion: None,
-            pending_follow_up_messages: Vec::new(),
-            queued_follow_up_messages: Vec::new(),
+            pending_planning_suggestion: Default::default(),
+            pending_follow_up_messages: Default::default(),
+            queued_follow_up_messages: Default::default(),
             running_task: None,
             notice: None,
             paste_notice: None,

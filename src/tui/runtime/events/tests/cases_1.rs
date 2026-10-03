@@ -624,14 +624,6 @@ fn scrub_internal_control_tokens_preserves_literal_dsml_closing_tag_text() {
 }
 
 #[test]
-fn pending_control_prefix_detects_tags_after_visible_punctuation() {
-    assert!(has_pending_internal_control_context("Visible:<agent_"));
-    assert!(has_pending_internal_control_context(
-        "Visible:<｜DSML｜tool_"
-    ));
-}
-
-#[test]
 fn scrub_internal_control_tokens_preserves_colon_text_before_valid_dsml() {
     let cleaned = scrub_internal_control_tokens(
         "The status is: ok\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",

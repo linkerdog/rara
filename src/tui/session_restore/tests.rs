@@ -259,7 +259,7 @@ fn restore_session_keeps_target_session_id_even_without_history_file() {
     .expect("restored app");
     restored_app.attach_state_db(state_db);
     restored_app.bottom_pane.pending_planning_suggestion =
-        Some("stale planning suggestion".to_string());
+        Some("stale planning suggestion".to_string()).into();
     restored_app.queue_follow_up_message("stale queued follow-up");
 
     restore_thread_by_id(
