@@ -29,13 +29,13 @@ fn mouse_wheel_scrolls_transcript() {
     ));
 
     // First scroll without prior events → base 3 lines (factor 1.0).
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
         Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
             assert!((-15..=-3).contains(&delta), "delta {delta} out of range");
         }
         event => panic!("unexpected event: {event:?}"),
     }
-    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &mut app) {
         Some(UiEvent::App(AppEvent::ScrollTranscript(delta))) => {
             assert!((3..=15).contains(&delta), "delta {delta} out of range");
         }
@@ -73,14 +73,14 @@ fn mouse_wheel_with_command_palette_routes_to_move_command_selection() {
 
     app.open_overlay(Overlay::CommandPalette);
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
         Some(UiEvent::App(AppEvent::MoveCommandSelection(delta))) => {
             assert!(delta < 0, "delta {delta} should be negative");
         }
         event => panic!("unexpected event: {event:?}"),
     }
 
-    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &app) {
+    match translate_event(mouse_scroll(MouseEventKind::ScrollDown), &mut app) {
         Some(UiEvent::App(AppEvent::MoveCommandSelection(delta))) => {
             assert!(delta > 0, "delta {delta} should be positive");
         }
@@ -340,7 +340,7 @@ fn crossterm_paste_event_uses_paste_channel() {
         crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
     ));
 
-    match translate_event(Event::Paste("first\nsecond".to_string()), &app) {
+    match translate_event(Event::Paste("first\nsecond".to_string()), &mut app) {
         Some(UiEvent::Paste(text)) => assert_eq!(text, "first\nsecond"),
         other => panic!("expected paste event, got {other:?}"),
     }

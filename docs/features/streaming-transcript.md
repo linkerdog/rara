@@ -53,6 +53,10 @@ Finalization must agree with the canonical complete-message renderer.
 - Terminal input, resize, focus, and runtime feedback use the same frame gate.
   Input/projection changes are immediate; resize requests are retained and the
   frame measures current terminal dimensions. Painting may wait one interval.
+- A due composer paste is flushed through the composer edit boundary before
+  frame admission, preserving history/cursor bookkeeping and requesting a paint.
+- Exiting the session may discard a pending repaint. Terminal restoration does
+  not depend on drawing that final frame.
 
 ### Incremental Markdown And Rows
 

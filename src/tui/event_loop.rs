@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crossterm::{event::EventStream, terminal::enable_raw_mode, terminal::size as terminal_size};
+use crossterm::{event::EventStream, terminal::size as terminal_size};
 use futures::StreamExt;
 use rara_state::state_db::StateDb;
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
@@ -19,9 +19,8 @@ use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
-use super::terminal_ui::{
-    build_terminal, handle_paste, teardown_terminal, update_terminal_viewport,
-};
+use super::terminal_modes::TerminalModeGuard;
+use super::terminal_ui::{build_terminal, handle_paste, update_terminal_viewport};
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 
@@ -44,11 +43,35 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
-    enable_raw_mode()?;
+    let mut terminal_modes = TerminalModeGuard::start()?;
+    let result = terminal_modes
+        .run_owner(run_tui_session(runtime, oauth_manager, startup))
+        .await?;
+    if let Err(error) = terminal_modes.restore() {
+        if result.is_ok() {
+            return Err(error.into());
+        }
+        log::warn!("Failed to restore terminal after TUI error: {error}");
+    }
+    let completed = result?;
+    completed.processor.drain_memory().await;
+    Ok(completed.session_id)
+}
+
+struct CompletedTuiSession {
+    session_id: Option<String>,
+    processor: RuntimeCommandProcessor,
+}
+
+async fn run_tui_session(
+    runtime: RuntimeClient,
+    oauth_manager: OAuthManager,
+    startup: TuiStartupOptions,
+) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
     app.goal_handle = runtime.goal_handle.clone();
-    app.goal = runtime.goal_handle.read().unwrap().clone();
+    app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
     app.sandbox_network_access = runtime.sandbox_network_access.clone();
     app.event_bus = Some(runtime.event_bus.clone());
@@ -128,12 +151,12 @@ pub async fn run_tui(
             .await?;
     }
 
-    let result: anyhow::Result<()> = loop {
+    loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
         }
-        needs_redraw |= maintainer.app_mut().bottom_pane.check_paste_burst_flush();
+        needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
         if needs_redraw {
             frames.request(Instant::now());
         }
@@ -204,7 +227,7 @@ pub async fn run_tui(
                                 if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
                                     task.handle.abort();
                                 }
-                                break Ok(());
+                                break;
                             }
                             needs_redraw = true;
                         }
@@ -230,25 +253,23 @@ pub async fn run_tui(
                             .push_notice(format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
-                    None => break Ok(()),
+                    None => break,
                 }
             }
         }
         maintainer.needs_redraw |= needs_redraw;
-    };
+    }
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
         handle.abort();
     }
-    teardown_terminal(terminal)?;
-    if result.is_ok() {
-        processor.drain_memory().await;
-    }
-    result?;
     let session_id = processor.session_id().or_else(|| {
         (!maintainer.app().snapshot.session_id.is_empty())
             .then(|| maintainer.app().snapshot.session_id.clone())
     });
-    Ok(session_id)
+    Ok(CompletedTuiSession {
+        session_id,
+        processor,
+    })
 }
 
 fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
