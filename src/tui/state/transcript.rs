@@ -5,8 +5,8 @@ use rara_state::state_db::PersistedTurnEntry;
 use ratatui::text::Line;
 
 use super::{
-    PendingFollowUpMessage, RuntimePhase, SystemMessageKind, TranscriptEntry, TranscriptTurn,
-    TuiApp,
+    PendingFollowUpMessage, RuntimePhase, SystemMessageKind, TranscriptEntry, TranscriptScroll,
+    TranscriptTurn, TuiApp,
 };
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -59,15 +59,6 @@ impl TuiApp {
         true
     }
 
-    fn reset_transcript_scroll_if_following_tail(&mut self) {
-        // Keep the transcript pinned to the tail only when the user has not
-        // manually scrolled upward. Once they scroll up, transcript mutations
-        // should avoid yanking the viewport back to the bottom.
-        if self.transcript_scroll == 0 {
-            self.transcript_scroll = 0;
-        }
-    }
-
     pub fn push_entry(&mut self, role: &'static str, message: impl Into<String>) {
         let message = match role {
             "System" | "Runtime" => redact_secrets(message.into()),
@@ -82,7 +73,6 @@ impl TuiApp {
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_tool_entry(
@@ -98,7 +88,6 @@ impl TuiApp {
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_compaction_entry(
@@ -121,7 +110,6 @@ impl TuiApp {
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_terminal_event(&mut self, event: TerminalEvent) {
@@ -131,7 +119,6 @@ impl TuiApp {
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn push_system(&mut self, message: impl Into<String>, kind: SystemMessageKind) {
@@ -141,7 +128,6 @@ impl TuiApp {
             message: entry.message.clone(),
         });
         self.active_turn.entries.push(entry);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn append_agent_delta(&mut self, delta: &str) {
@@ -155,7 +141,6 @@ impl TuiApp {
             .agent_markdown_stream
             .get_or_insert_with(|| super::AgentMarkdownStreamState::new(cwd));
         stream.push_delta(delta);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn append_agent_thinking_delta(&mut self, delta: &str) {
@@ -175,7 +160,6 @@ impl TuiApp {
         if is_first_delta {
             self.active_live.thinking_started_at = Some(std::time::Instant::now());
         }
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn finalize_agent_thinking_stream(&mut self) {
@@ -190,7 +174,6 @@ impl TuiApp {
             return;
         }
         self.push_active_progress_entry("Thinking", message);
-        self.reset_transcript_scroll_if_following_tail();
     }
 
     pub fn agent_stream_lines(&self) -> Option<&[Line<'static>]> {
@@ -235,7 +218,6 @@ impl TuiApp {
 
         if Self::replace_current_agent_segment_message(&mut self.active_turn, message.clone()) {
             self.replace_live_log_entries(&self.active_turn.entries);
-            self.reset_transcript_scroll_if_following_tail();
             return;
         }
         if self.active_turn.entries.is_empty()
@@ -243,7 +225,6 @@ impl TuiApp {
             && Self::replace_current_agent_segment_message(turn, message.clone())
         {
             self.invalidate_committed_render_cache();
-            self.reset_transcript_scroll_if_following_tail();
             return;
         }
         self.push_entry("Agent", message);
@@ -260,7 +241,7 @@ impl TuiApp {
         self.active_turn.entries.clear();
         self.clear_live_log();
         self.invalidate_committed_render_cache();
-        self.transcript_scroll = 0;
+        self.transcript_scroll = TranscriptScroll::default();
         self.agent_markdown_stream = None;
         self.agent_thinking_stream = None;
         self.clear_active_live_sections();
@@ -270,16 +251,6 @@ impl TuiApp {
         self.running_tool_boundary_count = 0;
         self.clear_pending_plan_approval();
         self.bottom_pane.notice = Some("Cleared local transcript view.".into());
-    }
-
-    pub fn scroll_transcript(&mut self, delta: i32) {
-        if delta < 0 {
-            self.transcript_scroll = self
-                .transcript_scroll
-                .saturating_add(delta.unsigned_abs() as usize);
-        } else {
-            self.transcript_scroll = self.transcript_scroll.saturating_sub(delta as usize);
-        }
     }
 
     pub fn scroll_context(&mut self, delta: i32) {
@@ -355,7 +326,6 @@ impl TuiApp {
         self.committed_turns.push(turn);
         self.clear_live_log();
         self.invalidate_committed_render_cache();
-        self.reset_transcript_scroll_if_following_tail();
         self.clear_active_live_sections();
     }
 
@@ -368,7 +338,7 @@ impl TuiApp {
         self.active_turn.entries.clear();
         self.clear_live_log();
         self.invalidate_committed_render_cache();
-        self.transcript_scroll = 0;
+        self.transcript_scroll = TranscriptScroll::default();
         self.agent_markdown_stream = None;
         self.agent_thinking_stream = None;
         self.clear_active_live_sections();
@@ -602,7 +572,7 @@ impl TuiApp {
             "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
                 .into(),
         );
-        self.transcript_scroll = 0;
+        self.transcript_scroll = TranscriptScroll::default();
     }
 
     pub fn clear_pending_planning_suggestion(&mut self) {

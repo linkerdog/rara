@@ -462,27 +462,23 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
 }
 
 #[test]
-fn transcript_scroll_offset_keeps_zero_sticky_to_bottom() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    app.transcript_scroll = 0;
-
-    assert_eq!(transcript_scroll_offset(&app, 3, 10), 7);
-
-    app.scroll_transcript(-2);
-    assert_eq!(transcript_scroll_offset(&app, 3, 10), 5);
+fn transcript_scroll_follows_the_tail_until_manual_navigation() {
+    let mut scroll = TranscriptScroll::default();
+    assert_eq!(
+        scroll.update_layout(TranscriptScrollLayout {
+            width: 80,
+            height: 4,
+            content_rows: 10,
+        }),
+        7
+    );
+    scroll.scroll(-2);
+    assert_eq!(scroll.offset(), 5);
 }
 
 #[test]
 fn transcript_scroll_offset_uses_wrapped_visual_height() {
-    let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
+    let mut scroll = TranscriptScroll::default();
     let lines = vec![
         Line::from("Agent"),
         Line::from("  This is a long streamed response that should wrap across rows."),
@@ -491,8 +487,12 @@ fn transcript_scroll_offset_uses_wrapped_visual_height() {
     let visual_rows = crate::tui::transcript_text::wrap_lines(&lines, 12).len();
     assert!(visual_rows > lines.len());
     assert_eq!(
-        transcript_scroll_offset(&app, 3, visual_rows),
-        visual_rows as u16 - 3
+        scroll.update_layout(TranscriptScrollLayout {
+            width: 12,
+            height: 4,
+            content_rows: visual_rows,
+        }),
+        visual_rows - 3
     );
 }
 
@@ -517,10 +517,10 @@ fn effective_height_includes_final_row_at_bottom_sticky() {
         entries,
     }]);
 
-    let viewport = transcript_viewport(&app, 80, 5);
+    let viewport = transcript_viewport(&mut app, 80, 5);
     let visible_lines = viewport.visible_window(5);
 
-    // Effective height = 5 - 1 = 4. With scroll=0 (bottom sticky),
+    // Effective height = 5 - 1 = 4. While following the tail,
     // the viewport should show the last 4 content rows.
     assert_eq!(visible_lines.len(), 4);
 
@@ -603,9 +603,9 @@ fn transcript_viewport_is_independent_from_overlay_state() {
         payload: None,
     });
 
-    let base = transcript_viewport(&app, 80, 18);
+    let base = transcript_viewport(&mut app, 80, 18);
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
-    let with_overlay = transcript_viewport(&app, 80, 18);
+    let with_overlay = transcript_viewport(&mut app, 80, 18);
 
     let base_rendered = base
         .lines
@@ -647,14 +647,16 @@ fn transcript_viewport_keeps_manual_scroll_when_overlay_opens() {
             },
         ],
     });
-    app.scroll_transcript(-3);
+    transcript_viewport(&mut app, 60, 8);
+    scroll_transcript(&mut app, -3);
+    let scroll = app.transcript_scroll;
 
-    let base = transcript_viewport(&app, 60, 8);
+    let base = transcript_viewport(&mut app, 60, 8);
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
-    let with_overlay = transcript_viewport(&app, 60, 8);
+    let with_overlay = transcript_viewport(&mut app, 60, 8);
 
     assert_eq!(base.scroll_offset, with_overlay.scroll_offset);
-    assert_eq!(app.transcript_scroll, 3);
+    assert_eq!(app.transcript_scroll, scroll);
 }
 
 #[test]
@@ -664,7 +666,12 @@ fn command_palette_does_not_change_scrolled_viewport_height() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.transcript_scroll = 5;
+    app.transcript_scroll.update_layout(TranscriptScrollLayout {
+        width: 80,
+        height: 20,
+        content_rows: 50,
+    });
+    app.transcript_scroll.scroll(-5);
 
     let base = desired_viewport_height(&app, 80, 24);
     app.overlay = Some(Overlay::CommandPalette);

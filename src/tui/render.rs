@@ -8,6 +8,8 @@ mod sidebar;
 mod spinner;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transcript_scroll_tests;
 mod viewport;
 
 use std::path::Path;
@@ -30,7 +32,7 @@ pub(crate) use self::overlay::popup_block;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
 use super::line_utils::prefix_lines;
-use super::state::{TranscriptEntry, TuiApp};
+use super::state::{TranscriptEntry, TranscriptScrollLayout, TuiApp};
 use super::tool_text::{
     bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
 };
@@ -103,15 +105,27 @@ fn render_transcript(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 pub(crate) fn transcript_viewport(
-    app: &TuiApp,
+    app: &mut TuiApp,
     width: u16,
     viewport_height: u16,
 ) -> TranscriptViewport {
     let lines = renderable_transcript_lines(app, width);
     let mut viewport = TranscriptViewport::new(lines, 0, width);
-    let effective_height = viewport_height.saturating_sub(1).max(1);
-    viewport.scroll_offset = transcript_scroll_offset(app, effective_height, viewport.lines.len());
+    viewport.scroll_offset = app.transcript_scroll.update_layout(TranscriptScrollLayout {
+        width,
+        height: viewport_height,
+        content_rows: viewport.lines.len(),
+    });
     viewport
+}
+
+pub(crate) fn scroll_transcript(app: &mut TuiApp, delta: i32) {
+    let Some(layout) = app.transcript_scroll.layout() else {
+        return;
+    };
+    // Content may have changed since the last frame; never navigate stale bounds.
+    transcript_viewport(app, layout.width, layout.height);
+    app.transcript_scroll.scroll(delta);
 }
 
 fn renderable_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
@@ -160,16 +174,6 @@ fn committed_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
     cache.width = width;
     cache.lines = lines.clone();
     lines
-}
-
-fn transcript_scroll_offset(
-    app: &TuiApp,
-    viewport_height: u16,
-    transcript_line_count: usize,
-) -> u16 {
-    let max_offset = transcript_line_count.saturating_sub(viewport_height as usize);
-    let top_offset = max_offset.saturating_sub(app.transcript_scroll);
-    top_offset.min(u16::MAX as usize) as u16
 }
 
 fn turn_divider_line(width: u16) -> Line<'static> {

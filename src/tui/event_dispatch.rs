@@ -123,7 +123,7 @@ async fn dispatch_event_inner(
                 return Ok(false);
             }
             if app.composer_input_is_active() && app.bottom_pane.input.is_empty() {
-                app.transcript_scroll = 0;
+                app.transcript_scroll.follow_tail();
             }
             app.insert_active_input_char(c);
         }
@@ -161,7 +161,7 @@ async fn dispatch_event_inner(
         AppEvent::NavigateInputHistory(delta) => {
             app.navigate_input_history(delta);
         }
-        AppEvent::ScrollTranscript(delta) => app.scroll_transcript(delta),
+        AppEvent::ScrollTranscript(delta) => super::render::scroll_transcript(app, delta),
         AppEvent::StartTranscriptSelection(position) => {
             app.transcript_selection.start(position);
         }
