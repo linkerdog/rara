@@ -145,6 +145,17 @@ async fn coalesced_controller_events_render_the_complete_ordered_final_projectio
     let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
     let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut controller = TuiController::new(app, port, receiver);
+    assert!(
+        controller.apply_runtime_event(RuntimeProjectionEvent::Runtime(Box::new(
+            RuntimeControlEvent {
+                event_id: "turn-started".into(),
+                provenance: RuntimeProvenance::local_tui("test-session"),
+                turn_id: Some("test-turn".into()),
+                sequence: 1,
+                event: RuntimeEvent::Session(SessionEvent::TurnStarted),
+            }
+        )))
+    );
     let start = Instant::now();
     let mut frames = FrameScheduler::default();
     frames.mark_drawn(start);
@@ -163,7 +174,7 @@ async fn coalesced_controller_events_render_the_complete_ordered_final_projectio
                     event_id: format!("event-{sequence}"),
                     provenance: RuntimeProvenance::local_tui("test-session"),
                     turn_id: Some("test-turn".into()),
-                    sequence,
+                    sequence: sequence + 1,
                     event: RuntimeEvent::Assistant(AssistantEvent::TextDelta(delta)),
                 },
             )))
@@ -199,7 +210,7 @@ async fn coalesced_controller_events_render_the_complete_ordered_final_projectio
                 event_id: "final-text".into(),
                 provenance: RuntimeProvenance::local_tui("test-session"),
                 turn_id: Some("test-turn".into()),
-                sequence: 101,
+                sequence: 102,
                 event: RuntimeEvent::Assistant(AssistantEvent::Text(expected.clone())),
             },
         )))
@@ -210,7 +221,7 @@ async fn coalesced_controller_events_render_the_complete_ordered_final_projectio
                 event_id: "turn-finished".into(),
                 provenance: RuntimeProvenance::local_tui("test-session"),
                 turn_id: Some("test-turn".into()),
-                sequence: 102,
+                sequence: 103,
                 event: RuntimeEvent::Session(SessionEvent::TurnFinished { reason: None }),
             },
         )))

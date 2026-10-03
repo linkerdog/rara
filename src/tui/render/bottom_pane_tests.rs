@@ -186,7 +186,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     assert_eq!(
@@ -215,7 +215,7 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     assert_eq!(composer_hint(&app).to_string(), "Enter queue");
@@ -585,7 +585,7 @@ async fn activity_status_line_hides_busy_progress_from_composer_bar() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
     app.queue_follow_up_message("first follow-up");
     app.queue_follow_up_message("second follow-up");

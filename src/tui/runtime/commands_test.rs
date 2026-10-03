@@ -43,7 +43,7 @@ fn mark_app_busy(app: &mut TuiApp) {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 

@@ -1,12 +1,11 @@
 use crate::agent::{Agent, BashApprovalDecision};
 use crate::runtime_client::RuntimeTaskServices;
 use crate::runtime_control::{
-    InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, SessionEvent,
-    ShellApprovalDecision,
+    InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, ShellApprovalDecision,
 };
 use crate::tui::runtime::{
-    request_running_task_cancellation, start_input_control_task, start_pending_approval_task,
-    start_plan_approval_resume_task, start_query_task,
+    QueryStopKind, request_running_task_cancellation, start_input_control_task,
+    start_pending_approval_task, start_plan_approval_resume_task, start_query_task,
     tasks::start_input_control_task_with_services,
     tasks::start_pending_approval_task_with_services,
     tasks::start_plan_approval_resume_task_with_services, tasks::start_query_task_with_services,
@@ -348,29 +347,13 @@ pub(crate) fn handle_session_control(
     request: SessionControlRequest,
 ) -> InputControlOutcome {
     match request {
-        SessionControlRequest::CancelCurrentTurn => {
-            request_running_task_cancellation(app);
-            if app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .is_some_and(|notice| notice == "Cancellation requested.")
-            {
-                publish_session_event(app, SessionEvent::TurnCancelled);
-                InputControlOutcome::CancelRequested
+        SessionControlRequest::CancelCurrentTurn | SessionControlRequest::InterruptCurrentTurn => {
+            let kind = if matches!(request, SessionControlRequest::CancelCurrentTurn) {
+                QueryStopKind::Cancel
             } else {
-                InputControlOutcome::Rejected
-            }
-        }
-        SessionControlRequest::InterruptCurrentTurn => {
-            request_running_task_cancellation(app);
-            if app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .is_some_and(|notice| notice == "Cancellation requested.")
-            {
-                publish_session_event(app, SessionEvent::TurnInterrupted);
+                QueryStopKind::Interrupt
+            };
+            if request_running_task_cancellation(app, kind) {
                 InputControlOutcome::CancelRequested
             } else {
                 InputControlOutcome::Rejected
@@ -430,12 +413,6 @@ fn publish_input_event(app: &TuiApp, event: InputEvent) {
     }
 }
 
-fn publish_session_event(app: &TuiApp, event: SessionEvent) {
-    if let Some(bus) = app.event_bus.as_ref() {
-        bus.publish_control(RuntimeEvent::Session(event));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -467,7 +444,9 @@ mod tests {
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token,
-            cancellation_requested: false,
+            query_control: Some(crate::tui::runtime::QueryTaskControl::new(
+                "test-session".into(),
+            )),
         });
     }
 
@@ -512,7 +491,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_current_turn_publishes_session_event_when_cancelled() {
+    async fn cancel_current_turn_waits_for_task_return_before_terminal_publication() {
         let mut app = test_app();
         let bus = Arc::new(RuntimeEventBus::new(8));
         let mut rx = bus.subscribe_control();
@@ -524,11 +503,10 @@ mod tests {
 
         assert_eq!(outcome, InputControlOutcome::CancelRequested);
         assert!(token.load(Ordering::SeqCst));
-        let event = rx.try_recv().expect("session event");
-        assert!(matches!(
-            event.event,
-            RuntimeEvent::Session(SessionEvent::TurnCancelled)
-        ));
+        assert!(
+            rx.try_recv().is_err(),
+            "a stop request is not a terminal event"
+        );
     }
 
     #[tokio::test]
@@ -577,7 +555,7 @@ mod tests {
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token: None,
-            cancellation_requested: false,
+            query_control: None,
         });
 
         let outcome = submit_user_prompt(&mut app, &mut None, "hello".to_string());

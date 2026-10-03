@@ -330,7 +330,7 @@ async fn escape_during_a_turn_requests_cancellation_and_preserves_pending_draft(
         started_at: std::time::Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
     handle_paste("first\nsecond".into(), tui.app_mut());
     press(&mut tui, KeyCode::Esc, KeyModifiers::NONE).await;

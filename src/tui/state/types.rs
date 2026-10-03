@@ -452,7 +452,7 @@ pub struct RunningTask {
     pub started_at: Instant,
     pub next_heartbeat_after_secs: u64,
     pub cancellation_token: Option<Arc<AtomicBool>>,
-    pub cancellation_requested: bool,
+    pub(crate) query_control: Option<crate::tui::runtime::QueryTaskControl>,
 }
 
 impl std::fmt::Debug for RunningTask {
@@ -460,7 +460,7 @@ impl std::fmt::Debug for RunningTask {
         f.debug_struct("RunningTask")
             .field("kind", &self.kind)
             .field("started_at", &self.started_at)
-            .field("cancellation_requested", &self.cancellation_requested)
+            .field("query_control", &self.query_control)
             .finish()
     }
 }
