@@ -18,8 +18,8 @@ pub(super) struct ActivePrefixKey {
     suggestion: PresentationRevision,
     pending_messages: PresentationRevision,
     queued_messages: PresentationRevision,
-    thinking_stream: Option<PresentationRevision>,
-    thinking_duration: Option<String>,
+    has_thinking_stream: bool,
+    thinking_visible: bool,
     has_response: bool,
     has_history: bool,
     busy: bool,
@@ -32,12 +32,7 @@ pub(super) struct ActivePrefixKey {
 }
 
 impl ActivePrefixKey {
-    pub(super) fn new(
-        app: &TuiApp,
-        width: u16,
-        has_history: bool,
-        thinking_duration: Option<String>,
-    ) -> Self {
+    pub(super) fn new(app: &TuiApp, width: u16, has_history: bool, thinking_visible: bool) -> Self {
         Self {
             turn: app.active_turn.revision(),
             live: app.active_live.revision(),
@@ -46,11 +41,8 @@ impl ActivePrefixKey {
             suggestion: app.bottom_pane.pending_planning_suggestion.revision(),
             pending_messages: app.bottom_pane.pending_follow_up_messages.revision(),
             queued_messages: app.bottom_pane.queued_follow_up_messages.revision(),
-            thinking_stream: app
-                .agent_thinking_stream
-                .as_ref()
-                .map(|stream| stream.presentation_revision()),
-            thinking_duration,
+            has_thinking_stream: app.has_agent_thinking_stream(),
+            thinking_visible,
             has_response: app.has_agent_stream(),
             has_history,
             busy: app.is_busy(),
@@ -58,6 +50,28 @@ impl ActivePrefixKey {
             mode: app.agent_execution_mode,
             thinking_collapsed: app.thinking_collapsed,
             approval_selection: app.approval_picker_idx,
+            width,
+            theme: crate::tui::theme::revision(),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub(super) struct LiveThinkingKey {
+    source: Option<PresentationRevision>,
+    duration: Option<String>,
+    width: u16,
+    theme: ThemeRevision,
+}
+
+impl LiveThinkingKey {
+    pub(super) fn new(app: &TuiApp, width: u16, duration: Option<String>) -> Self {
+        Self {
+            source: app
+                .agent_thinking_stream
+                .as_ref()
+                .map(|stream| stream.presentation_revision()),
+            duration,
             width,
             theme: crate::tui::theme::revision(),
         }
