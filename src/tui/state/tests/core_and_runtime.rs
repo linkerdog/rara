@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn detects_slash_command_input() {
@@ -472,7 +473,7 @@ fn push_entry_keeps_manual_transcript_scroll_position() {
     app.transcript_scroll.scroll(-6);
     let scroll = app.transcript_scroll;
 
-    app.push_entry("System", "background update");
+    app.push_entry(MessageRole::System, "background update");
 
     assert_eq!(app.transcript_scroll, scroll);
 }
@@ -492,7 +493,7 @@ fn finalize_agent_stream_keeps_manual_transcript_scroll_position() {
     app.transcript_scroll.scroll(-4);
     let scroll = app.transcript_scroll;
     app.active_turn.entries.push(TranscriptEntry {
-        role: "Agent".into(),
+        role: MessageRole::Agent,
         message: "draft".into(),
         payload: None,
     });

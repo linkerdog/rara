@@ -25,13 +25,13 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(area);
-    let hide_input_for_approval = app
+    let pending_approval = app
         .active_pending_interaction()
-        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput);
+        .filter(|p| p.kind != ActivePendingInteractionKind::RequestInput);
+    let hide_input_for_approval = pending_approval.is_some();
 
-    let composer_lines = if hide_input_for_approval {
+    let composer_lines = if let Some(pending) = pending_approval {
         // Show a single-line status when approval dock is active above.
-        let pending = app.active_pending_interaction().unwrap();
         vec![Line::from(vec![Span::styled(
             format!(
                 "{COMPOSER_INITIAL_INDENT}{} — use ↑↓ or keys to respond",

@@ -1,6 +1,25 @@
 use super::*;
 use crate::tui::runtime::{QueryStopKind, QueryTaskControl};
 
+async fn finish_plan_tasks(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(task) = app.bottom_pane.running_task.as_mut() {
+            let completion = (&mut task.handle).await;
+            super::super::completion::finish_running_task_if_ready_with_completion_mode(
+                app,
+                agent_slot,
+                Some(completion),
+                true,
+                None,
+            )
+            .await
+            .expect("finish plan task");
+        }
+    })
+    .await
+    .expect("plan tasks must complete");
+}
+
 #[tokio::test]
 async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
     let temp = tempdir().unwrap();
@@ -61,15 +80,7 @@ async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
 
     start_query_task(&mut app, "inspect and plan".to_string(), agent);
     let mut agent_slot = None;
-    for _ in 0..20 {
-        finish_running_task_if_ready(&mut app, &mut agent_slot)
-            .await
-            .expect("finish task");
-        if app.bottom_pane.running_task.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    finish_plan_tasks(&mut app, &mut agent_slot).await;
 
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Execute);
@@ -143,15 +154,7 @@ async fn exit_plan_mode_stops_for_plan_approval() {
 
     start_query_task(&mut app, "prepare a plan".to_string(), agent);
     let mut agent_slot = None;
-    for _ in 0..20 {
-        finish_running_task_if_ready(&mut app, &mut agent_slot)
-            .await
-            .expect("finish task");
-        if app.bottom_pane.running_task.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    finish_plan_tasks(&mut app, &mut agent_slot).await;
 
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Plan);

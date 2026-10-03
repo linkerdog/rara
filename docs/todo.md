@@ -87,7 +87,9 @@ Active backlog only. Keep this file small and current.
       goal restoration have focused automated coverage. See
       [the Unicode checkpoint](journal/2026-10-03-unicode-boundaries.md).
 - [ ] Finish [#925](https://github.com/linkerdog/rara/issues/925): bounded
-      interactive terminal acceptance, including tmux and macOS. Viewport
+      interactive terminal acceptance, including tmux and macOS native resize
+      reflow and stale frame fragments in scrollback. The vt100 backend does
+      not model terminal-native reflow. Viewport
       ownership, shell handoff, and focus mode are covered by
       [the viewport checkpoint](journal/2026-10-03-inline-terminal-viewport.md).
       Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by
@@ -101,9 +103,11 @@ Active backlog only. Keep this file small and current.
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).
 - [ ] Extend [interaction quality verification](interaction/quality-verification.md)
-      with narrow/CJK/paste render cases, cancel/completion interleavings,
-      monotonic style/boundary checks, and bounded PTY acceptance. Each new gate
-      needs a concrete protected defect and RED evidence before becoming required.
+      with the remaining narrow/CJK/paste surface matrix, presentation dependency
+      checks, and physical terminal/multiplexer acceptance. Cancel/completion
+      interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
+      print/raw-color lints now have focused guards. Each new gate needs a
+      concrete protected defect and RED evidence before becoming required.
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.
@@ -143,11 +147,14 @@ Active backlog only. Keep this file small and current.
 
 ## Thread Goals
 
-- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
-      restored pursuing goal only when the runtime is idle, ready, and free of
-      pending interactions. Define cancelled-turn usage reconciliation and
-      explicit goal pause/resume policy there; the turn cancellation barrier does
-      not change goal state. Keep richer goal controls in that follow-up.
+- [x] Implement [#931](https://github.com/linkerdog/rara/issues/931): explicit
+      restore continues an eligible goal once idle; durable user-stop deferral,
+      revision-checked admission, paused choice, summary, edit, replacement
+      confirmation, and compact elapsed/budget status. See
+      [thread goals](features/thread-goals.md) and the
+      [implementation journal](journal/2026-10-03-goal-resume.md).
+      Successful-turn usage remains charged; cancelled/error turns retain the
+      existing non-ledger accounting policy.
 
 ## Memory Lifecycle
 

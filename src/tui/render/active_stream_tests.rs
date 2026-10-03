@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "Work-count regression tests expose measured counts in test diagnostics."
+)]
+
+use crate::tui::message_role::MessageRole;
 use crate::tui::{
     state::{RuntimePhase, RuntimeSnapshot},
     testing::TuiHarness,
@@ -6,7 +12,9 @@ use crate::tui::{
 
 fn stream_harness() -> TuiHarness {
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
-    harness.app_mut().push_entry("You", "Stream a long answer.");
+    harness
+        .app_mut()
+        .push_entry(MessageRole::User, "Stream a long answer.");
     harness
         .app_mut()
         .set_runtime_phase(RuntimePhase::ProcessingResponse, None);
@@ -224,7 +232,9 @@ fn stream_suppression_thinking_and_finalization_keep_canonical_cell_order() {
         harness.app_mut().thinking_collapsed = collapsed;
         assert_canonical(&harness, 80);
     }
-    harness.app_mut().push_entry("Tool", "bash: cargo check");
+    harness
+        .app_mut()
+        .push_entry(MessageRole::Tool, "bash: cargo check");
     harness
         .app_mut()
         .set_runtime_phase(RuntimePhase::RunningTool, None);
@@ -245,7 +255,9 @@ fn stream_suppression_thinking_and_finalization_keep_canonical_cell_order() {
     assert_canonical(&harness, 80);
     harness.app_mut().finalize_active_turn();
     assert_canonical(&harness, 80);
-    harness.app_mut().push_entry("You", "Next turn.");
+    harness
+        .app_mut()
+        .push_entry(MessageRole::User, "Next turn.");
     harness.app_mut().append_agent_delta("Next answer.");
     assert_canonical(&harness, 80);
     harness.app_mut().reset_transcript();

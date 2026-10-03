@@ -32,7 +32,7 @@ RARA should mirror that shape while keeping its local TUI command surface.
 ## Non-Goals
 
 - Multi-goal scheduling.
-- A full Codex-style goal confirmation menu.
+- A separate multi-goal management screen.
 - Auxiliary-model planning or compression for goals.
 - A runtime classifier or durable counter that second-guesses model goal
   completion or blocked-state decisions.
@@ -67,8 +67,11 @@ Persistence-disabled embedded profiles remain explicitly in-memory.
 Successful non-plan queries capture their goal membership and input-token
 baseline at turn start. They persist usage and increment the turn counter even
 when the goal becomes complete, blocked, or paused during that query. The
-resulting status controls continuation, not accounting. Clearing or replacing
-the goal, or switching threads, prevents the old query from charging the new
+resulting status controls continuation, not accounting. Pending questions and
+shell approvals stop further continuation without losing successful-turn usage.
+Queued user work takes precedence over another substantive goal continuation;
+the budget-limit wrap-up still takes precedence over new goal work.
+Clearing or replacing the goal, or switching threads, prevents the old query from charging the new
 goal. Queries that start without an active goal do not charge a goal created
 later in that query.
 Errored/cancelled queries, plan-only queries, and the budget-limited wrap-up
@@ -87,11 +90,13 @@ The lifecycle is:
 The TUI owns local lifecycle controls:
 
 - `/goal <objective>` creates a goal when none exists or replaces a completed
-  goal; it rejects every unfinished goal and immediately starts its first
+  goal; replacing an unfinished goal requires an explicit local confirmation.
+  It immediately starts its first
   continuation when the session is idle and the runtime agent is ready.
 - `/goal --tokens <N> <objective>` creates a budgeted goal.
 - `/goal pause`, `/goal resume`, and `/goal clear` mutate local lifecycle state.
-  Resume accepts paused and blocked goals; resuming a blocked goal restarts its
+  Resume accepts paused, blocked, or idle pursuing goals (including interrupted
+  work and a failed enqueue); resuming a blocked goal restarts its
   audit and immediately starts a continuation turn when the session is idle.
   Resume refuses to change state while another task is running or the runtime
   has no agent to execute the continuation.
@@ -117,6 +122,44 @@ The model-facing tool contract is intentionally narrower:
   report final token usage without guessing.
 
 ## Contracts
+
+### Explicit Thread Resume
+
+An explicit startup resume, continue, thread ID, or picker selection arms one
+continuation for a restored pursuing goal. Runtime bootstrap alone does not.
+Admission waits for a ready agent, an idle session, execute mode, no pending
+interaction, no queued user input, and no active overlay. Admission checks the
+current goal again; a new turn, thread restore, clear, replacement, lifecycle
+change, or user stop invalidates an older request. A backend rebuild preserves
+this identity. Waiting for readiness must not drop or duplicate the request.
+
+A user cancellation or interruption durably defers automatic continuation
+without changing the goal's lifecycle. A new explicitly started turn clears
+this deferral. Goal writes retain it until that boundary; clear or replacement
+resets it. Persistence errors remain visible and must not permit automatic work.
+The additive SQLite flag defaults to false for existing rows, whose historical
+interrupts were never recorded; persisted paused/blocked/complete/budget-limited
+states still never start automatically. Invalid flag values reject restoration.
+
+Restored active goals already at their token limit start only the budget wrap-up
+after persisting the budget-limited state. Automatic work retains the current
+permission mode and normal approval path. Its notice includes `Resuming goal:`,
+the objective, `/goal pause`, and the current permission mode. Interrupted goals
+stay idle with an explicit resume hint. A paused goal offers `Resume paused
+goal?`, with `Resume goal` and `Leave paused`; dismissal leaves it paused.
+
+### Local Goal Interaction
+
+Bare `/goal` opens a summary with status, objective, elapsed wall time since
+creation, completed turns, tokens, budget, and state-appropriate commands.
+`/goal edit` pre-fills the objective for editing, preserving budget and usage;
+editing alone does not resume inactive work. Replacing an unfinished goal asks
+for confirmation and validates the original goal identity before committing.
+These controls do not loosen the model-facing `create_goal` restriction.
+`/goal pause` may pause future continuations while the current turn finishes.
+The compact indicator names every lifecycle state and displays elapsed time
+for unbounded goals or used/budget for bounded goals. Timer-driven updates are
+coalesced at the displayed time granularity, only when the visible elapsed second changes.
 
 ### Snapshot Numeric Safety
 
@@ -184,8 +227,8 @@ complete.
 
 The bottom pane should show only compact state:
 
-- lifecycle badge: `active`, `paused`, `blocked`, `done`, or `budget`;
-- turn count;
+- lifecycle badge: `Active`, `Paused`, `Blocked`, `Complete`, or `BudgetLimited`;
+- elapsed seconds for unbounded goals, or turn count for budgeted goals;
 - token usage with explicit `tokens` units;
 - remaining budget when present.
 
@@ -198,8 +241,10 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
   unfinished goals, while allowing a completed goal to be replaced.
 - `update_goal` rejects every status other than `complete` and `blocked`.
 - `/goal --tokens 98.5K <objective>` parses human-readable budgets.
-- `/goal` refuses to replace an unfinished goal, replaces a completed one, and
-  starts a newly created or resumed blocked goal with a continuation turn.
+- `/goal` asks before replacing an unfinished goal, replaces a completed one,
+  and starts a newly created or resumed goal with a continuation turn. Confirming
+  stale replacement/edit state cannot mutate another goal; dismissing a choice
+  preserves the old goal. Editing retains usage, budget, status, and deferral.
 - A resumed goal does not add its internal continuation prompt to the user
   transcript.
 - A blocked goal produces its final user-facing blocker report in the same turn
@@ -208,6 +253,18 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 - A pursuing goal continues without an out-of-band completion classifier or a
   classifier-injected system reason.
 - Budget-limit prompts ask for wrap-up without new work.
+- Explicit startup/latest/picker restoration queues exactly one continuation;
+  fresh bootstrap does not. Not-ready, busy, Plan, overlay, pending-interaction,
+  and queued-user-work gates defer admission without losing it. Recheck the
+  goal revision at consumption and reject stale or duplicate commands.
+- Interrupted work remains deferred across mutation, rebuild, and restart.
+  A new turn clears deferral durably; a failed clear leaves it set. A late stop
+  preserves an already completed turn's result and usage, while deferring its
+  next continuation. Legacy SQLite migration preserves existing lifecycle data;
+  invalid deferral values reject restoration.
+- Paused resume choices, full summaries, replacement confirmation, Unicode
+  editing, and state-specific commands render through the production harness.
+  Elapsed display invalidation occurs only when the displayed second changes.
 - Bottom-pane rendering keeps the goal label compact and uses `tokens` units.
 - Production thread restoration rejects overflowing counters/budgets without
   rewriting stored rows, then admits exact `u32` limits after repair. Rejection
@@ -238,8 +295,8 @@ Detailed goal state belongs in `/goal`, not the bottom pane.
 
 An unreadable goal row disables goal mutations for the resumed session while
 leaving its thread history available. The restore notice/log records the
-diagnostic. `/goal clear` currently reports no active goal in this state: it
-does not delete the unreadable row or repair the durable binding. Creating a
+diagnostic. `/goal clear` cannot delete the unreadable row or repair the durable
+binding, because the active snapshot was cleared during failed restoration. Creating a
 replacement goal also fails with the persistence-unavailable error. There is
 no in-app repair command.
 
@@ -264,8 +321,10 @@ status, zero usage, or a fresh creation time to hide corrupted data.
 
 ## Open Risks
 
-- RARA does not yet have Codex's full confirmation menu for replacing a goal;
-  the local `/goal` command replaces only a completed goal.
+- Older binaries did not record interruption deferral. Migration preserves
+  their lifecycle but cannot recover an unrecorded user stop.
+- If saving an interruption fails, the TUI warns that the goal may resume after
+  restart. The pending in-process admission is invalidated even on write failure.
 - The three-turn blocked audit is intentionally prompt/tool-contract enforced,
   like Codex, rather than a second runtime state machine. A malicious or weak
   model can still misuse the tool, so provider behavior should be observed.
@@ -279,3 +338,4 @@ status, zero usage, or a fresh creation time to hide corrupted data.
 - `docs/journal/2026-09-16-goal-resume-permission-tui.md`
 - [Unicode boundary checkpoint](../journal/2026-10-03-unicode-boundaries.md)
 - `docs/journal/2026-10-02-thread-goal-persistence.md`
+- [Goal resume and local controls](../journal/2026-10-03-goal-resume.md).

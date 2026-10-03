@@ -139,6 +139,7 @@ backon = "1.6.0"
 ethnum = "1.5.3"
 
 [dev-dependencies]
+tokio = { version = "1.0", features = ["test-util"] }
 tempfile = "3.17"
 insta = "1.43"
 vt100 = "0.16.2"

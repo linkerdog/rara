@@ -306,9 +306,9 @@ impl RuntimeClient {
         agent: &Agent,
         turn: Option<&GoalTurn>,
         plan_turn_finished: bool,
-        plan_approval_pending: bool,
+        interaction_pending: bool,
     ) -> anyhow::Result<GoalContinuation> {
-        goal_handle.mutate_for_turn(turn, |stored, prior_input_tokens| {
+        let continuation = goal_handle.mutate_for_turn(turn, |stored, prior_input_tokens| {
             let Some(goal) = stored.as_mut() else {
                 return Ok(GoalContinuation::NotActive);
             };
@@ -317,7 +317,12 @@ impl RuntimeClient {
                 goal.tokens_used = goal.tokens_used.saturating_add(turn_input_tokens);
                 goal.turns_completed = goal.turns_completed.saturating_add(1);
             }
-            if goal.status != GoalStatus::Pursuing || plan_turn_finished || plan_approval_pending {
+            if goal.status != GoalStatus::Pursuing
+                || plan_turn_finished
+                || interaction_pending
+                || agent.pending_user_input.is_some()
+                || agent.pending_approval.is_some()
+            {
                 return Ok(GoalContinuation::NotActive);
             }
             let budget_exhausted = goal
@@ -342,7 +347,12 @@ impl RuntimeClient {
                     prompt,
                 })
             }
-        })
+        })?;
+        if goal_handle.continuation_deferred() {
+            Ok(GoalContinuation::NotActive)
+        } else {
+            Ok(continuation)
+        }
     }
 
     /// Merge session continuity into a newly rebuilt backend before swapping it in.

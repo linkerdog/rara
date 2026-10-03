@@ -18,63 +18,6 @@ pub(super) fn is_exploration_tool_name(name: &str) -> bool {
     matches!(name, "list_files" | "read_file" | "glob" | "grep")
 }
 
-pub(super) fn exploration_action_label(message: &str) -> Option<String> {
-    let mut parts = message.split_whitespace();
-    let name = parts.next()?;
-    let rest = parts.collect::<Vec<_>>().join(" ");
-    match name {
-        "list_files" => Some(format!(
-            "List {}",
-            if rest.is_empty() { "." } else { rest.as_str() }
-        )),
-        "read_file" => Some(format!(
-            "Read {}",
-            if rest.is_empty() {
-                "file"
-            } else {
-                rest.as_str()
-            }
-        )),
-        "glob" => Some(format!(
-            "Glob {}",
-            if rest.is_empty() {
-                "workspace"
-            } else {
-                rest.as_str()
-            }
-        )),
-        "grep" => Some(format!(
-            "Search {}",
-            if rest.is_empty() {
-                "workspace"
-            } else {
-                rest.as_str()
-            }
-        )),
-        "bash" => bash_rg_exploration_action_label(&rest),
-        "explore_agent" => Some(if rest.is_empty() {
-            "Delegate repository exploration".to_string()
-        } else {
-            format!("Delegate repository exploration: {rest}")
-        }),
-        _ => None,
-    }
-}
-
-pub(super) fn planning_action_label(message: &str) -> Option<String> {
-    let mut parts = message.split_whitespace();
-    let name = parts.next()?;
-    let rest = parts.collect::<Vec<_>>().join(" ");
-    match name {
-        "plan_agent" => Some(if rest.is_empty() {
-            "Delegate plan refinement".to_string()
-        } else {
-            format!("Delegate plan refinement: {rest}")
-        }),
-        _ => None,
-    }
-}
-
 pub(super) fn tool_action_label(message: &str) -> Option<String> {
     let mut parts = message.split_whitespace();
     let name = parts.next()?;
@@ -178,6 +121,7 @@ pub(super) fn exploration_action_label_for(
             "Search {}",
             detail.as_deref().unwrap_or("workspace")
         )),
+        "bash" => detail.as_deref().and_then(bash_rg_exploration_action_label),
         "explore_agent" => Some(format!(
             "Delegate repository exploration{}",
             detail.map(|value| format!(": {value}")).unwrap_or_default()
@@ -891,70 +835,6 @@ fn format_replace_lines_result(value: &serde_json::Value) -> String {
     format!(
         "~ replace_lines {path}:{start_line}-{end_line}  -{removed_lines} lines  +{inserted_lines} lines  (Δ {line_delta:+})"
     )
-}
-
-pub(super) fn exploration_result_note(message: &str) -> Option<String> {
-    message.strip_prefix("explore_agent ").map(|summary| {
-        let first_line = summary.lines().next().unwrap_or(summary).trim();
-        format!("Sub-agent summary: {first_line}")
-    })
-}
-
-pub(super) fn planning_result_note(message: &str) -> Option<String> {
-    message.strip_prefix("plan_agent ").map(|summary| {
-        let first_line = summary.lines().next().unwrap_or(summary).trim();
-        format!("Sub-agent summary: {first_line}")
-    })
-}
-
-pub(super) struct DelegatedRequestInput {
-    pub(super) question: String,
-    pub(super) options: Vec<(String, String)>,
-    pub(super) note: Option<String>,
-}
-
-pub(super) fn subagent_request_input(message: &str) -> Option<DelegatedRequestInput> {
-    if !(message.starts_with("explore_agent ")
-        || message.starts_with("plan_agent ")
-        || message.starts_with("spawn_agent "))
-    {
-        return None;
-    }
-
-    let mut question = None;
-    let mut options = Vec::new();
-    let mut note = None;
-    for line in message
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if let Some(value) = line.strip_prefix("request_user_input:") {
-            question = Some(value.trim().to_string());
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("option:") {
-            let value = value.trim();
-            if let Some((label, description)) = value.split_once('|') {
-                options.push((label.trim().to_string(), description.trim().to_string()));
-            } else {
-                options.push((value.to_string(), String::new()));
-            }
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("note:") {
-            let value = value.trim();
-            if !value.is_empty() {
-                note = Some(value.to_string());
-            }
-        }
-    }
-
-    Some(DelegatedRequestInput {
-        question: question?,
-        options,
-        note,
-    })
 }
 
 fn first_non_empty_line(text: &str) -> &str {

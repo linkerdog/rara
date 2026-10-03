@@ -7,6 +7,7 @@ use crate::runtime_control::{
 };
 use crate::tui::controller::TuiController;
 use crate::tui::custom_terminal::Frame;
+use crate::tui::message_role::MessageRole;
 use crate::tui::runtime_port::RuntimeProjectionEvent;
 use crate::tui::state::{RuntimeSnapshot, TuiApp};
 use crate::tui::testing::FakeRuntimeClient;
@@ -47,7 +48,7 @@ async fn controller_stream_retains_events_and_holds_table_until_final_render() {
         path: temp.path().join("config.json"),
     })
     .unwrap();
-    app.push_entry("You", "Show the streamed table.");
+    app.push_entry(MessageRole::User, "Show the streamed table.");
     let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
     let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut controller = TuiController::new(app, port, receiver);
@@ -117,7 +118,7 @@ async fn controller_thinking_stream_reuses_rows_and_commits_once_before_text() {
         path: temp.path().join("config.json"),
     })
     .unwrap();
-    app.push_entry("You", "Explain the result.");
+    app.push_entry(MessageRole::User, "Explain the result.");
     let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
     let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut controller = TuiController::new(app, port, receiver);
@@ -172,7 +173,7 @@ async fn controller_thinking_stream_reuses_rows_and_commits_once_before_text() {
         .active_turn
         .entries
         .iter()
-        .filter(|entry| entry.role == "Thinking")
+        .filter(|entry| entry.role == MessageRole::Thinking)
         .collect();
     assert_eq!(thinking.len(), 1);
     assert_eq!(thinking[0].message, chunks.concat());

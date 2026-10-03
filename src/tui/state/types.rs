@@ -38,6 +38,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
 use crate::tui::display_sanitize::{StreamSanitizer, sanitize_display_text};
+use crate::tui::message_role::MessageRole;
 use crate::tui::selection::TranscriptSelection;
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -82,6 +83,7 @@ impl ApiKeyTarget {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
+    Goal,
     Help(HelpTab),
     CommandPalette,
     Status(StatusTab),
@@ -433,10 +435,8 @@ pub enum TuiEvent {
     /// Structured runtime event. Runtime semantics must be consumed from this
     /// variant instead of inferred from transcript role or message text.
     Runtime(Box<crate::runtime_control::RuntimeControlEvent>),
-    Transcript {
-        role: &'static str,
-        message: String,
-    },
+    DownloadProgress(String),
+    OAuthProgress(String),
     Terminal(TerminalEvent),
     ToolProgress {
         call_id: Option<String>,
@@ -516,7 +516,7 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 9] = [
 
 #[derive(Clone, Default)]
 pub struct TranscriptEntry {
-    pub role: String,
+    pub role: MessageRole,
     pub message: String,
     pub payload: Option<TranscriptEntryPayload>,
 }
@@ -569,9 +569,9 @@ pub enum SystemMessageKind {
 }
 
 impl TranscriptEntry {
-    pub fn new(role: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(role: MessageRole, message: impl Into<String>) -> Self {
         Self {
-            role: crate::tui::display_sanitize::sanitize_display_line(&role.into()),
+            role,
             message: sanitize_display_text(&message.into()),
             payload: None,
         }
@@ -580,7 +580,7 @@ impl TranscriptEntry {
     pub fn terminal_event(event: TerminalEvent) -> Self {
         let event = event.sanitized_for_display();
         Self {
-            role: "Terminal Event".to_string(),
+            role: MessageRole::TerminalEvent,
             message: sanitize_display_text(&event.to_transcript_message()),
             payload: Some(TranscriptEntryPayload::Terminal(event)),
         }
@@ -593,12 +593,12 @@ impl TranscriptEntry {
         message: impl Into<String>,
     ) -> Self {
         let role = match status {
-            ToolTranscriptStatus::Running => "Tool",
-            ToolTranscriptStatus::Completed => "Tool Result",
-            ToolTranscriptStatus::Error => "Tool Error",
+            ToolTranscriptStatus::Running => MessageRole::Tool,
+            ToolTranscriptStatus::Completed => MessageRole::ToolResult,
+            ToolTranscriptStatus::Error => MessageRole::ToolError,
         };
         Self {
-            role: role.to_string(),
+            role,
             message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
                 call_id: call_id.map(ToString::to_string),
@@ -610,7 +610,7 @@ impl TranscriptEntry {
 
     pub fn system(message: impl Into<String>, kind: SystemMessageKind) -> Self {
         Self {
-            role: "System".to_string(),
+            role: MessageRole::System,
             message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::System(kind)),
         }
@@ -624,7 +624,7 @@ impl TranscriptEntry {
         recent_files: Vec<String>,
     ) -> Self {
         Self {
-            role: "Compaction".to_string(),
+            role: MessageRole::Compaction,
             message: sanitize_display_text(&summary.into()),
             payload: Some(TranscriptEntryPayload::Compaction(
                 CompactionTranscriptPayload {
@@ -819,6 +819,8 @@ pub struct TuiApp {
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub(crate) transcript_scroll: TranscriptScroll,
     pub(crate) transcript_selection: TranscriptSelection,
+    pub(crate) clipboard: Option<crate::tui::clipboard::Clipboard>,
+    pub(crate) scroll_acceleration: super::ScrollAcceleration,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
@@ -856,8 +858,10 @@ pub struct TuiApp {
     pub(crate) pending_permission_mode: Option<PermissionMode>,
     /// Currently active ralph loop goal, if any.
     pub goal: Option<RalphGoal>,
+    pub(in crate::tui) goal_ui: crate::tui::goal_ui::GoalUiState,
     /// Shared handle that model-facing goal tools write to.
     pub goal_handle: GoalHandle,
+    pub(in crate::tui) pending_goal_resume: Option<crate::tui::goal_resume::PendingGoalResume>,
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,

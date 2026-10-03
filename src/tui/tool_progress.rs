@@ -6,6 +6,7 @@ use uuid::Uuid;
 use super::display_sanitize::sanitize_display_line;
 use super::display_tail::{DisplayTail, TailLimits};
 use super::state::{TranscriptEntryPayload, TuiApp};
+use crate::tui::message_role::MessageRole;
 
 pub(crate) const BYTE_LIMIT: usize = 16 * 1024;
 const LINE_LIMIT: usize = 16;
@@ -120,7 +121,7 @@ pub(crate) fn append_tool_progress(app: &mut TuiApp, source: ProgressSource, chu
     }) {
         entry.message = message;
     } else {
-        app.push_entry("Tool Progress", message);
+        app.push_entry(MessageRole::ToolProgress, message);
         if let Some(entry) = app.active_turn.entries.last_mut() {
             entry.payload = Some(TranscriptEntryPayload::ToolProgress(ToolProgressTranscriptPayload { id }));
         }

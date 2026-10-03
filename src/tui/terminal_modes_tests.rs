@@ -66,6 +66,10 @@ fn failed_guard_restoration_is_not_retried() {
 }
 
 #[cfg(unix)]
+#[expect(
+    clippy::print_stdout,
+    reason = "Isolated PTY children emit mode and readiness markers to their parent."
+)]
 mod pty {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
@@ -153,6 +157,18 @@ mod pty {
                     output.contains("previous_hook_raw=false"),
                     "{scenario}: {output}"
                 );
+            }
+            if scenario == "panic" {
+                let before_hook = output.split("previous_hook_raw=").next().unwrap();
+                let size = PtySize::default();
+                let mut parser = vt100::Parser::new(size.rows, size.cols, 100);
+                parser.process(before_hook.as_bytes());
+                assert_eq!(
+                    parser.screen().cursor_position(),
+                    (size.rows - 1, 0),
+                    "panic diagnostics must start below the frame"
+                );
+                assert!(parser.screen().contents().contains("FRAME-BOTTOM"));
             }
             if scenario == "worker" {
                 assert!(
@@ -242,6 +258,14 @@ mod pty {
                             let _guard = TerminalModeGuard::start().expect("start terminal modes");
                             TerminalModeGuard::run_owner(async {
                                 tokio::task::yield_now().await;
+                                let (_, rows) = crossterm::terminal::size().expect("TTY size");
+                                execute!(
+                                    std::io::stdout(),
+                                    crossterm::cursor::MoveTo(0, rows - 1),
+                                    crossterm::style::Print("FRAME-BOTTOM"),
+                                    crossterm::cursor::MoveTo(4, 1)
+                                )
+                                .expect("place frame and composer cursor");
                                 panic!("injected loop panic");
                             })
                             .await

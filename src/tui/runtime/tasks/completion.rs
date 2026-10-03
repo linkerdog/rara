@@ -1,5 +1,8 @@
+use super::*;
 use crate::runtime_client::{GoalContinuation, RuntimeClient};
 use crate::tui::command;
+use crate::tui::message_role::MessageRole;
+use crate::tui::runtime::permissions;
 use crate::tui::state::Overlay;
 
 #[cfg(test)]
@@ -23,7 +26,7 @@ pub(crate) async fn finish_running_task_if_ready_from_runtime_port(
         .await
 }
 
-async fn finish_running_task_if_ready_with_completion_mode(
+pub(super) async fn finish_running_task_if_ready_with_completion_mode(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     completion: Option<Result<TaskCompletion, tokio::task::JoinError>>,
@@ -118,14 +121,14 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     let plan_continuation =
                         RuntimeClient::plan_continuation(&agent, query_started_in_plan_mode);
                     let permission_changed =
-                        super::permissions::apply_pending_permission_mode(app, &mut agent);
+                        permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
                     let continuation = match RuntimeClient::continue_goal(
                         &app.goal_handle,
                         &agent,
                         goal_turn.as_ref(),
                         finished_plan_turn,
-                        app.has_pending_plan_approval(),
+                        app.active_pending_interaction().is_some(),
                     ) {
                         Ok(continuation) => continuation,
                         Err(error) => {
@@ -199,6 +202,9 @@ async fn finish_running_task_if_ready_with_completion_mode(
                             }
                             return Ok(());
                         }
+                        GoalContinuation::Continue { .. }
+                            if !app.bottom_pane.pending_follow_up_messages.is_empty()
+                                || !app.bottom_pane.queued_follow_up_messages.is_empty() => {}
                         GoalContinuation::Continue { goal, prompt } => {
                             app.goal = Some(goal);
                             app.apply_runtime_snapshot(
@@ -251,13 +257,17 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 }
                 Err(err) => {
                     let error_message = format_error_chain(&err);
-                    let stopped = task.query_control.as_ref().and_then(QueryTaskControl::stop_kind);
-                    let cancelled = stopped.is_some() || error_message.contains("cancelled by user");
+                    let stopped = task
+                        .query_control
+                        .as_ref()
+                        .and_then(QueryTaskControl::stop_kind);
+                    let cancelled =
+                        stopped.is_some() || error_message.contains("cancelled by user");
                     if cancelled {
                         agent.discard_pending_interactions();
                     }
                     app.set_agent_execution_mode(agent.execution_mode);
-                    super::permissions::apply_pending_permission_mode(app, &mut agent);
+                    permissions::apply_pending_permission_mode(app, &mut agent);
                     app.clear_active_live_sections();
 
                     app.clear_pending_plan_approval();
@@ -275,8 +285,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     if cancelled {
                         app.finalize_active_turn();
                         let (notice, detail) = match stopped {
-                            Some(QueryStopKind::Interrupt) => ("Query interrupted.", "query interrupted"),
-                            Some(QueryStopKind::Cancel) | None => ("Query cancelled.", "query cancelled"),
+                            Some(QueryStopKind::Interrupt) => {
+                                ("Query interrupted.", "query interrupted")
+                            }
+                            Some(QueryStopKind::Cancel) | None => {
+                                ("Query cancelled.", "query cancelled")
+                            }
                         };
                         app.bottom_pane.notice = Some(notice.into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some(detail.into()));
@@ -303,7 +317,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
             }
         }
         TaskCompletion::Compact { mut agent, result } => {
-            super::permissions::apply_pending_permission_mode(app, &mut agent);
+            permissions::apply_pending_permission_mode(app, &mut agent);
             *agent_slot = Some(agent);
             if let Some(agent) = agent_slot.as_ref() {
                 app.apply_runtime_snapshot(
@@ -323,10 +337,10 @@ async fn finish_running_task_if_ready_with_completion_mode(
                         let message = format!(
                             "Conversation compacted.\nEstimated history tokens: {before} -> {after}"
                         );
-                        app.push_entry("Agent", message.clone());
+                        app.push_entry(MessageRole::Agent, message.clone());
                         app.push_notice(message);
                     } else {
-                        app.push_entry("Agent", "Conversation compacted.");
+                        app.push_entry(MessageRole::Agent, "Conversation compacted.");
                         app.push_notice("Conversation compacted.");
                     }
                     app.finalize_active_turn();
@@ -337,7 +351,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     app.clear_active_live_sections();
                     app.release_pending_follow_ups();
                     let message = "Conversation history did not need compaction.";
-                    app.push_entry("Agent", message);
+                    app.push_entry(MessageRole::Agent, message);
                     app.push_notice(message);
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("compact skipped".into()));
@@ -368,7 +382,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 app.sandbox_network_access = rebuilt.sandbox_network_access;
-                super::permissions::apply_pending_permission_mode(app, &mut agent);
+                permissions::apply_pending_permission_mode(app, &mut agent);
                 rebuilt.goal_handle.inherit_from(&app.goal_handle);
                 app.goal_handle = rebuilt.goal_handle;
                 app.goal = app.goal_handle.snapshot();
@@ -473,7 +487,7 @@ async fn finish_running_task_if_ready_with_completion_mode(
                 app.bottom_pane.notice = app.setup_status.clone();
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
                 app.dismiss_overlay();
-                app.push_entry("Runtime", saved_message);
+                app.push_entry(MessageRole::Runtime, saved_message);
                 start_rebuild_task(app, agent_slot.as_ref().and_then(Agent::agent_tree_control));
             }
             Err(err) => {
@@ -527,12 +541,12 @@ async fn finish_running_task_if_ready_with_completion_mode(
     if !app.is_busy()
         && let Some(mode) = app.pending_permission_mode.take()
     {
-        super::permissions::request_permission_mode(app, agent_slot, mode);
+        permissions::request_permission_mode(app, agent_slot, mode);
     }
     Ok(())
 }
 
-pub(super) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
+pub(crate) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
     let elapsed = {
         let Some(task) = app.bottom_pane.running_task.as_mut() else {
             return false;

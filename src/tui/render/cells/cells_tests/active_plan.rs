@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn active_turn_cell_renders_plan_approval_as_interaction_card() {
@@ -11,7 +12,7 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
@@ -53,7 +54,7 @@ fn active_turn_cell_renders_updated_plan_checklist() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Improve the plan rendering".into(),
             payload: None,
         }],
@@ -96,7 +97,7 @@ fn active_turn_cell_hides_stale_updated_plan_after_plan_turn_finishes() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Implement the approved fix".into(),
             payload: None,
         }],
@@ -127,12 +128,12 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Inspect the repository".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Exploring".into(),
+                role: MessageRole::Exploring,
                 message: "└ Read src/main.rs".into(),
                 payload: None,
             },
@@ -161,12 +162,12 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Run the migration helper".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Tool Progress".into(),
+                role: MessageRole::ToolProgress,
                 message: "background task stdout:\n    Checking nix v0.30.1".into(),
                 payload: None,
             },
@@ -231,7 +232,7 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run a shell command".into(),
             payload: None,
         }],
@@ -280,7 +281,7 @@ fn active_turn_cell_does_not_render_completed_plan_decision() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
@@ -314,18 +315,18 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Run the migration helper".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Shell Approval Completed".into(),
+                role: MessageRole::ShellApprovalCompleted,
                 message: "Bash approval: Approved once for command: bash ./scripts/migrate.sh"
                     .into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Running".into(),
+                role: MessageRole::Running,
                 message: "bash ./scripts/migrate.sh".into(),
                 payload: None,
             },
@@ -360,22 +361,22 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Answer and run".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Question Answered".into(),
+                role: MessageRole::QuestionAnswered,
                 message: "User answered: yes".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Shell Approval Completed".into(),
+                role: MessageRole::ShellApprovalCompleted,
                 message: "Bash approval: Approved once for command: cargo check".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Running".into(),
+                role: MessageRole::Running,
                 message: "cargo check".into(),
                 payload: None,
             },
@@ -410,12 +411,12 @@ fn active_turn_cell_keeps_streaming_response_without_responding_card() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "你好".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Tool Result".into(),
+                role: MessageRole::ToolResult,
                 message: "bash stdout: partial".into(),
                 payload: None,
             },
@@ -451,7 +452,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Approve the plan".into(),
             payload: None,
         }],
@@ -466,7 +467,7 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Continue with the next task".into(),
             payload: None,
         }],
@@ -492,7 +493,7 @@ fn active_turn_cell_labels_delegated_plan_questions() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
@@ -532,7 +533,7 @@ fn active_turn_cell_labels_delegated_completed_questions() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],

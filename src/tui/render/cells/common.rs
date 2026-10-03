@@ -1,5 +1,6 @@
 use ratatui::{style::Color, text::Line};
 
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 
 /// Render a cell without changing its source content or presentation state.
@@ -46,14 +47,32 @@ pub(crate) enum InteractionCompletionKind {
 }
 
 impl InteractionCompletionKind {
-    pub(super) fn from_role(role: &str) -> Option<Self> {
+    pub(super) fn from_role(role: &MessageRole) -> Option<Self> {
         match role {
-            "Shell Approval Completed" => Some(Self::ShellApprovalCompleted),
-            "Question Answered" => Some(Self::QuestionAnswered),
-            "Planning Question Answered" => Some(Self::PlanningQuestionAnswered),
-            "Exploration Question Answered" => Some(Self::ExplorationQuestionAnswered),
-            "Sub-agent Question Answered" => Some(Self::SubAgentQuestionAnswered),
-            _ => None,
+            MessageRole::ShellApprovalCompleted => Some(Self::ShellApprovalCompleted),
+            MessageRole::QuestionAnswered => Some(Self::QuestionAnswered),
+            MessageRole::PlanningQuestionAnswered => Some(Self::PlanningQuestionAnswered),
+            MessageRole::ExplorationQuestionAnswered => Some(Self::ExplorationQuestionAnswered),
+            MessageRole::SubAgentQuestionAnswered => Some(Self::SubAgentQuestionAnswered),
+            MessageRole::User
+            | MessageRole::Agent
+            | MessageRole::System
+            | MessageRole::Runtime
+            | MessageRole::Responding
+            | MessageRole::Tool
+            | MessageRole::ToolResult
+            | MessageRole::ToolError
+            | MessageRole::ToolProgress
+            | MessageRole::Exploring
+            | MessageRole::Planning
+            | MessageRole::Running
+            | MessageRole::Thinking
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => None,
         }
     }
 
@@ -78,7 +97,7 @@ impl InteractionCompletionKind {
     }
 }
 
-pub(crate) fn completion_role_kind(role: &str) -> Option<InteractionCompletionKind> {
+pub(crate) fn completion_role_kind(role: &MessageRole) -> Option<InteractionCompletionKind> {
     InteractionCompletionKind::from_role(role)
 }
 

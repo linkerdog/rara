@@ -1,4 +1,6 @@
 mod commands;
+mod goals;
+pub(crate) use goals::apply_dialog_action as apply_goal_dialog_action;
 mod permissions;
 pub(crate) use permissions::request_permission_mode;
 mod events;

@@ -15,7 +15,11 @@ pub(crate) fn command_unavailable_reason(
         | LocalCommandKind::Skills
         | LocalCommandKind::Mcp
         | LocalCommandKind::Quit => true,
-        LocalCommandKind::Tasks | LocalCommandKind::Goal => command.arg.is_none(),
+        LocalCommandKind::Tasks => command.arg.is_none(),
+        LocalCommandKind::Goal => command
+            .arg
+            .as_deref()
+            .is_none_or(|arg| arg.trim() == "pause"),
         LocalCommandKind::Approval
         | LocalCommandKind::Clear
         | LocalCommandKind::Compact

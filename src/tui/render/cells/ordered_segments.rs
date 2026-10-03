@@ -1,4 +1,5 @@
 use super::progress::{self, ProgressRole};
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::TranscriptEntry;
 
 pub(super) enum OrderedActiveSegment<'a> {
@@ -23,13 +24,13 @@ pub(super) fn ordered_exploration_agent_segments<'a>(
     };
 
     for entry in current_turn {
-        match entry.role.as_str() {
-            "Tool" => {
+        match &entry.role {
+            MessageRole::Tool => {
                 if let Some(action) = super::super::exploration_action_label(&entry.message) {
                     exploration_items.push(action);
                 }
             }
-            "Exploring" => {
+            MessageRole::Exploring => {
                 for item in entry
                     .message
                     .lines()
@@ -46,7 +47,10 @@ pub(super) fn ordered_exploration_agent_segments<'a>(
                     exploration_items.push(item);
                 }
             }
-            role if let Some(progress_role) = ProgressRole::from_entry_role(role) => {
+            role @ (MessageRole::Thinking | MessageRole::Planning | MessageRole::Running) => {
+                let Some(progress_role) = ProgressRole::from_entry_role(role) else {
+                    continue;
+                };
                 let messages =
                     progress::progress_entry_message_lines(progress_role, &entry.message);
                 if messages.is_empty() {
@@ -72,20 +76,36 @@ pub(super) fn ordered_exploration_agent_segments<'a>(
                     segments.push(OrderedActiveSegment::Progress(progress_role, messages));
                 }
             }
-            "Agent" => {
+            MessageRole::Agent => {
                 if !exploration_items.is_empty() {
                     saw_interleaving = true;
                     flush_exploration(&mut segments, &mut exploration_items);
                 }
                 segments.push(OrderedActiveSegment::Agent(entry.message.as_str()));
             }
-            "Tool Result" | "Tool Error" | "Tool Progress" | "System"
-                if !exploration_items.is_empty() =>
-            {
-                saw_interleaving = true;
-                flush_exploration(&mut segments, &mut exploration_items);
+            MessageRole::ToolResult
+            | MessageRole::ToolError
+            | MessageRole::ToolProgress
+            | MessageRole::System => {
+                if !exploration_items.is_empty() {
+                    saw_interleaving = true;
+                    flush_exploration(&mut segments, &mut exploration_items);
+                }
             }
-            _ => {}
+            MessageRole::User
+            | MessageRole::Runtime
+            | MessageRole::Responding
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::ShellApprovalCompleted
+            | MessageRole::QuestionAnswered
+            | MessageRole::PlanningQuestionAnswered
+            | MessageRole::ExplorationQuestionAnswered
+            | MessageRole::SubAgentQuestionAnswered
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => {}
         }
     }
 

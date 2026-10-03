@@ -7,6 +7,8 @@ mod planning_lifecycle;
 mod quit_shortcut;
 pub(crate) use quit_shortcut::{QuitShortcutAction, QuitShortcutKey, QuitShortcutState};
 mod runtime_snapshot;
+mod scroll_acceleration;
+pub(crate) use scroll_acceleration::ScrollAcceleration;
 mod shared_tasks;
 mod state_presets;
 #[cfg(test)]

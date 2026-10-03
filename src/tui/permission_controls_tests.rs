@@ -265,7 +265,7 @@ async fn busy_argument_mutations_and_aliases_share_availability() {
     for command in [
         "/tasks other",
         "/task-list other",
-        "/goal pause",
+        "/goal clear",
         "/threads",
         "/approval",
     ] {

@@ -148,7 +148,8 @@ initialization has the same restoration obligation as a running UI.
 Cleanup attempts every owned mode even when one operation fails, preserving
 the first cleanup error. An existing startup or runtime error remains the
 primary error; a cleanup failure must also surface. A panic hook restores the
-terminal before invoking the previous hook when the TUI owner panics during
+terminal and reserves a clean line below the frame before invoking the previous
+hook when the TUI owner panics during
 initialization or an event-loop poll. Caught background-task panics must not
 disable a running UI's terminal modes, including tasks on the same executor
 thread between owner polls. If the owner catches a panic after restoration,
@@ -172,15 +173,18 @@ composer's wrapping width.
 
 Before the first frame, reserve rows below the shell cursor so existing shell
 output moves into native scrollback. Do not erase the visible screen or purge
-scrollback with ED2/ED3. Reserve, invalidate, paint, and place the cursor inside
+scrollback with ED2/ED3. Relative row reservation does not require a startup
+cursor-position query; do not send a redundant DSR probe. Reserve, invalidate,
+paint, and place the cursor inside
 one synchronized update. Resizing invalidates the owned viewport and repaints
 blank cells as well as content; ordinary composer edits do not clear it.
 
 Normal exit places the shell cursor at column zero on a clean line below the
 last frame. A terminal at the bottom edge scrolls one line to make room. Error
 cleanup attempts the same handoff without hiding the original error. Unwinding
-retains mode cleanup without repositioning over diagnostics already emitted by
-the panic hook. Terminal input modes are restored before asynchronous exit work.
+restores modes and hands off a clean line before the previous panic hook emits
+diagnostics. Later destructors must not reposition over those diagnostics.
+Terminal input modes are restored before asynchronous exit work.
 
 Focus reporting is enabled with the other terminal modes and disabled during
 cleanup. Focus gained/lost updates the presentation state before publishing
@@ -242,3 +246,4 @@ control are outside this keyboard-driven contract.
 - [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)
 - [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
+- [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
