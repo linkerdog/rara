@@ -56,7 +56,28 @@ committed styles and the stream's materialized Markdown, even without a new
 delta. Reinstalling the same resolved theme preserves the caches. Active-tail
 layout reuse compares complete
 styled logical lines rather than an edge-only or text-length fingerprint.
-This layout boundary does not itself eliminate active-cell row assembly.
+That conservative equality remains the boundary for the general active prefix.
+
+An eligible final streaming response is separate from that prefix. The session's
+stream state owns source and layout caches with separate borrow lifetimes. The
+source collector exposes styled rows, replay epoch, and stable boundaries without
+depending on renderer types. Layout reads may coexist with a retained immutable
+source-row view. The visual-row cache is keyed by replay epoch, width, and
+full/compact view. Append-only source length identifies a revision only within an epoch;
+replacement, finalization, source-wide reference invalidation, and open-fence
+fallback advance the epoch. Stable logical body rows are promoted to immutable
+wrapped blocks, while preview and truncation-summary rows remain replaceable.
+An unchanged response read traverses neither source rows nor stable body rows.
+Prefix cards, ordering, suppression, animation, and thinking visibility retain
+their existing assembly and exact styled-line comparison.
+
+Committed and streaming block indexes use a persistent binary-carry forest.
+Its balanced subtrees cache row counts, and its root list has at most
+`1 + floor(log2(block_count))` entries for nonempty history. A retained snapshot
+can therefore require logarithmic root-handle copies on append, not a copy of
+every previous block. Indexed row access is logarithmic in block count. A frame
+joins history/prefix and response without building a linked chain per delta or
+flattening either row collection.
 
 ## Contracts
 
@@ -94,6 +115,10 @@ boundaries for issue #921:
   without hashing every unchanged historical row on every frame.
 - Width, content replacement, finalization, and thread/reset boundaries
   invalidate the appropriate source/layout cache explicitly.
+- Response promotion must preserve the canonical stream chrome and complete
+  styled rows, including blank rows and the compact view's four-row head and
+  remaining-row summary. A width/view/epoch change may cold-rebuild the response;
+  unchanged frames and scroll/copy must reuse its retained visual rows.
 - Closing fences, table delimiters/rows, list tightness, and references must not
   leave duplicated or stale committed output. Complete-message rendering is
   the final correctness oracle.
@@ -115,6 +140,9 @@ boundaries for issue #921:
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
 | Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
 | Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
+| Active response | Production clone/wrap/text work over long unchanged and growing streams; stable allocation reuse, compact transitions, and preview selection refresh |
+| Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
+| Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
 
 ## Operational Notes
@@ -126,13 +154,14 @@ on a slow output device.
 
 ## Open Risks
 
-- Historical styled/wrapped rows and selection text are shared. Active-cell
-  assembly and complete styled-tail comparison still traverse active content;
-  changing a tail rewraps that active block. Historical-row counters do not
-  include these assembly/comparison costs. This is not a complete per-delta bound.
-- Appending while an older snapshot is retained copies block handles and index
-  metadata, not row content. Many short committed turns can still grow that
-  metadata-copy cost; no constant-cost append guarantee is claimed.
+- Historical and eligible streaming-response styled/wrapped rows are shared.
+  General active-prefix/non-streaming/thinking assembly and comparison still
+  traverse their selected content; changed prefix blocks are rewrapped. Row
+  counters exclude that assembly/comparison work, parser/sanitizer work, and
+  forest metadata. This is not a complete per-delta bound.
+- Persistent-index append can copy logarithmically many root handles while an
+  older snapshot is retained, and can create logarithmically many carry nodes.
+  No constant-cost metadata append or constant-cost indexed access is claimed.
 - Deterministic scheduler and renderer tests do not prove OS terminal latency,
   terminal key encoding, viewport lifecycle, or clipboard acceptance.
 - Arbitrary markdown may have a long mutable suffix. Work bounds must distinguish
@@ -150,3 +179,4 @@ on a slow output device.
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
+- [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)

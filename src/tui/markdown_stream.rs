@@ -11,6 +11,13 @@ use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
 use crate::tui::markdown_render::{RenderContext, render_streaming_markdown};
 use crate::tui::theme::{self, ThemeRevision};
 
+pub(crate) struct RenderedStream<'a> {
+    pub epoch: u64,
+    pub revision: usize,
+    pub stable_lines: usize,
+    pub lines: &'a [Line<'static>],
+}
+
 #[derive(Clone, Copy)]
 enum RenderBoundary {
     CompleteLines,
@@ -31,6 +38,7 @@ pub(crate) struct MarkdownStreamCollector {
     width: Option<usize>,
     cwd: PathBuf,
     lines: Vec<Line<'static>>,
+    row_epoch: u64,
     theme_revision: ThemeRevision,
     #[cfg(test)]
     work: MarkdownWork,
@@ -62,6 +70,7 @@ impl MarkdownStreamCollector {
             width,
             cwd: cwd.to_path_buf(),
             lines: Vec::new(),
+            row_epoch: 0,
             theme_revision: theme::revision(),
             #[cfg(test)]
             work: MarkdownWork::default(),
@@ -87,6 +96,7 @@ impl MarkdownStreamCollector {
     }
 
     fn reset_render(&mut self) {
+        self.row_epoch = self.row_epoch.wrapping_add(1);
         self.rendered_source_len = 0;
         self.rendered_complete_len = 0;
         self.stable_source_len = 0;
@@ -119,27 +129,48 @@ impl MarkdownStreamCollector {
         self.rendered_source_len != self.buffer.len() || self.theme_revision != theme::revision()
     }
 
+    /// Describe already-materialized rows without coupling source and layout borrows.
+    pub(crate) fn rendered_stream(&self) -> RenderedStream<'_> {
+        debug_assert!(
+            !self.needs_render(),
+            "materialize source before reading row boundaries"
+        );
+        let stable_lines = self
+            .open_fence
+            .as_ref()
+            .map_or(self.stable_line_len, |fence| fence.row_end)
+            .min(self.lines.len());
+        RenderedStream {
+            epoch: self.row_epoch,
+            revision: self.rendered_source_len,
+            stable_lines,
+            lines: &self.lines,
+        }
+    }
+
     fn refresh(&mut self) {
         if self.held_table_start.is_some() {
             return;
         }
-        if let Some(mut fence) = self.open_fence.take()
-            && let Some(rows) = fence.update(&self.buffer, self.complete_source_len)
-        {
-            self.lines.truncate(fence.row_end);
-            self.record_rows(rows.complete.len() + rows.preview.len());
-            #[cfg(test)]
-            {
-                self.work.fence_bytes += rows.examined_bytes;
+        if let Some(mut fence) = self.open_fence.take() {
+            if let Some(rows) = fence.update(&self.buffer, self.complete_source_len) {
+                self.lines.truncate(fence.row_end);
+                self.record_rows(rows.complete.len() + rows.preview.len());
+                #[cfg(test)]
+                {
+                    self.work.fence_bytes += rows.examined_bytes;
+                }
+                #[cfg(not(test))]
+                let _ = rows.examined_bytes;
+                self.lines.extend(rows.complete);
+                fence.row_end = self.lines.len();
+                self.lines.extend(rows.preview);
+                self.open_fence = Some(fence);
+                self.rendered_complete_len = self.complete_source_len;
+                return;
             }
-            #[cfg(not(test))]
-            let _ = rows.examined_bytes;
-            self.lines.extend(rows.complete);
-            fence.row_end = self.lines.len();
-            self.lines.extend(rows.preview);
-            self.open_fence = Some(fence);
-            self.rendered_complete_len = self.complete_source_len;
-            return;
+            // Canonical replay may restyle or normalize already displayed code.
+            self.row_epoch = self.row_epoch.wrapping_add(1);
         }
         let new_complete_source = self.complete_source_len > self.rendered_complete_len;
         let render_end = if new_complete_source {
@@ -192,6 +223,7 @@ impl MarkdownStreamCollector {
         );
         self.record_rows(pending.lines.len());
         if pending.has_references && !self.has_references {
+            self.row_epoch = self.row_epoch.wrapping_add(1);
             self.has_references = true;
             self.stable_source_len = 0;
             self.stable_line_len = 0;
@@ -237,6 +269,7 @@ impl MarkdownStreamCollector {
 
     #[cfg(test)]
     pub fn finalize(&mut self) {
+        self.row_epoch = self.row_epoch.wrapping_add(1);
         self.theme_revision = theme::revision();
         self.open_fence = None;
         self.record_parse(self.buffer.len());

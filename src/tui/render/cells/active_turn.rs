@@ -19,7 +19,7 @@ use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 use super::terminal::terminal_cell_from_entries;
 use super::user_startup::UserCell;
 use super::{
-    ActiveCell, HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
+    HistoryCell, InteractionCompletionKind, OrderedActiveSegment, completion_role_kind,
     is_progress_stack_title, is_renderable_system_message, ordered_exploration_agent_segments,
     trim_trailing_empty_lines,
 };
@@ -42,14 +42,44 @@ pub(crate) struct ActiveTurnCell<'a> {
     cwd: Option<&'a Path>,
 }
 
+pub(crate) struct ActiveTurnLayout {
+    pub lines: Vec<Line<'static>>,
+    pub stream: Option<crate::tui::render::ResponseView>,
+}
+
+impl ActiveTurnLayout {
+    fn plain(lines: Vec<Line<'static>>) -> Self {
+        Self {
+            lines,
+            stream: None,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum StreamPresentation {
+    #[cfg(test)]
+    Inline,
+    Shared,
+}
+
 impl<'a> ActiveTurnCell<'a> {
     pub(crate) fn new(app: &'a TuiApp, cwd: Option<&'a Path>) -> Self {
         Self { app, cwd }
     }
+
+    pub(crate) fn shared_layout(&self, width: u16) -> ActiveTurnLayout {
+        self.assemble(width, StreamPresentation::Shared)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        self.assemble(width, StreamPresentation::Inline).lines
+    }
 }
 
-impl ActiveCell for ActiveTurnCell<'_> {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+impl ActiveTurnCell<'_> {
+    fn assemble(&self, width: u16, presentation: StreamPresentation) -> ActiveTurnLayout {
         let current_turn = self.app.active_turn.entries.iter().collect::<Vec<_>>();
         let turn_live = self.app.is_busy()
             || matches!(
@@ -74,7 +104,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     lines.extend(cell.display_lines(width));
                 }
                 trim_trailing_empty_lines(&mut lines);
-                return lines;
+                return ActiveTurnLayout::plain(lines);
             }
             if turn_live {
                 let has_pending_surface = self.app.active_pending_interaction().is_some()
@@ -85,17 +115,19 @@ impl ActiveCell for ActiveTurnCell<'_> {
                     // and request-input turns can render their actionable cards even
                     // before the first transcript entry arrives.
                 } else {
-                    return RespondingCell::working(
-                        self.app
-                            .runtime_phase_detail
-                            .as_deref()
-                            .unwrap_or("waiting for the current turn to finish"),
-                    )
-                    .display_lines(width);
+                    return ActiveTurnLayout::plain(
+                        RespondingCell::working(
+                            self.app
+                                .runtime_phase_detail
+                                .as_deref()
+                                .unwrap_or("waiting for the current turn to finish"),
+                        )
+                        .display_lines(width),
+                    );
                 }
             }
             if !turn_live {
-                return Vec::new();
+                return ActiveTurnLayout::plain(Vec::new());
             }
         }
         let has_tool_activity = current_turn.iter().any(|entry| {
@@ -119,6 +151,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             .map(|entry| entry.message.as_str());
         let streaming_agent_lines = self.app.agent_stream_lines();
         let has_agent_stream = self.app.has_agent_stream();
+        let mut stream_view = None;
         let streaming_thinking_lines = self.app.agent_thinking_stream_lines();
         let has_thinking_stream = self.app.has_agent_thinking_stream();
         let latest_system = current_turn
@@ -476,14 +509,33 @@ impl ActiveCell for ActiveTurnCell<'_> {
             && !suppress_planning_chatter
             && !suppress_structured_plan_response
         {
-            if let Some(stream_lines) = streaming_agent_lines.as_deref() {
-                if compact_live_response {
-                    cells.push(Box::new(RespondingCell::from_stream_compact(
-                        stream_lines,
-                        4,
-                    )));
-                } else {
-                    cells.push(Box::new(RespondingCell::from_stream(stream_lines)));
+            if streaming_agent_lines.is_some() {
+                match presentation {
+                    StreamPresentation::Shared => {
+                        stream_view = Some(if compact_live_response {
+                            crate::tui::render::ResponseView::Compact
+                        } else {
+                            crate::tui::render::ResponseView::Full
+                        });
+                    }
+                    #[cfg(test)]
+                    StreamPresentation::Inline => {
+                        let stream_lines = streaming_agent_lines.as_deref().expect("stream lines");
+                        let cell = if compact_live_response {
+                            RespondingCell::from_stream_compact(stream_lines, 4)
+                        } else {
+                            RespondingCell::from_stream(stream_lines)
+                        };
+                        cells.push(Box::new(
+                            cell.with_work_meter(
+                                self.app
+                                    .agent_markdown_stream
+                                    .as_ref()
+                                    .unwrap()
+                                    .layout_work(),
+                            ),
+                        ));
+                    }
                 }
             } else if let Some(agent_message) = latest_agent {
                 if compact_live_response {
@@ -568,6 +620,7 @@ impl ActiveCell for ActiveTurnCell<'_> {
             )));
         }
 
+        let cell_count = cells.len();
         let mut lines = Vec::new();
         let mut previous_was_progress_stack_title = false;
         for (idx, cell) in cells.into_iter().enumerate() {
@@ -581,7 +634,18 @@ impl ActiveCell for ActiveTurnCell<'_> {
             previous_was_progress_stack_title = current_is_progress_stack_title;
         }
 
-        trim_trailing_empty_lines(&mut lines);
-        lines
+        if stream_view.is_some() {
+            // The response is the final cell. Keep the same separator and any
+            // preceding cell's blank rows, without materializing its body here.
+            if cell_count > 0 {
+                lines.push(Line::from(""));
+            }
+        } else {
+            trim_trailing_empty_lines(&mut lines);
+        }
+        ActiveTurnLayout {
+            lines,
+            stream: stream_view,
+        }
     }
 }

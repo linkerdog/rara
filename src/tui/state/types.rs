@@ -648,6 +648,7 @@ pub struct AgentMarkdownStreamState {
     last_visible_text: String,
     incremental_passthrough: bool,
     collector: RefCell<MarkdownStreamCollector>,
+    response_layout: RefCell<crate::tui::render::StreamRowCache>,
 }
 
 impl AgentMarkdownStreamState {
@@ -657,6 +658,7 @@ impl AgentMarkdownStreamState {
             last_visible_text: String::new(),
             incremental_passthrough: true,
             collector: RefCell::new(MarkdownStreamCollector::new(None, &cwd)),
+            response_layout: RefCell::default(),
         }
     }
 
@@ -692,18 +694,38 @@ impl AgentMarkdownStreamState {
         self.collector.get_mut().replace_source(text);
     }
 
-    pub(crate) fn display_lines(&self) -> Ref<'_, [Line<'static>]> {
+    fn rendered_collector(&self) -> Ref<'_, MarkdownStreamCollector> {
         if self.collector.borrow().needs_render() {
             self.collector.borrow_mut().lines();
         }
-        Ref::map(self.collector.borrow(), |collector| {
+        self.collector.borrow()
+    }
+
+    pub(crate) fn display_lines(&self) -> Ref<'_, [Line<'static>]> {
+        Ref::map(self.rendered_collector(), |collector| {
             collector.cached_lines()
         })
+    }
+
+    pub(crate) fn response_rows(
+        &self,
+        width: u16,
+        view: crate::tui::render::ResponseView,
+    ) -> crate::tui::transcript_rows::TranscriptRows {
+        let collector = self.rendered_collector();
+        self.response_layout
+            .borrow_mut()
+            .materialize(collector.rendered_stream(), width, view)
     }
 
     #[cfg(test)]
     pub(crate) fn markdown_work(&self) -> crate::tui::markdown_stream::MarkdownWork {
         self.collector.borrow().work()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_work(&self) -> crate::tui::transcript_work::WorkMeter {
+        self.response_layout.borrow().work.clone()
     }
 
     #[cfg(test)]

@@ -2,7 +2,7 @@ use crate::{
     config::TuiThemeConfig,
     tui::{
         markdown_render::render_markdown_text_with_width_and_cwd,
-        state::{RuntimeSnapshot, TranscriptEntry, TranscriptTurn},
+        state::{RuntimePhase, RuntimeSnapshot, TranscriptEntry, TranscriptTurn},
         testing::TuiHarness,
         theme,
     },
@@ -80,9 +80,16 @@ fn streamed_rows_refresh_without_new_source_after_theme_installation() {
         return;
     }
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
+    harness
+        .app_mut()
+        .push_entry("You", "Show the themed stream.");
+    harness
+        .app_mut()
+        .set_runtime_phase(RuntimePhase::ProcessingResponse, None);
     harness.app_mut().append_agent_delta(SOURCE);
     let stream = harness.app().agent_markdown_stream.as_ref().unwrap();
     let mut lines = stream.display_lines().to_vec();
+    let mut visual_rows = super::renderable_transcript_lines(harness.app(), 80);
     for config in themes() {
         theme::install_config(&config);
         let expected = render_markdown_text_with_width_and_cwd(SOURCE, None, None).lines;
@@ -93,5 +100,15 @@ fn streamed_rows_refresh_without_new_source_after_theme_installation() {
         theme::install_config(&config);
         assert_eq!(&*stream.display_lines(), expected);
         assert_eq!(stream.markdown_work(), before);
+        let rows = super::renderable_transcript_lines(harness.app(), 80);
+        assert_ne!(
+            visual_rows.iter().cloned().collect::<Vec<_>>(),
+            rows.iter().cloned().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            rows.iter().cloned().collect::<Vec<_>>(),
+            super::transcript_cache_tests::canonical_rows(harness.app(), 80)
+        );
+        visual_rows = rows;
     }
 }

@@ -51,12 +51,15 @@ Active backlog only. Keep this file small and current.
       Frame scheduling and stable/mutable Markdown source caching are implemented
       checkpoints. Indexed shared committed blocks now remove complete-history
       clone/wrap/hash work from frames, scroll, and selection, with focused work
-      counts and retained-allocation guards. Active-cell assembly, complete
-      styled-tail comparisons, changed-active-block rewrapping, and retained
-      block-index metadata copies remain explicit costs. Long mutable blocks
-      and source-wide reference fallbacks still need explicit work bounds;
+      counts and retained-allocation guards. Eligible active response bodies now
+      retain stable visual blocks with a mutable preview and explicit replay
+      epochs. Persistent balanced indexes bound retained root-handle copies
+      logarithmically. General active-prefix/non-streaming/thinking assembly,
+      comparison, and changed-prefix rewrapping remain explicit costs. Long
+      mutable blocks and source-wide reference fallbacks still need work bounds;
       exact-head CI/review/merge and terminal acceptance remain separate gates.
       See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
+      See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
       Audit tables that begin within a mutable paragraph against the canonical
       renderer before closing the review tail.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),

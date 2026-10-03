@@ -6,8 +6,8 @@ This is the next source/rendering stage of #921, following the coalesced-frame
 checkpoint. It does not complete the full issue's historical-row reuse gate.
 
 Before implementation, the inspected local references were Codex
-`4b9d30f7953273e567a18eb819f4eddd45fcc877` and Claude Code
-`ea2046f36d5ee12d39c8e168fc3e5129301afa2b`:
+`ea2046f36d5ee12d39c8e168fc3e5129301afa2b` and Claude Code
+`4b9d30f7953273e567a18eb819f4eddd45fcc877`:
 
 - Codex's source collector commits newline boundaries without rendering.
   `streaming/render.rs` retains completed top-level blocks, while its single

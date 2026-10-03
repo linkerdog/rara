@@ -166,8 +166,6 @@ pub(super) fn canonical_rows(
     app: &crate::tui::state::TuiApp,
     width: u16,
 ) -> Vec<ratatui::text::Line<'static>> {
-    use super::ActiveCell;
-
     let cwd = (!app.snapshot.cwd.is_empty()).then(|| std::path::Path::new(&app.snapshot.cwd));
     let mut logical = Vec::new();
     for turn in &app.committed_turns {
