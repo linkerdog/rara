@@ -337,7 +337,9 @@ async fn goal_command_refuses_to_replace_unfinished_goal_without_clear() {
         "existing goal".to_string(),
         None,
     ));
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -374,7 +376,9 @@ async fn goal_command_replaces_completed_goal() {
     let mut completed = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
     completed.status = crate::tui::state::GoalStatus::Complete;
     app.goal = Some(completed);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -405,11 +409,19 @@ async fn goal_command_resumes_blocked_goal() {
         path: dir.path().join("config.json"),
     })
     .expect("app");
+    let db = Arc::new(
+        rara_state::state_db::StateDb::new_for_root_dir(dir.path().join("state"))
+            .expect("state db"),
+    );
+    app.snapshot.session_id = "resumed-goal-thread".into();
+    app.attach_state_db(db.clone());
     attach_task_services(&mut app);
     let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
     goal.status = crate::tui::state::GoalStatus::Blocked;
     app.goal = Some(goal);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -436,6 +448,13 @@ async fn goal_command_resumes_blocked_goal() {
         Some("Goal resumed. The blocked-goal audit has restarted.")
     );
     assert!(app.bottom_pane.running_task.is_some());
+    let mut fresh = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("fresh app");
+    fresh.snapshot.session_id = "resumed-goal-thread".into();
+    fresh.attach_state_db(db);
+    assert_eq!(fresh.goal, app.goal);
     assert!(
         app.active_turn
             .entries
@@ -504,7 +523,9 @@ async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
     let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
     goal.status = crate::tui::state::GoalStatus::Paused;
     app.goal = Some(goal);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     mark_app_busy(&mut app);
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
@@ -543,7 +564,9 @@ async fn goal_command_keeps_paused_goal_without_a_runtime_agent() {
     let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
     goal.status = crate::tui::state::GoalStatus::Paused;
     app.goal = Some(goal);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -600,8 +623,7 @@ async fn goal_command_accepts_tokens_option() {
     assert_eq!(goal.token_budget, Some(98_500));
     assert_eq!(
         app.goal_handle
-            .read()
-            .unwrap()
+            .snapshot()
             .as_ref()
             .map(|goal| goal.objective.as_str()),
         Some("improve benchmark coverage")
@@ -619,7 +641,9 @@ async fn goal_command_status_notice_stays_compact() {
     goal.tokens_used = 125;
     goal.turns_completed = 3;
     app.goal = Some(goal);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );

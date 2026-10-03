@@ -59,6 +59,11 @@ async fn dispatch_event_inner(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
+    let discarding_palette = matches!(&event, AppEvent::CloseOverlay)
+        && matches!(app.overlay, Some(Overlay::CommandPalette));
+    if app.composer_input_is_active() && !discarding_palette {
+        app.flush_composer_paste();
+    }
     match event {
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
@@ -86,8 +91,9 @@ async fn dispatch_event_inner(
             }
         }
         AppEvent::ClearComposer => {
-            app.bottom_pane.input.clear();
-            app.bottom_pane.input_cursor_offset = None;
+            app.bottom_pane.clear_input();
+            app.reset_input_history_navigation();
+            app.sync_command_palette_with_input();
         }
         AppEvent::ToggleSidebar => {
             app.sidebar_visible = !app.sidebar_visible;
@@ -96,7 +102,6 @@ async fn dispatch_event_inner(
             app.thinking_collapsed = !app.thinking_collapsed;
         }
         AppEvent::SubmitComposer => {
-            app.bottom_pane.expand_large_paste();
             let should_quit = if let Some(runtime_port) = runtime_port {
                 handle_submit_with_port(app, agent_slot, oauth_manager, runtime_port).await?
             } else {

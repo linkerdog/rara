@@ -94,6 +94,7 @@ impl RuntimeEventFence {
             self.active_turn = Some(turn.clone());
             if is_terminal_turn_event(&event.event) {
                 self.terminal_turns.insert(turn.clone());
+                self.active_turn = None;
             }
         }
         true
@@ -104,7 +105,7 @@ impl RuntimeEventFence {
             self.session_id = Some(query.session_id.clone());
             self.terminal_turns.clear();
         }
-        self.active_turn = Some(query.turn_id.clone());
+        self.active_turn = None;
         self.terminal_turns.insert(query.turn_id.clone());
     }
 }

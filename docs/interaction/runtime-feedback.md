@@ -53,6 +53,16 @@ turn, another turn, or another session is ignored before it can reopen a stream
 or mark a new query complete. A request after task return is rejected even if
 the previous cancellation notice is still visible.
 
+The first accepted stop determines terminal status, even if execution returns a
+successful result or an approval while draining. Any underlying failure remains
+visible as a diagnostic. A stop after execution has returned is rejected and
+must preserve the returned approval. After the query finishes, maintenance
+commands such as `/compact` can display their own lifecycle events.
+
+If the broadcast stream lags, retained task events recover the missing tail and
+terminal feedback in sequence without duplicating output. A task panic retains
+already-produced text, closes the live stream, and surfaces the task failure.
+
 ### RUN-03: Approval Focus And Scope
 
 Pending interaction priority is plan approval, shell approval, then requested
@@ -115,13 +125,41 @@ delivery and transcript chronology are unchanged. Agent and thinking streams
 materialize changed source on presentation access and reuse unchanged rows.
 
 Assistant/thinking text is sanitized before source ingestion, with independent
-escape and CRLF state across deltas. Tool progress keeps a bounded tail per
+escape and CRLF state across deltas. Logical newlines end unfinished controls
+and remain visible, so malformed metadata cannot hide later transcript lines.
+Tool progress keeps a bounded tail per
 invocation and stdout/stderr identity, including interleaved same-name calls.
 Every progress entry, including its label and truncation marker, is at most
 16 KiB and 16 logical lines. Complete terminal-output previews sanitize before
 line splitting and retain at most 16 KiB and six nonempty lines. Truncation does
 not replace the original runtime/tool artifact. See
 [display text boundary](../features/display-text-boundary.md).
+
+### RUN-05: Terminal Lifetime And Restoration
+
+Terminal mode ownership begins before raw mode or input reporting is enabled.
+Non-TTY stdout is rejected before ownership or escape-sequence output begins.
+Startup failures, event-loop errors, normal exits, and unwinding must restore
+raw mode, mouse reporting, bracketed paste, and cursor visibility. Partial
+initialization has the same restoration obligation as a running UI.
+
+Cleanup attempts every owned mode even when one operation fails, preserving
+the first cleanup error. An existing startup or runtime error remains the
+primary error; a cleanup failure must also surface. A panic hook restores the
+terminal before invoking the previous hook when the TUI owner panics during
+initialization or an event-loop poll. Caught background-task panics must not
+disable a running UI's terminal modes, including tasks on the same executor
+thread between owner polls. If the owner catches a panic after restoration,
+the UI must exit instead of continuing with disabled terminal modes.
+Restore modes before asynchronous exit work such as memory draining.
+Explicit restoration consumes guard ownership even when a cleanup operation
+fails; Drop must not repeat that failed cleanup attempt. Signal termination
+such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
+
+Only one TUI may own the process terminal at a time. Restoration is idempotent
+and does not modify keyboard enhancement stacks that the TUI never enabled.
+This contract does not cover uncatchable termination such as SIGKILL or imply
+viewport, suspend/resume, or shell-prompt positioning guarantees.
 
 ## Validation Matrix
 
@@ -131,6 +169,7 @@ not replace the original runtime/tool artifact. See
 | RUN-02 | `controller::cancellation_tests`, typed query-control races, and `tasks::tests::query_lifecycle` scripted cancel/interrupt/task-return interleavings |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
+| RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
 
 ## Open Risks
 
@@ -148,3 +187,5 @@ not replace the original runtime/tool artifact. See
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
 - [Incremental Markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Turn cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+
+- [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)

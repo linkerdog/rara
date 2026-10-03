@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn review_regression_stop_preserves_execution_error() {
+    let control = QueryTaskControl::new("session".into());
+    let token = AtomicBool::new(false);
+    control.request_stop(QueryStopKind::Cancel, &token);
+    let bus = RuntimeEventBus::new(8);
+    let mut events = bus.subscribe_control();
+    let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+    let error = control
+        .publish_finished(&bus, &sender, Err(anyhow::anyhow!("provider disconnected")))
+        .expect_err("stop preserves the execution failure");
+    assert!(format!("{error:#}").contains("provider disconnected"));
+    assert!(matches!(
+        events.try_recv().unwrap().event,
+        RuntimeEvent::Error(ErrorEvent::RuntimeError { message, .. })
+            if message.contains("provider disconnected")
+    ));
+    assert_eq!(
+        events.try_recv().unwrap().event,
+        RuntimeEvent::Session(SessionEvent::TurnCancelled)
+    );
+}
+
+#[test]
 fn first_stop_kind_survives_repeat_requests_and_successful_execution_return() {
     for kind in [QueryStopKind::Cancel, QueryStopKind::Interrupt] {
         let control = QueryTaskControl::new("session".into());
@@ -127,7 +150,7 @@ fn intermediate_nonrecoverable_diagnostic_is_preserved_without_ending_query() {
     ));
     assert_eq!(event.turn_id.as_deref(), Some(control.turn_id.as_str()));
     assert!(events.try_recv().is_err());
-    assert!(control.publish_finished(&bus, Ok(())).is_ok());
+    assert!(control.publish_finished(&bus, &sender, Ok(())).is_ok());
     assert!(matches!(
         events.try_recv().unwrap().event,
         RuntimeEvent::Session(SessionEvent::TurnFinished { .. })
@@ -158,7 +181,7 @@ fn final_dispatch_error_is_replaced_by_one_execution_owned_diagnostic() {
     assert!(events.try_recv().is_err());
     assert!(
         control
-            .publish_finished(&bus, Err(anyhow::anyhow!("provider failed")))
+            .publish_finished(&bus, &sender, Err(anyhow::anyhow!("provider failed")))
             .is_err()
     );
     assert!(matches!(

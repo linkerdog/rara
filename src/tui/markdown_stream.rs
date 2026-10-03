@@ -6,11 +6,17 @@ use std::path::{Path, PathBuf};
 use code_fence::OpenCodeFence;
 use ratatui::text::Line;
 
-use crate::tui::markdown_render::{
-    RenderContext, render_markdown_text_with_width_and_cwd, render_streaming_markdown,
-};
-use crate::tui::render::{RenderedStream, ResponseView, StreamRowCache};
-use crate::tui::transcript_rows::TranscriptRows;
+#[cfg(test)]
+use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
+use crate::tui::markdown_render::{RenderContext, render_streaming_markdown};
+use crate::tui::theme::{self, ThemeRevision};
+
+pub(crate) struct RenderedStream<'a> {
+    pub epoch: u64,
+    pub revision: usize,
+    pub stable_lines: usize,
+    pub lines: &'a [Line<'static>],
+}
 
 #[derive(Clone, Copy)]
 enum RenderBoundary {
@@ -33,7 +39,7 @@ pub(crate) struct MarkdownStreamCollector {
     cwd: PathBuf,
     lines: Vec<Line<'static>>,
     row_epoch: u64,
-    response_layout: StreamRowCache,
+    theme_revision: ThemeRevision,
     #[cfg(test)]
     work: MarkdownWork,
 }
@@ -65,7 +71,7 @@ impl MarkdownStreamCollector {
             cwd: cwd.to_path_buf(),
             lines: Vec::new(),
             row_epoch: 0,
-            response_layout: StreamRowCache::default(),
+            theme_revision: theme::revision(),
             #[cfg(test)]
             work: MarkdownWork::default(),
         }
@@ -103,6 +109,11 @@ impl MarkdownStreamCollector {
     }
 
     pub fn lines(&mut self) -> &[Line<'static>] {
+        let theme_revision = theme::revision();
+        if self.theme_revision != theme_revision {
+            self.reset_render();
+            self.theme_revision = theme_revision;
+        }
         if self.needs_render() {
             self.refresh();
             self.rendered_source_len = self.buffer.len();
@@ -115,26 +126,26 @@ impl MarkdownStreamCollector {
     }
 
     pub fn needs_render(&self) -> bool {
-        self.rendered_source_len != self.buffer.len()
+        self.rendered_source_len != self.buffer.len() || self.theme_revision != theme::revision()
     }
 
-    pub(crate) fn response_rows(&mut self, width: u16, view: ResponseView) -> TranscriptRows {
-        self.lines();
+    /// Describe already-materialized rows without coupling source and layout borrows.
+    pub(crate) fn rendered_stream(&self) -> RenderedStream<'_> {
+        debug_assert!(
+            !self.needs_render(),
+            "materialize source before reading row boundaries"
+        );
         let stable_lines = self
             .open_fence
             .as_ref()
             .map_or(self.stable_line_len, |fence| fence.row_end)
             .min(self.lines.len());
-        self.response_layout.materialize(
-            RenderedStream {
-                epoch: self.row_epoch,
-                revision: self.rendered_source_len,
-                stable_lines,
-                lines: &self.lines,
-            },
-            width,
-            view,
-        )
+        RenderedStream {
+            epoch: self.row_epoch,
+            revision: self.rendered_source_len,
+            stable_lines,
+            lines: &self.lines,
+        }
     }
 
     fn refresh(&mut self) {
@@ -256,8 +267,10 @@ impl MarkdownStreamCollector {
         }
     }
 
+    #[cfg(test)]
     pub fn finalize(&mut self) {
         self.row_epoch = self.row_epoch.wrapping_add(1);
+        self.theme_revision = theme::revision();
         self.open_fence = None;
         self.record_parse(self.buffer.len());
         self.lines =
@@ -293,11 +306,6 @@ impl MarkdownStreamCollector {
     #[cfg(test)]
     pub fn work(&self) -> MarkdownWork {
         self.work
-    }
-
-    #[cfg(test)]
-    pub(crate) fn layout_work(&self) -> crate::tui::transcript_work::WorkMeter {
-        self.response_layout.work.clone()
     }
 }
 

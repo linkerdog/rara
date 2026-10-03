@@ -97,3 +97,55 @@ compiler or Clippy warning is introduced.
   raw tool artifacts, active invocation count, or input-processing latency.
 
 The canonical contract is [display text boundary](../features/display-text-boundary.md).
+
+## Review Integration Checkpoint
+
+Merged updated parent `179b2d3d52ac2f633c5f7e2978743675c51f9f6f` normally.
+The documentation merge preserves both paste ordering and sanitization, and
+both terminal restoration and display feedback. Dependency/build inputs are
+unchanged relative to that parent.
+
+Two focused RED regressions reproduce the review findings: an unfinished
+control string hides the rest of the message, and ESC followed by a newline
+consumes the next printable character. The sanitizer now treats CR/LF as a
+logical-line recovery boundary in every parser state. CRLF remains one newline
+across chunk boundaries, embedded inline controls such as NUL keep the existing
+same-line escape behavior, and terminal controls never enter display storage.
+The recovery matrix covers OSC, DCS, SOS, PM, APC, their C1 forms, pending ST,
+incomplete CSI, and generic escapes at every two-cut character boundary.
+
+This is a transcript policy, not terminal emulation. Multiline terminal-control
+payloads are intentionally ended at the first line boundary. Single-line
+payloads remain discarded until their terminator, and the 10 MB discard test
+still proves constant-size parser state. The complete-message, thinking, and
+terminal-preview tests now explicitly expect text after that recovery boundary.
+This preserves visible following lines without exposing escape commands or
+buffering an unbounded candidate control string.
+
+The reference inspection reconfirmed Codex's shared ANSI/tab display boundary
+(`ansi-escape/src/lib.rs`) and Claude Code's cleaned-input and cleaned-tail
+paths (`hooks/useTextInput.ts`, `components/shell/ShellProgressMessage.tsx`).
+Neither reference establishes this incremental recovery policy; the local
+contract and chunk-split regressions do.
+
+Additional review checks cover tool-result ingestion for MCP output, LSP
+diagnostics, file reads, and patch diff previews, checking both stored entries
+and rendered text. File reads expose their action/path, not the raw body; LSP
+JSON keeps escaped data in storage and exercises the display boundary after
+field decoding. Another regression uses different tool-call and PTY IDs:
+the structured result retires its call buffer, then the typed terminal result
+retires its terminal buffer while retaining an unrelated invocation. The
+execution layer uses the same tool-call ID for progress and result; no fallback
+that merges concurrent same-name calls is needed.
+
+Unicode directional formatting and invisible grapheme components retain their
+current behavior. Removing all format characters would damage legitimate
+scripts and emoji; a separate annotation/escaping policy remains in the spec
+and active TODO. CR progress continues to append normalized logical lines in a
+bounded tail rather than emulate carriage-return overwrites. The existing
+selection-cache test is integration coverage, not claimed as new RED evidence.
+
+Current TUI validation (`cargo test --offline --locked --lib tui:: -- --nocapture`)
+reports 856 passed, one existing ignored test, and no failures. No snapshots
+changed. The helper module remains 979 lines and every touched Rust source stays
+below 1000 lines. Exact-head CI and physical-terminal acceptance remain separate.

@@ -131,7 +131,126 @@ fn complete_transcript_constructors_remove_terminal_controls() {
         TranscriptEntry::compaction(1, 2, 1, text, vec![text.into()]),
     ];
     for entry in entries {
-        assert_eq!(entry.message, "beforeafter\n    END");
+        assert_eq!(entry.message, "before\nmoreafter\n    END");
+    }
+}
+
+#[test]
+fn tool_results_sanitize_mcp_file_and_diff_content() {
+    let untrusted = "before\u{1b}]hidden\u{7}SAFE\u{1b}[31mRED\u{1b}[0m\u{8}";
+    let patch = serde_json::json!({
+        "status": "success",
+        "files_changed": 1,
+        "updated_files": ["example.rs"],
+        "diff_preview": format!("+{untrusted}"),
+    })
+    .to_string();
+    for (name, content) in [
+        ("mcp__example__fetch", untrusted),
+        ("read_file", untrusted),
+        ("apply_patch", patch.as_str()),
+    ] {
+        let mut harness = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
+        if name == "read_file" {
+            // File bodies stay in the runtime; the transcript displays the read action.
+            apply_tui_event(
+                harness.app_mut(),
+                TuiEvent::Runtime(Box::new(RuntimeControlEvent {
+                    event_id: "file-use".into(),
+                    provenance: RuntimeProvenance::local_tui("session"),
+                    turn_id: None,
+                    sequence: 0,
+                    event: RuntimeEvent::Tool(ToolEvent::Use {
+                        call_id: Some("call".into()),
+                        name: name.into(),
+                        input: serde_json::json!({"path": untrusted}),
+                    }),
+                })),
+            );
+        }
+        apply_tui_event(
+            harness.app_mut(),
+            TuiEvent::Runtime(Box::new(RuntimeControlEvent {
+                event_id: "tool-result".into(),
+                provenance: RuntimeProvenance::local_tui("session"),
+                turn_id: None,
+                sequence: 1,
+                event: RuntimeEvent::Tool(ToolEvent::Result {
+                    call_id: Some("call".into()),
+                    name: name.into(),
+                    content: content.into(),
+                    is_error: false,
+                }),
+            })),
+        );
+        let entry = harness.app().active_turn.entries.last().unwrap();
+        assert!(
+            entry.message.contains("SAFERED"),
+            "{name}: {:?}",
+            entry.message
+        );
+        assert!(
+            entry
+                .message
+                .chars()
+                .all(|ch| !ch.is_control() || ch == '\n'),
+            "{name}: {:?}",
+            entry.message
+        );
+        assert!(
+            !entry.message.contains("hidden"),
+            "{name}: {:?}",
+            entry.message
+        );
+        let screen = harness.screen_text(100, 30);
+        assert!(screen.contains("SAFERED"), "{name}: {screen}");
+        for forbidden in ["hidden", "[31m", "[0m"] {
+            assert!(!screen.contains(forbidden), "{name}: {screen}");
+        }
+    }
+}
+
+#[test]
+fn structured_lsp_diagnostics_sanitize_decoded_fields_before_display() {
+    let content = serde_json::json!({
+        "file": "f.rs",
+        "diagnostics": [{
+            "file": "f.rs",
+            "line": 0,
+            "column": 0,
+            "severity": "error",
+            "message": "\u{1b}]hidden\u{7}SAFE\u{1b}[31mRED\u{1b}[0m\u{8}",
+        }],
+    })
+    .to_string();
+    let mut harness = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
+    apply_tui_event(
+        harness.app_mut(),
+        TuiEvent::Runtime(Box::new(RuntimeControlEvent {
+            event_id: "diagnostics".into(),
+            provenance: RuntimeProvenance::local_tui("session"),
+            turn_id: None,
+            sequence: 1,
+            event: RuntimeEvent::Tool(ToolEvent::Result {
+                call_id: Some("call".into()),
+                name: "lsp_diagnostics".into(),
+                content,
+                is_error: false,
+            }),
+        })),
+    );
+    let entry = harness.app().active_turn.entries.last().unwrap();
+    // JSON escapes are data in storage; decoded fields need the render boundary too.
+    assert!(
+        entry
+            .message
+            .chars()
+            .all(|ch| !ch.is_control() || ch == '\n')
+    );
+    let screen = harness.screen_text(120, 30);
+    assert!(screen.contains("SAFERED"), "{screen}");
+    for forbidden in ["hidden", "[31m", "[0m"] {
+        assert!(!screen.contains(forbidden), "{screen}");
     }
 }
 
@@ -242,7 +361,7 @@ fn assistant_and_thinking_finalization_share_chunk_independent_text() {
             .map(|entry| (entry.role.as_str(), entry.message.as_str()))
             .collect::<Vec<_>>(),
         [
-            ("Thinking", "thought\nend"),
+            ("Thinking", "thought\nmore\nend"),
             ("Agent", "answer visible\nend"),
         ]
     );
@@ -275,8 +394,9 @@ fn terminal_metadata_and_output_render_without_escape_payloads() {
     );
     let screen = harness.screen_text(80, 30);
     assert!(screen.contains("echo SAFE"), "{screen}");
-    assert!(screen.contains("beforeafter"), "{screen}");
-    for forbidden in ["secret", "more", "[31m", "[0m"] {
+    assert!(screen.contains("before"), "{screen}");
+    assert!(screen.contains("moreafter"), "{screen}");
+    for forbidden in ["secret", "[31m", "[0m"] {
         assert!(!screen.contains(forbidden), "{screen}");
     }
 }
