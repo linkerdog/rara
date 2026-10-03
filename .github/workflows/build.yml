@@ -29,8 +29,8 @@ jobs:
       - name: Build
         run: cargo build
 
-      - name: Check portable contracts
-        run: cargo check --locked --target wasm32-unknown-unknown -p rara-core
+      - name: Check portable contracts and loop
+        run: cargo check --locked --target wasm32-unknown-unknown -p rara-core -p rara-agent
 
   downstream-core:
     runs-on: ubuntu-latest
@@ -47,7 +47,7 @@ jobs:
           toolchain: nightly-2026-05-02
           targets: wasm32-unknown-unknown
 
-      - name: Check fresh downstream Git dependency
+      - name: Check fresh downstream core and agent Git dependencies
         env:
           CONTRACT_REPOSITORY: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
           CONTRACT_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}

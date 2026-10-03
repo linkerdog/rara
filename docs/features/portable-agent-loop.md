@@ -1,0 +1,133 @@
+# Portable Agent Loop
+
+## Problem
+
+The application's agent loop mixes continuation decisions with model calls,
+native hooks, tool execution, transcript persistence, and event publication.
+Extracting an independent host loop would duplicate those decisions and allow
+planning, cancellation, and completion semantics to diverge.
+
+## Scope
+
+`rara-agent` owns the existing loop's deterministic transitions. Its machine
+accepts observations and completed-effect acknowledgements, then requests the
+next effect. The machine performs no I/O, awaits no futures, and depends only
+on serialization and error types. The application drives this same machine.
+
+The serializable control state includes the phase, continuation count, bounded
+plan-repair and Stop-hook counters, pending response observations, and final
+loop outcome. Public application execution modes re-export the shared type.
+
+## Non-Goals
+
+This checkpoint is not a complete serialized agent/session or a second host
+runtime. The host still owns transcript content, in-flight model/tool results,
+tools, cancellation tokens, permissions, context projection, hooks, stores, and
+event publication. Restoring control state alone must not replay an external
+effect or claim durable recovery. Store/effect coordination, provider adapters,
+browser execution, and lightweight `RuntimeSession` packaging remain open in
+[#860](https://github.com/linkerdog/rara/issues/860) and
+[#871](https://github.com/linkerdog/rara/issues/871).
+
+## Architecture
+
+The application prepares a request, executes a model or tool effect, records
+the resulting transcript/checkpoint, and acknowledges that completed effect.
+The machine owns the next transition. A host must not acknowledge persistence
+before its write succeeds or supply a completion for the wrong phase.
+
+The principal boundaries are:
+
+1. Check limits before preparing each model request.
+2. Observe the model output before recording the assistant message; invalid
+   plan-exit repair preserves the existing early-rejection behavior.
+3. Record the assistant message before choosing tools or text continuation.
+4. Consult Stop hooks only when a no-tool response needs no other continuation.
+5. Wait for tool completion, then either pause for approval or commit results.
+6. Commit continuation/results before admitting another model request.
+7. Apply finalization before acknowledging the final loop outcome.
+
+The root driver contains effect handling, not a second implementation of these
+decisions. Native approval/classifier/tool policy remains in the application
+adapter. Request construction and context projection retain their existing
+owners and stable prompt order.
+
+## Contracts
+
+- `max_turns` wins over token exhaustion when both are reached. Limits are
+  checked before model preparation, including after tool and continuation
+  checkpoints. The existing counter counts tool iterations and forced
+  continuations; a final no-tool response does not increment it.
+- Invalid plan exit receives at most one repair continuation per loop entry.
+  A second invalid exit stops without appending that assistant message.
+- Plan-mode continuation retains shallow-plan, inspection-evidence, explicit
+  inspection, and reasoning-only rules. Execute mode retains explicit
+  inspection and reasoning-only continuation. Pending user input or shell
+  approval suppresses those automatic text continuations. Review mode does not
+  acquire Execute-mode continuation behavior.
+- Stop hooks may block completion eight times per loop entry. A further block
+  produces the existing diagnostic and allows completion. An earlier block
+  remains active for later hook invocations within the same loop entry.
+- Tool/plan approval pauses do not run `SessionEnd` hooks. Normal completion,
+  hard limits, and exhausted plan repair retain their current hook behavior.
+- Cancellation remains cooperative at the existing host/provider/tool boundary.
+  This machine does not publish session terminal events or bypass the
+  execution-return barrier in [runtime-session.md](runtime-session.md).
+- Each effect carries a monotonically increasing identity within one machine
+  instance. Hosts must pair it with the owning session and loop-entry identity;
+  receipt numbers alone do not distinguish separate instances. Acknowledgements
+  must return that identity; an old model/tool receipt cannot complete a newer
+  request in the same phase. Invalid, duplicate, and out-of-order acknowledgements
+  fail without advancing counters or changing the phase. Counter overflow is an
+  explicit error.
+- Serializing and restoring the control state at an acknowledged host boundary
+  preserves its next transition. This is an internal versioned-code snapshot,
+  with no cross-version persistence or external-effect replay guarantee.
+
+## Downstream Use
+
+Use `rara-agent` and `rara-core` from the same reviewed full Git revision and
+normal default features. `scripts/check_downstream_core.py --rev <full-sha>`
+creates a fresh consumer outside the workspace, without copying the repository
+lockfile or patches. It audits the production closure of both crates, runs a
+fake backend/custom-tool round trip driven by the shared machine, and compiles
+the fixture for `wasm32-unknown-unknown`. The script requires that target to be
+installed on the selected Rust toolchain. This validates control transitions
+and contract composition; it does not exercise the application session API or
+claim browser execution.
+
+## Validation Matrix
+
+| Boundary | Check |
+|---|---|
+| Transition guards | Invalid/duplicate completions leave the serialized machine unchanged |
+| Limits | Zero/exact limits, competing limits, continuation counting, overflow |
+| Continuation | Plan/Execute/Review, reasoning/text, inspection evidence, pending input |
+| Bounded recovery | Plan repair and Stop-hook exhaustion retain exact counters and outcomes |
+| Serialization | Round trips at each reachable pending effect preserve the next transition |
+| Existing application | Agent planning, approval, hooks, duplicate-tool, budget, and session integration tests |
+| Dependency boundary | External Git fixture audits both core and agent dependency closures |
+| Portable compilation | Native tests and browser-target compilation without feature flags |
+
+## Implementation Sequence
+
+1. Establish the pure machine and focused transition tests. Exit when invalid
+   transitions, counter boundaries, and state round trips are demonstrated.
+2. Replace existing root loop decisions with the machine, retaining the effect
+   implementation and observable ordering. Exit when existing agent/session
+   regressions plus focused ordering tests pass.
+3. Exercise the machine as a pinned remote Git dependency with the same public
+   contracts used by the application. Exit after native/browser checks, strict
+   Clippy, Cargo formatting, and default Bazel verification.
+
+## Open Risks
+
+Control-state serialization is narrower than durable agent recovery. Hosts
+must pair it with their own transcript and effect ledger. The application still
+owns native execution facilities; this crate alone does not make the existing
+`RuntimeSessionBuilder` lightweight. Future executor extraction must keep these
+same decisions and preserve host authority instead of growing another loop.
+
+## Source Journals
+
+- [2026-10-04-portable-agent-loop](../journal/2026-10-04-portable-agent-loop.md)

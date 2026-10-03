@@ -4,6 +4,7 @@ mod cache_trial;
 mod compaction;
 mod context_view;
 mod dup_detection;
+mod loop_driver;
 mod mailbox;
 mod microcompact;
 mod planning;

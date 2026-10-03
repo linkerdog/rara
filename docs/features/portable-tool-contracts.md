@@ -103,15 +103,19 @@ repository and revision, including for forks.
    contracts are stable; exit after existing planning, approval, cancellation,
    tool identity, and transcript tests exercise that implementation. A separate
    simplified host loop is not an acceptable intermediate runtime API.
+   The [portable loop machine](portable-agent-loop.md) now owns deterministic
+   transitions and is consumed by the application; native effects and full
+   executor/session packaging remain to be extracted.
 3. **Session ownership:** move actor, commands, replay, and turn outcomes into a
    minimal runtime package using the shared executor. Preserve the lifecycle
    invariants in [runtime-session.md](runtime-session.md). Exit only when a
    downstream Git fixture injects a fake backend and custom tool through
    `RuntimeSession`, verifies deltas, identities, cancellation and transcript
    readback, and excludes native application integrations from its graph.
-4. **Browser execution:** make the agent transition state serializable, separate
-   effects from transitions, and adapt clocks/future bounds and HTTP/SSE
-   transports. Browser runtime tests are a distinct gate from compilation.
+4. **Browser execution:** use the serializable transition boundary, extract
+   portable effect drivers, and adapt clocks/future bounds and HTTP/SSE
+   transports. Browser runtime tests are a distinct gate from compilation;
+   control-state serialization alone is not durable session recovery.
 
 Each extraction is independently reviewable. The principal risk is losing
 application behavior while reducing dependencies; existing consumers must use

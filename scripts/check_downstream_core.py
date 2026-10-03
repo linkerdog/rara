@@ -10,8 +10,8 @@ import subprocess
 import tempfile
 
 
-CORE_DEPENDENCIES = {
-    "rara-core", "rara-observability", "anyhow", "async-trait", "serde",
+PORTABLE_DEPENDENCIES = {
+    "rara-agent", "rara-core", "rara-observability", "anyhow", "async-trait", "serde",
     "serde_core", "serde_derive", "serde_json", "itoa", "memchr", "ryu", "zmij",
     "thiserror", "thiserror-impl", "proc-macro2", "quote", "syn", "unicode-ident",
 }
@@ -21,12 +21,15 @@ def check_graph(metadata, revision):
     packages = {package["id"]: package for package in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
     core, = (package for package in packages.values() if package["name"] == "rara-core")
-    if not core["source"].startswith("git+") or not core["source"].endswith("#" + revision):
-        raise RuntimeError(f"core is not from the requested Git revision: {core['source']}")
+    agent, = (package for package in packages.values() if package["name"] == "rara-agent")
+    for root in (core, agent):
+        source = root["source"] or ""
+        if not source.startswith("git+") or not source.endswith("#" + revision):
+            raise RuntimeError(f"{root['name']} is not from the requested Git revision: {source}")
     if metadata["workspace_members"] != [metadata["resolve"]["root"]]:
         raise RuntimeError("downstream fixture inherited another workspace")
 
-    pending = [core["id"]]
+    pending = [core["id"], agent["id"]]
     visited = set()
     while pending:
         package_id = pending.pop()
@@ -34,15 +37,15 @@ def check_graph(metadata, revision):
             continue
         visited.add(package_id)
         package = packages[package_id]
-        if package["name"] not in CORE_DEPENDENCIES:
-            raise RuntimeError(f"unexpected core dependency: {package['name']}")
+        if package["name"] not in PORTABLE_DEPENDENCIES:
+            raise RuntimeError(f"unexpected portable dependency: {package['name']}")
         if package["name"].startswith("rara-") and package["source"] != core["source"]:
             raise RuntimeError(f"mixed project dependency sources: {package['name']}")
         pending.extend(
             dependency["pkg"] for dependency in nodes[package_id]["deps"]
             if any(kind["kind"] != "dev" for kind in dependency["dep_kinds"])
         )
-    print("Core dependency closure: " + ", ".join(sorted(
+    print("Core and agent dependency closure: " + ", ".join(sorted(
         packages[package_id]["name"] for package_id in visited
     )), flush=True)
 
@@ -70,6 +73,8 @@ def main():
             'edition = "2024"\npublish = false\n\n[workspace]\n\n[dependencies]\n'
             'anyhow = "1"\nasync-trait = "0.1"\nserde_json = "1"\n'
             f'rara-core = {{ git = {json.dumps(args.repository)}, '
+            f'rev = "{args.rev}" }}\n'
+            f'rara-agent = {{ git = {json.dumps(args.repository)}, '
             f'rev = "{args.rev}" }}\n',
             encoding="utf-8",
         )

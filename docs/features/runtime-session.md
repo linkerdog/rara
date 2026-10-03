@@ -360,6 +360,12 @@ values from model arguments. Its canonical types now live in the
 re-exports through the existing tool path. A distinct injectable middleware
 stack and lightweight runtime package remain target work.
 
+The application's loop now consumes the [portable loop machine](portable-agent-loop.md)
+for continuation, bounded repair, tool/approval, and finalization decisions.
+Only that control state is serializable. The native driver still owns model and
+tool execution, persistence, hooks, and cancellation; extracting those adapters
+and the session package remains necessary for a lightweight host runtime.
+
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
 An embedding host may explicitly disable RARA's default memory integration;
