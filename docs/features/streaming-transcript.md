@@ -64,6 +64,10 @@ replacement resets source and row boundaries together.
 - Terminal input, resize, focus, and runtime feedback use the same frame gate.
   Input/projection changes are immediate; resize requests are retained and the
   frame measures current terminal dimensions. Painting may wait one interval.
+- A due composer paste is flushed through the composer edit boundary before
+  frame admission, preserving history/cursor bookkeeping and requesting a paint.
+- Exiting the session may discard a pending repaint. Terminal restoration does
+  not depend on drawing that final frame.
 
 ### Incremental Markdown And Rows
 
@@ -81,6 +85,10 @@ whole-transcript visual-row reuse target for issue #921:
 - Closing fences, table delimiters/rows, list tightness, and references must not
   leave duplicated or stale committed output. Complete-message rendering is
   the final correctness oracle.
+- Open-fence fast paths preserve canonical styled rows, including empty code
+  lines, for both labelled and unlabelled fences at every chunk boundary.
+- Committing raw stream text does not render rows that are immediately
+  discarded; the committed-cell renderer owns complete-message presentation.
 
 ## Validation Matrix
 

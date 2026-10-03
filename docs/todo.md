@@ -53,6 +53,8 @@ Active backlog only. Keep this file small and current.
       checkpoints. Complete-history clone/wrap/hash reuse, scroll-path reuse,
       and render/copy/scroll work-count acceptance remain open. Long mutable
       blocks and source-wide reference fallbacks still need explicit work bounds.
+      Audit runtime theme invalidation and tables that begin within a mutable
+      paragraph against the canonical renderer before closing the review tail.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
@@ -102,6 +104,12 @@ Active backlog only. Keep this file small and current.
       services; only test-only fixtures retain local registry setup helpers.
 - [x] Construct `TuiController` directly from an injected port and add
       deterministic scripted lifecycle controls to the shared harness.
+
+## Thread Goals
+
+- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
+      restored pursuing goal only when the runtime is idle, ready, and free of
+      pending interactions. Keep richer goal controls in that follow-up.
 
 ## Memory Lifecycle
 

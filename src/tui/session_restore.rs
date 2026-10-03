@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use rara_state::state_db::StateDb;
 
-use super::state::{GoalStatus, RalphGoal, TranscriptEntry, TranscriptTurn, TuiApp};
+use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, CompactBoundaryMetadata, CompletedInteraction,
     PendingApproval, PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
@@ -39,6 +39,24 @@ pub(super) fn restore_thread_by_id(
     };
     let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let thread = thread_store.load_thread(thread_id)?;
+    let todo_state = agent.session_manager.load_todo_state(thread_id)?;
+    let runtime_state = state_db.load_session_runtime_state(thread_id)?;
+    // Required thread reads succeed before rebinding optional goal state.
+    let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let restored_goal = match app
+        .goal_handle
+        .restore_for_thread(thread_id, state_db.clone())
+    {
+        Ok(goal) => goal,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            log::warn!("Goal persistence unavailable for resumed thread {thread_id}: {reason}");
+            app.goal_handle
+                .disable_after_persistence_failure(reason.clone());
+            resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            None
+        }
+    };
     let crate::thread_store::ThreadSnapshot {
         metadata,
         provenance: _,
@@ -51,8 +69,8 @@ pub(super) fn restore_thread_by_id(
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
-    agent.todo_state = agent.session_manager.load_todo_state(thread_id)?;
-    if let Some(runtime_state) = state_db.load_session_runtime_state(thread_id)? {
+    agent.todo_state = todo_state;
+    if let Some(runtime_state) = runtime_state {
         agent.set_bash_approval_mode(parse_bash_approval_mode(
             runtime_state.bash_approval.as_str(),
         ));
@@ -240,31 +258,9 @@ pub(super) fn restore_thread_by_id(
         );
     }
 
-    // Restore any persisted goal so it survives across sessions.
-    if let Some(db) = app.state_db.as_ref()
-        && let Some(goal_json) = db.load_goal(thread_id)
-    {
-        let objective = goal_json["objective"].as_str().unwrap_or("");
-        let budget: Option<u32> = goal_json["token_budget"].as_u64().map(|v| v as u32);
-        if !objective.is_empty() {
-            let mut goal = RalphGoal::new(objective.to_string(), budget);
-            goal.tokens_used = goal_json["tokens_used"].as_u64().unwrap_or(0) as u32;
-            goal.turns_completed = goal_json["turns_completed"].as_u64().unwrap_or(0) as u32;
-            if let Some(status) = goal_json["status"].as_str() {
-                goal.status = match status {
-                    "Complete" => GoalStatus::Complete,
-                    "Paused" => GoalStatus::Paused,
-                    "Blocked" => GoalStatus::Blocked,
-                    "BudgetLimited" => GoalStatus::BudgetLimited,
-                    _ => GoalStatus::Pursuing,
-                };
-            }
-            *app.goal_handle.write().unwrap() = Some(goal.clone());
-            app.goal = Some(goal);
-        }
-    }
+    app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(format!("Resumed thread {thread_id}."));
+    app.bottom_pane.notice = Some(resume_notice);
     Ok(())
 }
 
@@ -297,6 +293,10 @@ pub(crate) fn provider_requires_api_key(provider: &str) -> bool {
         "mock" | "local" | "local-candle" | "gemma4" | "qwen3" | "qwn3" | "ollama" | "bedrock"
     )
 }
+
+#[cfg(test)]
+#[path = "session_restore_goal_tests.rs"]
+mod goal_tests;
 
 #[cfg(test)]
 mod tests {

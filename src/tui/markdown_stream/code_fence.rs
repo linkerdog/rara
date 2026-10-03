@@ -7,6 +7,7 @@ use crate::tui::highlight::StreamingCodeHighlighter;
 pub(super) struct OpenCodeFence {
     marker: u8,
     marker_len: usize,
+    plain_fence: bool,
     source_end: usize,
     pub row_end: usize,
     highlighter: StreamingCodeHighlighter,
@@ -47,6 +48,7 @@ impl OpenCodeFence {
         Some(Self {
             marker,
             marker_len,
+            plain_fence: language.is_none(),
             source_end,
             row_end,
             highlighter,
@@ -68,21 +70,25 @@ impl OpenCodeFence {
         let preview_rows = self.highlighter.clone().append(partial)?;
         self.source_end = complete_end;
         Some(FenceRows {
-            complete: with_writer_indent(complete_rows),
-            preview: with_writer_indent(preview_rows),
+            complete: self.with_writer_indent(complete_rows),
+            preview: self.with_writer_indent(preview_rows),
             examined_bytes: complete.len() + partial.len(),
         })
     }
-}
-
-fn with_writer_indent(lines: Vec<Line<'static>>) -> Vec<Line<'static>> {
-    lines
-        .into_iter()
-        .map(|mut line| {
-            line.spans.insert(0, Span::default());
-            line
-        })
-        .collect()
+    fn with_writer_indent(&self, lines: Vec<Line<'static>>) -> Vec<Line<'static>> {
+        lines
+            .into_iter()
+            .map(|mut line| {
+                // The plain Markdown writer pushes an empty text span; the
+                // language highlighter fallback leaves the line empty instead.
+                if self.plain_fence && line.spans.is_empty() {
+                    line.spans.push(Span::default());
+                }
+                line.spans.insert(0, Span::default());
+                line
+            })
+            .collect()
+    }
 }
 
 fn possible_closer(source: &str, marker: u8, marker_len: usize) -> bool {

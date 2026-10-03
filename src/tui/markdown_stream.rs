@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use code_fence::OpenCodeFence;
 use ratatui::text::Line;
 
-use crate::tui::markdown_render::{
-    RenderContext, render_markdown_text_with_width_and_cwd, render_streaming_markdown,
-};
+#[cfg(test)]
+use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
+use crate::tui::markdown_render::{RenderContext, render_streaming_markdown};
 
 #[derive(Clone, Copy)]
 enum RenderBoundary {
@@ -227,6 +227,7 @@ impl MarkdownStreamCollector {
         }
     }
 
+    #[cfg(test)]
     pub fn finalize(&mut self) {
         self.open_fence = None;
         self.record_parse(self.buffer.len());
