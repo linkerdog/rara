@@ -14,8 +14,9 @@ mod tests {
     use async_trait::async_trait;
     use rara_agent::{
         Continuation, ContinuationContext, IterationBudget, LoopEffects, LoopEnd, LoopMachine,
-        LoopProgress, ModelObservation, ResponseEvidence, StopHookContext, StopHookOutcome,
-        ToolBatchOutcome, execute_loop,
+        LoopProgress, ModelObservation, ModelRequest, ModelTurnEvent, ModelTurnPolicy,
+        StopHookContext, StopHookOutcome, ToolBatchOutcome, ToolCall, execute_loop,
+        execute_model_turn,
     };
     use rara_core::llm::backend::{LlmBackend, LlmTurnMetadata};
     use rara_core::llm::contracts::LlmStreamEvent;
@@ -135,12 +136,25 @@ mod tests {
         }
     }
 
+    struct HostModelEvents<'a>(&'a mut Vec<String>);
+
+    impl ModelTurnPolicy for HostModelEvents<'_> {
+        fn event(&mut self, event: ModelTurnEvent) {
+            match event {
+                ModelTurnEvent::Stream(LlmStreamEvent::TextDelta(text))
+                | ModelTurnEvent::AssistantText(text) => self.0.push(text),
+                ModelTurnEvent::Stream(LlmStreamEvent::ReasoningDelta(_))
+                | ModelTurnEvent::ToolUse(_) => {}
+            }
+        }
+    }
+
     struct HostEffects {
         backend: Arc<dyn LlmBackend>,
         tools: ToolManager,
         transcript: Vec<Message>,
-        response: Option<LlmResponse>,
-        calls: Vec<(String, String, Value)>,
+        assistant: Option<Message>,
+        calls: Vec<ToolCall>,
         results: Vec<Value>,
         deltas: Vec<String>,
         tool_progress: Vec<ToolProgressEvent>,
@@ -159,7 +173,7 @@ mod tests {
                     role: "user".into(),
                     content: json!("echo twice"),
                 }],
-                response: None,
+                assistant: None,
                 calls: Vec::new(),
                 results: Vec::new(),
                 deltas: Vec::new(),
@@ -177,52 +191,31 @@ mod tests {
         }
 
         async fn request_model(&mut self, _: LoopProgress) -> Result<ModelObservation> {
-            let response = self
-                .backend
-                .ask_streaming_with_context(
-                    &self.transcript,
-                    &self.tools.get_schemas(),
-                    LlmTurnMetadata::execute().with_cancellation(self.cancellation.clone()),
-                    &mut |event| {
-                        if let LlmStreamEvent::TextDelta(text) = event {
-                            self.deltas.push(text);
-                        }
-                    },
-                )
-                .await?;
-            self.calls = response
-                .content
-                .iter()
-                .filter_map(|block| match block {
-                    ContentBlock::ToolUse { id, name, input } => {
-                        Some((id.clone(), name.clone(), input.clone()))
-                    }
-                    ContentBlock::Text { .. } | ContentBlock::ProviderMetadata { .. } => None,
-                })
-                .collect();
-            let observation = ModelObservation {
-                tool_call_count: self.calls.len(),
-                response: ResponseEvidence {
-                    had_text_response: response.content.iter().any(
-                        |block| matches!(block, ContentBlock::Text { text } if !text.is_empty()),
-                    ),
-                    had_reasoning_response: false,
-                },
-                ..Default::default()
+            let tools = self.tools.get_schemas();
+            let request = ModelRequest {
+                messages: &self.transcript,
+                tools: &tools,
+                metadata: LlmTurnMetadata::execute().with_cancellation(self.cancellation.clone()),
             };
-            self.response = Some(response);
-            Ok(observation)
+            let output = execute_model_turn(
+                self.backend.as_ref(),
+                &request,
+                &mut HostModelEvents(&mut self.deltas),
+            )
+            .await?;
+            self.assistant = output.assistant_message;
+            self.calls = output.tool_calls;
+            Ok(ModelObservation {
+                tool_call_count: self.calls.len(),
+                response: output.response,
+                ..Default::default()
+            })
         }
 
         async fn record_assistant(&mut self, _: LoopProgress) -> Result<ContinuationContext> {
-            let response = self
-                .response
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("missing response"))?;
-            self.transcript.push(Message {
-                role: "assistant".into(),
-                content: serde_json::to_value(response.content)?,
-            });
+            if let Some(message) = self.assistant.take() {
+                self.transcript.push(message);
+            }
             Ok(ContinuationContext::default())
         }
 
@@ -244,7 +237,7 @@ mod tests {
         }
 
         async fn run_tools(&mut self, _: LoopProgress) -> Result<ToolBatchOutcome> {
-            for (id, name, input) in std::mem::take(&mut self.calls) {
+            for ToolCall { id, name, input } in std::mem::take(&mut self.calls) {
                 let tool = self
                     .tools
                     .get_tool(&name)

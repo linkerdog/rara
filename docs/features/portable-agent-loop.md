@@ -70,6 +70,32 @@ executor future does not imply cleanup or session completion.
 
 ## Contracts
 
+### Model Effects
+
+`execute_model_turn` is the shared model effect beneath `LoopEffects`. It
+accepts the host's prepared message/tool view and turn metadata, checks
+cooperative cancellation before dispatch, forwards stream events, and collects
+the resulting assistant message, tool calls, and response evidence. It performs
+no context assembly, clock reads, accounting, persistence, or tool execution.
+
+`ModelTurnPolicy` observes the provider result before any response blocks are
+processed. Hosts retain accounting and usage handling even when a request
+fails. Policies may normalize text and prepare executable tool inputs; the
+assistant message retains the provider's original tool arguments while each
+executable call preserves its provider call ID. Native planning, hooks, and
+terminal presentation remain policy effects in their original order.
+
+Streamed text suppresses fallback text emission for that response. Reasoning
+stream events and nonempty `reasoning_content` metadata both count as reasoning
+evidence. Metadata is retained alongside visible text/tool content, but a
+metadata-only response does not create an assistant history entry. Policy
+failures stop collection before subsequent blocks or completion callbacks.
+
+The application and downstream fixture consume this implementation. The shared
+model effect is not an independent session runtime or a context/prompt policy.
+
+### Loop Decisions
+
 - `max_turns` wins over token exhaustion when both are reached. Limits are
   checked before model preparation, including after tool and continuation
   checkpoints. The existing counter counts tool iterations and forced
@@ -123,6 +149,7 @@ claim browser execution.
 | Serialization | Round trips at each reachable pending effect preserve the next transition |
 | Existing application | Agent planning, approval, hooks, duplicate-tool, budget, and session integration tests |
 | Async effects | Suspended model/tool/checkpoint/finalization effects prevent later work; errors preserve progress and stop admission |
+| Model effects | Stream/fallback ordering, reasoning evidence, original versus executable tool arguments, cancellation, policy errors, and metadata-only history |
 | Dependency boundary | External Git fixture audits both core and agent dependency closures |
 | Portable compilation | Native tests and browser-target compilation without feature flags |
 
@@ -153,3 +180,4 @@ existing ownership and cancellation-return barriers.
 
 - [2026-10-04-portable-agent-loop](../journal/2026-10-04-portable-agent-loop.md)
 - [2026-10-04-shared-agent-executor](../journal/2026-10-04-shared-agent-executor.md)
+- [2026-10-04-portable-model-turn](../journal/2026-10-04-portable-model-turn.md)
