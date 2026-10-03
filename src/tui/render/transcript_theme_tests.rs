@@ -54,6 +54,13 @@ fn cached_active_prefix_refreshes_styled_rows_on_theme_changes() {
     }
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
     harness.app_mut().push_entry(MessageRole::Agent, SOURCE);
+    harness
+        .app_mut()
+        .set_runtime_phase(crate::tui::state::RuntimePhase::ProcessingResponse, None);
+    harness
+        .app_mut()
+        .append_agent_thinking_delta("```rust\nlet answer = 42;\n");
+    harness.app_mut().active_live.thinking_started_at = None;
     let mut rows = super::renderable_transcript_lines(harness.app(), 80);
     for config in themes() {
         theme::install_config(&config);

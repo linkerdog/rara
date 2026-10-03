@@ -24,11 +24,17 @@ fn thinking_clock_invalidates_only_when_the_visible_duration_changes() {
     };
     let first = render_at(1000);
     let before = app.active_assembly_count.get();
+    let wrapped = app.committed_render_cache.borrow().work.get().wrapped_lines;
     let same = render_at(1040);
     assert_eq!(app.active_assembly_count.get(), before);
     assert!(std::ptr::eq(first.get(0).unwrap(), same.get(0).unwrap()));
     let changed = render_at(1060);
-    assert_eq!(app.active_assembly_count.get(), before + 1);
+    assert_eq!(app.active_assembly_count.get(), before);
+    assert!(std::ptr::eq(first.get(0).unwrap(), changed.get(0).unwrap()));
+    assert_eq!(
+        app.committed_render_cache.borrow().work.get().wrapped_lines - wrapped,
+        2
+    );
     assert!(
         first
             .iter()

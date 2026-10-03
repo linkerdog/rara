@@ -59,8 +59,8 @@ delta. Reinstalling the same resolved theme preserves the caches.
 
 Active-prefix assembly is keyed by session-owned mutation revisions for its
 owned inputs, plus width, theme, runtime phase, busy state, execution mode,
-thinking visibility, interaction selection, stream presence, and the displayed
-thinking duration. Revisions change before mutable access, including nested
+thinking visibility, interaction selection, and stream presence. Revisions
+change before mutable access, including nested
 edits and replacement; retained identity tokens prevent allocator-address reuse
 from matching an old cache entry. Reads do not hash or compare accumulated input.
 An unchanged key reuses the prefix without assembling or comparing logical rows.
@@ -78,10 +78,14 @@ fallback advance the epoch. Stable logical body rows are promoted to immutable
 wrapped blocks, while preview and truncation-summary rows remain replaceable.
 An unchanged response read traverses neither source rows nor stable body rows.
 Prefix cards retain their ordering, suppression, and thinking visibility.
-Response-body appends do not invalidate the prefix key. Thinking source changes
-and changes to the displayed duration do invalidate it, as does replacing a
-runtime snapshot or any other tracked prefix input. An unchanged phase detail
-from successive deltas preserves its revision.
+Response-body appends do not invalidate the prefix key. A visible live-thinking
+cell occupies a separate replaceable row block between two retained static
+sections. Thinking source and displayed-duration changes refresh that block
+without reassembling, comparing, or wrapping those sections. Empty/nonempty
+thinking transitions, stream presence, and other structural inputs still
+invalidate the surrounding layout. Replacing a runtime snapshot or any other
+tracked prefix input also invalidates it. An unchanged phase detail from
+successive deltas preserves its revision.
 
 Committed and streaming block indexes use a persistent binary-carry forest.
 Its balanced subtrees cache row counts, and its root list has at most
@@ -164,6 +168,7 @@ boundaries for issue #921:
 | Active response | Production clone/wrap/text work over long unchanged and growing streams; stable allocation reuse, compact transitions, and preview selection refresh |
 | Live thinking | Production cell copy counts depend on the selected four-row tail, not accumulated rows; styled head/tail projection, empty input, and duration remain correct |
 | Active prefix | Production assembly counts stay flat on unchanged paints, scrolling, composer-only edits, and response appends; nested same-length changes, replacement, interaction/queue state, thinking source/duration, theme, and width match uncached rendering |
+| Thinking slot | Growing thinking and duration ticks retain both static sections; production wrapping touches only the selected window and chrome; empty/visible transitions, spacing, history dividers, and cross-section copy match uncached rendering |
 | Table boundary | Tables interrupting mutable paragraphs preserve the canonical preceding prose at every chunk split and finalize to complete-message rows |
 | Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
 | Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
@@ -180,8 +185,9 @@ on a slow output device.
 
 - Historical and eligible streaming-response styled/wrapped rows are shared.
   Unchanged active prefixes bypass assembly and styled-line comparison. Changed
-  prefix inputs still require full prefix assembly/comparison and potentially
-  rewrapping, including thinking-source and displayed-duration updates. The
+  structural prefix inputs still require full prefix assembly/comparison and
+  potentially rewrapping. Live thinking source/duration updates replace only
+  their visible block while retaining surrounding rows. The
   assembly counter covers actual assembly calls; row counters do not measure
   source bytes, parser/sanitizer work, or forest metadata. This is not a complete
   per-delta bound.
@@ -215,4 +221,5 @@ on a slow output device.
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
 - [Bounded thinking window](../journal/2026-10-03-bounded-thinking-window.md)
 - [Active prefix cache](../journal/2026-10-03-active-prefix-cache.md)
+- [Live thinking row slot](../journal/2026-10-03-live-thinking-row-slot.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

@@ -158,17 +158,30 @@ fn thinking_append_and_same_length_replacement_refresh_the_cached_window() {
     app.append_agent_thinking_delta("Old evidence.");
     app.active_live.thinking_started_at = None;
     assert_refresh_matches_cold(app, 80);
-    let mut replacement = AgentMarkdownStreamState::new(PathBuf::from("/workspace"));
-    replacement.push_delta("New evidence.");
-    app.agent_thinking_stream = Some(replacement);
-    assert_refresh_matches_cold(app, 80);
-    app.append_agent_thinking_delta("\n\nMore reasoning.");
-    assert_refresh_matches_cold(app, 80);
-    app.agent_thinking_stream
-        .as_mut()
-        .unwrap()
-        .finalize_display_lines();
-    assert_refresh_matches_cold(app, 80);
+    let mutations: &[fn(&mut TuiApp)] = &[
+        |app| {
+            let mut replacement = AgentMarkdownStreamState::new(PathBuf::from("/workspace"));
+            replacement.push_delta("New evidence.");
+            app.agent_thinking_stream = Some(replacement);
+        },
+        |app| app.append_agent_thinking_delta("\n\nMore reasoning."),
+        |app| {
+            app.agent_thinking_stream
+                .as_mut()
+                .unwrap()
+                .finalize_display_lines()
+        },
+    ];
+    for mutation in mutations {
+        mutation(app);
+        let before = app.active_assembly_count.get();
+        let actual = super::renderable_transcript_lines(app, 80);
+        assert_eq!(app.active_assembly_count.get(), before);
+        assert_eq!(
+            actual.iter().cloned().collect::<Vec<_>>(),
+            super::transcript_cache_tests::canonical_rows(app, 80)
+        );
+    }
     app.append_agent_delta("Final answer.");
     assert_refresh_matches_cold(app, 80);
 }
