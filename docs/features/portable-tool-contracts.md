@@ -104,8 +104,9 @@ repository and revision, including for forks.
    tool identity, and transcript tests exercise that implementation. A separate
    simplified host loop is not an acceptable intermediate runtime API.
    The [portable loop machine](portable-agent-loop.md) now owns deterministic
-   transitions and is consumed by the application; native effects and full
-   executor/session packaging remain to be extracted.
+   transitions, and its shared asynchronous executor is consumed by the
+   application through `LoopEffects`. Native model/tool implementations and
+   full session packaging remain to be extracted.
 3. **Session ownership:** move actor, commands, replay, and turn outcomes into a
    minimal runtime package using the shared executor. Preserve the lifecycle
    invariants in [runtime-session.md](runtime-session.md). Exit only when a

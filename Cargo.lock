@@ -9012,6 +9012,8 @@ dependencies = [
 name = "rara-agent"
 version = "0.0.22"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

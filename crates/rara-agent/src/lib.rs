@@ -1,8 +1,10 @@
-//! Deterministic agent-loop transitions, independent of execution and storage.
+//! Shared agent-loop transitions and runtime-independent effect execution.
 
+mod executor;
 mod machine;
 mod types;
 
+pub use executor::{LoopEffects, StopHookContext, execute_loop};
 pub use machine::LoopMachine;
 pub use types::{
     Continuation, ContinuationContext, EffectId, ExecutionMode, InspectionEvidence,
