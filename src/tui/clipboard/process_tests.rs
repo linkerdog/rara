@@ -1,8 +1,3 @@
-#![expect(
-    clippy::print_stderr,
-    reason = "Isolated subprocess cleanup reports failures to the test runner."
-)]
-
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -35,6 +30,10 @@ impl NativeClipboard for StalledHelper {
 struct HelperCleanup(Option<Pid>);
 
 impl Drop for HelperCleanup {
+    #[expect(
+        clippy::print_stderr,
+        reason = "Isolated subprocess cleanup reports failures to the test runner."
+    )]
     fn drop(&mut self) {
         let Some(pid) = self.0 else {
             return;

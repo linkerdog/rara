@@ -66,10 +66,6 @@ fn failed_guard_restoration_is_not_retried() {
 }
 
 #[cfg(unix)]
-#[expect(
-    clippy::print_stdout,
-    reason = "Isolated PTY children emit mode and readiness markers to their parent."
-)]
 mod pty {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
@@ -182,6 +178,10 @@ mod pty {
     // Runs only in a subprocess; never changes the parent test runner's modes or hook.
     #[test]
     #[ignore = "terminal subprocess fixture"]
+    #[expect(
+        clippy::print_stdout,
+        reason = "Isolated PTY children emit mode and readiness markers to their parent."
+    )]
     fn terminal_modes_child() {
         let scenario = std::env::var(SCENARIO_ENV).expect("PTY scenario");
         std::panic::set_hook(Box::new(|_| {
