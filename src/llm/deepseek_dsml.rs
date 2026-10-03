@@ -6,7 +6,7 @@ use nom::error::{Error, ErrorKind};
 use nom::{Err as NomErr, IResult, Parser};
 use serde_json::Value;
 
-const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
+pub(crate) const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
 const DSML_TAG_PREFIXES: [&str; 12] = [
     "<｜DSML｜tool_calls>",
     "<｜DSML｜invoke",
