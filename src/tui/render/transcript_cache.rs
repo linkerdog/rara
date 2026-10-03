@@ -4,7 +4,8 @@ use std::{path::Path, rc::Rc};
 
 use ratatui::text::Line;
 
-use super::{active_turn_cell, committed_turn_lines, turn_divider_line};
+use super::{ResponseView, active_prefix::ActivePrefixKey};
+use super::{active_turn_cell, cells::ActiveTurnCell, committed_turn_lines, turn_divider_line};
 #[cfg(test)]
 use crate::tui::transcript_work::{WorkKind, WorkMeter};
 use crate::tui::{
@@ -29,6 +30,8 @@ pub(crate) struct CommittedTranscriptRenderCache {
     active_width: u16,
     active_logical: Vec<Line<'static>>,
     active: Rc<RowBlock>,
+    active_key: Option<ActivePrefixKey>,
+    active_stream_view: Option<ResponseView>,
     #[cfg(test)]
     pub(crate) work: WorkMeter,
 }
@@ -41,8 +44,8 @@ impl CommittedTranscriptRenderCache {
     }
 
     fn update_active(&mut self, active: Vec<Line<'static>>, width: u16) {
-        // Presentation writes are not yet encapsulated by exhaustive revisions.
-        // Compare every styled logical row, never only edges/counts/text lengths.
+        // Changed inputs can still produce identical rows. Compare full styles
+        // only after a cache miss; unchanged frames skip assembly and comparison.
         if self.active_width != width || self.active_logical != active {
             #[cfg(test)]
             self.work.record(WorkKind::Wrap, active.len());
@@ -57,6 +60,10 @@ impl CommittedTranscriptRenderCache {
 }
 
 pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
+    materialize_cell(app, width, active_turn_cell(app))
+}
+
+fn materialize_cell(app: &TuiApp, width: u16, cell: ActiveTurnCell<'_>) -> TranscriptRows {
     let key = HistoryKey {
         generation: app.committed_render_generation,
         width,
@@ -93,13 +100,23 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
     }
     cache.rendered_turns = app.committed_turns.len();
 
-    let mut active = active_turn_cell(app).shared_layout(width);
-    if (!active.lines.is_empty() || active.stream.is_some()) && !cache.history.is_empty() {
-        active.lines.insert(0, turn_divider_line(width));
+    let key = ActivePrefixKey::new(
+        app,
+        width,
+        !cache.history.is_empty(),
+        cell.thinking_duration_label(),
+    );
+    if cache.active_key.as_ref() != Some(&key) {
+        let mut active = cell.shared_layout(width);
+        if (!active.lines.is_empty() || active.stream.is_some()) && !cache.history.is_empty() {
+            active.lines.insert(0, turn_divider_line(width));
+        }
+        cache.update_active(active.lines, width);
+        cache.active_stream_view = active.stream;
+        cache.active_key = Some(key);
     }
-    cache.update_active(active.lines, width);
     let rows = TranscriptRows::new(cache.history.clone(), cache.active.clone());
-    if let Some(view) = active.stream {
+    if let Some(view) = cache.active_stream_view {
         let Some(stream) = &app.agent_markdown_stream else {
             debug_assert!(
                 false,
@@ -116,3 +133,7 @@ pub(super) fn materialize(app: &TuiApp, width: u16) -> TranscriptRows {
 #[cfg(test)]
 #[path = "transcript_cache_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "active_prefix_time_tests.rs"]
+mod time_tests;

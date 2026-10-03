@@ -55,10 +55,17 @@ wrap, stringify, or hash unchanged historical rows. Appended committed turns
 reuse prior blocks; width, thinking visibility, cwd, replacement, and reset
 invalidate the appropriate blocks. Semantic and syntax theme revisions invalidate
 committed styles and the stream's materialized Markdown, even without a new
-delta. Reinstalling the same resolved theme preserves the caches. Active-tail
-layout reuse compares complete
-styled logical lines rather than an edge-only or text-length fingerprint.
-That conservative equality remains the boundary for the general active prefix.
+delta. Reinstalling the same resolved theme preserves the caches.
+
+Active-prefix assembly is keyed by session-owned mutation revisions for its
+owned inputs, plus width, theme, runtime phase, busy state, execution mode,
+thinking visibility, interaction selection, stream presence, and the displayed
+thinking duration. Revisions change before mutable access, including nested
+edits and replacement; retained identity tokens prevent allocator-address reuse
+from matching an old cache entry. Reads do not hash or compare accumulated input.
+An unchanged key reuses the prefix without assembling or comparing logical rows.
+A changed key may rebuild the prefix; complete styled-line equality can still
+retain wrapped rows if that rebuild has no visible effect.
 
 An eligible final streaming response is separate from that prefix. The session's
 stream state owns source and layout caches with separate borrow lifetimes. The
@@ -70,8 +77,11 @@ replacement, finalization, source-wide reference invalidation, and open-fence
 fallback advance the epoch. Stable logical body rows are promoted to immutable
 wrapped blocks, while preview and truncation-summary rows remain replaceable.
 An unchanged response read traverses neither source rows nor stable body rows.
-Prefix cards, ordering, suppression, animation, and thinking visibility retain
-their existing assembly and exact styled-line comparison.
+Prefix cards retain their ordering, suppression, and thinking visibility.
+Response-body appends do not invalidate the prefix key. Thinking source changes
+and changes to the displayed duration do invalidate it, as does replacing a
+runtime snapshot or any other tracked prefix input. An unchanged phase detail
+from successive deltas preserves its revision.
 
 Committed and streaming block indexes use a persistent binary-carry forest.
 Its balanced subtrees cache row counts, and its root list has at most
@@ -153,6 +163,7 @@ boundaries for issue #921:
 | Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
 | Active response | Production clone/wrap/text work over long unchanged and growing streams; stable allocation reuse, compact transitions, and preview selection refresh |
 | Live thinking | Production cell copy counts depend on the selected four-row tail, not accumulated rows; styled head/tail projection, empty input, and duration remain correct |
+| Active prefix | Production assembly counts stay flat on unchanged paints, scrolling, composer-only edits, and response appends; nested same-length changes, replacement, interaction/queue state, thinking source/duration, theme, and width match uncached rendering |
 | Table boundary | Tables interrupting mutable paragraphs preserve the canonical preceding prose at every chunk split and finalize to complete-message rows |
 | Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
 | Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
@@ -168,12 +179,14 @@ on a slow output device.
 ## Open Risks
 
 - Historical and eligible streaming-response styled/wrapped rows are shared.
-  General active-prefix/non-streaming/thinking assembly and comparison still
-  traverse their selected content; changed prefix blocks are rewrapped. Row
-  counters exclude that assembly/comparison work, parser/sanitizer work, and
-  forest metadata. This is not a complete per-delta bound.
+  Unchanged active prefixes bypass assembly and styled-line comparison. Changed
+  prefix inputs still require full prefix assembly/comparison and potentially
+  rewrapping, including thinking-source and displayed-duration updates. The
+  assembly counter covers actual assembly calls; row counters do not measure
+  source bytes, parser/sanitizer work, or forest metadata. This is not a complete
+  per-delta bound.
 - Live thinking's body-copy counter covers only the selected four-row window.
-  Committed thinking still parses its message during active-prefix assembly;
+  Committed thinking still parses its message on a prefix cache miss;
   live source parsing and wrapping unusually long selected rows are not bounded
   by the window's row count.
 - Persistent-index append can copy logarithmically many root handles while an
@@ -201,4 +214,5 @@ on a slow output device.
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
 - [Bounded thinking window](../journal/2026-10-03-bounded-thinking-window.md)
+- [Active prefix cache](../journal/2026-10-03-active-prefix-cache.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

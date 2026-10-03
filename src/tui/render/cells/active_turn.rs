@@ -40,6 +40,7 @@ use crate::tui::state::{
 pub(crate) struct ActiveTurnCell<'a> {
     app: &'a TuiApp,
     cwd: Option<&'a Path>,
+    thinking_duration: Option<std::time::Duration>,
 }
 
 pub(crate) struct ActiveTurnLayout {
@@ -65,7 +66,28 @@ enum StreamPresentation {
 
 impl<'a> ActiveTurnCell<'a> {
     pub(crate) fn new(app: &'a TuiApp, cwd: Option<&'a Path>) -> Self {
-        Self { app, cwd }
+        Self::at_time(app, cwd, std::time::Instant::now())
+    }
+
+    pub(crate) fn at_time(app: &'a TuiApp, cwd: Option<&'a Path>, now: std::time::Instant) -> Self {
+        let thinking_duration = app
+            .has_agent_thinking_stream()
+            .then(|| {
+                app.active_live
+                    .thinking_started_at
+                    .map(|start| now.saturating_duration_since(start))
+            })
+            .flatten();
+        Self {
+            app,
+            cwd,
+            thinking_duration,
+        }
+    }
+
+    pub(crate) fn thinking_duration_label(&self) -> Option<String> {
+        self.thinking_duration
+            .map(|duration| format!("{:.1}", duration.as_secs_f64()))
     }
 
     pub(crate) fn shared_layout(&self, width: u16) -> ActiveTurnLayout {
@@ -80,6 +102,10 @@ impl<'a> ActiveTurnCell<'a> {
 
 impl ActiveTurnCell<'_> {
     fn assemble(&self, width: u16, presentation: StreamPresentation) -> ActiveTurnLayout {
+        #[cfg(test)]
+        self.app
+            .active_assembly_count
+            .set(self.app.active_assembly_count.get() + 1);
         let current_turn = self.app.active_turn.entries.iter().collect::<Vec<_>>();
         let turn_live = self.app.is_busy()
             || matches!(
@@ -245,14 +271,9 @@ impl ActiveTurnCell<'_> {
             .as_deref()
             .filter(|lines| has_live_thinking && !lines.is_empty())
         {
-            let thinking_dur = self
-                .app
-                .active_live
-                .thinking_started_at
-                .map(|start| start.elapsed());
             // Live streaming thinking is always expanded (tail mode).
             // The toggle only affects committed (finalized) thinking blocks.
-            let cell = ThinkingBlockCell::from_stream(stream_lines, thinking_dur);
+            let cell = ThinkingBlockCell::from_stream(stream_lines, self.thinking_duration);
             #[cfg(test)]
             let cell = cell.with_work_meter(
                 self.app

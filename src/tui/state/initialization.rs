@@ -19,6 +19,8 @@ impl TuiApp {
         let model_picker_idx = selected_preset_idx_for_config(&cfg, provider_picker_idx);
         let sandbox_network = cfg.sandbox_workspace_write.network_access;
         let mut app = Self {
+            #[cfg(test)]
+            active_assembly_count: Default::default(),
             bottom_pane: BottomPaneModel {
                 input: String::new(),
                 input_cursor_offset: None,
@@ -29,7 +31,7 @@ impl TuiApp {
             input_history_cursor: None,
             input_history_draft: None,
             committed_turns: Vec::new(),
-            active_turn: TranscriptTurn::default(),
+            active_turn: Default::default(),
             overlay,
             overlay_stack: Vec::new(),
             sidebar_visible: true,
@@ -38,8 +40,8 @@ impl TuiApp {
             config_manager: cm,
             setup_status: None,
             runtime_phase: RuntimePhase::Idle,
-            runtime_phase_detail: None,
-            snapshot: RuntimeSnapshot::default(),
+            runtime_phase_detail: Default::default(),
+            snapshot: Default::default(),
             agent_execution_mode: AgentExecutionMode::Execute,
             bash_approval_mode: BashApprovalMode::Suggestion,
             provider_picker_idx,
@@ -97,7 +99,7 @@ impl TuiApp {
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
-            active_live: ActiveLiveSections::default(),
+            active_live: Default::default(),
             tool_progress: crate::tui::tool_progress::ToolProgressState::default(),
             running_tool_boundary_count: 0,
             terminal_focused: true,

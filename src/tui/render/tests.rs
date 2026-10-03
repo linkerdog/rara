@@ -542,7 +542,8 @@ fn context_overlay_snapshot_with_typical_budget() {
             },
         ],
         ..Default::default()
-    };
+    }
+    .into();
     app.config
         .set_model(Some("anthropic/claude-sonnet-4".to_string()));
 

@@ -54,13 +54,15 @@ Active backlog only. Keep this file small and current.
       counts and retained-allocation guards. Eligible active response bodies now
       retain stable visual blocks with a mutable preview and explicit replay
       epochs. Persistent balanced indexes bound retained root-handle copies
-      logarithmically. General active-prefix/non-streaming/thinking assembly,
-      comparison, and changed-prefix rewrapping remain explicit costs. Long
+      logarithmically. Unchanged active-prefix assembly and comparison are now
+      bypassed using mutation identities. Changed-input assembly/comparison and
+      rewrapping, including live thinking updates, remain explicit costs. Long
       mutable blocks and source-wide reference fallbacks still need work bounds;
       exact-head CI/review/merge and terminal acceptance remain separate gates.
       Live thinking now copies only its selected four-row tail; its source
       parsing and long-row wrapping costs remain separate. See
       [the thinking checkpoint](journal/2026-10-03-bounded-thinking-window.md).
+      See [the prefix checkpoint](journal/2026-10-03-active-prefix-cache.md).
       See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
       See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
       Tables interrupting mutable paragraphs have a canonical-renderer check at

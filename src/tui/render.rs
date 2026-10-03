@@ -1,3 +1,8 @@
+mod active_prefix;
+#[cfg(test)]
+mod active_prefix_invalidation_tests;
+#[cfg(test)]
+mod active_prefix_tests;
 #[cfg(test)]
 mod active_stream_tests;
 mod bottom_pane;

@@ -129,7 +129,7 @@ impl Fixture {
                 runtime.agent().unwrap().memory_store.clone(),
             ),
         ));
-        let port = Arc::new(FakeRuntimeClient::new(app.snapshot.clone()));
+        let port = Arc::new(FakeRuntimeClient::new(app.snapshot.clone().into_inner()));
         let (commands, receiver) = mpsc::unbounded_channel();
         let controller = TuiController::new(app, port.clone(), receiver);
         let oauth = Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).unwrap());

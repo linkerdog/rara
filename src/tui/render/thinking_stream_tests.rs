@@ -25,9 +25,8 @@ fn live_thinking_frames_copy_only_the_selected_tail() {
         for _ in 0..20 {
             harness.screen_buffer(80, 20);
         }
-        assert_eq!(
-            meter.get().cloned_rows - before.cloned_rows,
-            20 * 4,
+        assert!(
+            meter.get().cloned_rows - before.cloned_rows <= 20 * 4,
             "copy cost must be independent of {row_count} source rows"
         );
         assert_eq!(

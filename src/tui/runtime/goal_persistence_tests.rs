@@ -200,7 +200,7 @@ async fn resumed_goal_respects_persisted_budget_before_starting_a_turn() {
                 .replace(Some(goal.clone()))
                 .expect("seed goal");
             let mut slot = Some(ready_agent(&dir));
-            let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+            let runtime = FakeRuntimeClient::new(app.snapshot.clone().into_inner());
             execute_local_command_with_runtime(
                 LocalCommand {
                     kind: LocalCommandKind::Goal,
@@ -258,7 +258,7 @@ async fn failed_exhausted_resume_write_sends_no_wrap_up() {
         .expect("seed goal");
     rusqlite::Connection::open(db.path()).expect("connection").execute_batch("CREATE TRIGGER reject_goal_write BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected budget status failure'); END;").expect("trigger");
     let mut slot = Some(ready_agent(&dir));
-    let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+    let runtime = FakeRuntimeClient::new(app.snapshot.clone().into_inner());
     execute_local_command_with_runtime(
         LocalCommand {
             kind: LocalCommandKind::Goal,
