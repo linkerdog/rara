@@ -145,3 +145,45 @@ all touched Rust sources remain below 1,000 lines.
 - Stateful sanitization remains owned by #923; markdown counters do not claim
   a bound on the existing control-token scrubber or terminal sanitizer.
 - Remote CI, review, merge, and real-terminal acceptance are separate gates.
+
+## Review Integration (2026-10-03)
+
+Merge the verified #938 parent (`762b5be2`) without rewriting review history.
+Both the streaming contract and mainline terminal lifetime contract survive the
+single documentation conflict. GoalStore and paste ownership remain intact.
+
+The review's open plain-fence example exposes a distinction in the canonical
+writer: unlabelled code appends an explicit empty span, whereas an unknown
+language uses the highlighter fallback. Retain that distinction in the fence
+adapter instead of globally changing all plain highlighter output. Codex's
+canonical writer likewise preserves explicitly pushed spans; Claude Code's
+stable-prefix renderer leaves the growing code token replaceable. The local
+complete-message renderer remains the exact oracle for this adaptation.
+
+Add a direct regression with consecutive blank lines for both fence markers
+and unlabelled, unknown, and highlighted languages. Add exhaustive two-chunk
+splits for unlabelled fences, CRLF, and fences nested in lists or blockquotes.
+Compare complete styled lines, including after finalization.
+
+Also remove the unused full render immediately before discarding a live
+collector at transcript commit. Commit the sanitized source and let the
+committed-cell renderer perform canonical presentation. Collector finalization
+is retained only for focused oracle tests; production table finalization is
+covered through the existing controller/render test.
+
+Long mutable blocks and source-wide references still carry their documented
+fallback cost. Runtime theme invalidation and table-boundary audit are separate
+remaining review checks; this change does not claim full #921 completion.
+
+The new `open_fence_empty_rows_match_canonical_spans` regression fails before
+the fix after the second chunk (`"\n"`): the fast path has one empty span and
+the canonical renderer has two. This is a behavioral failure in styled-row
+equality, not a dependency or compilation failure. The fix adds the missing
+empty text span only for an unlabelled fence; labelled fallback rows keep their
+canonical representation.
+
+On the corrected integrated source, `cargo test --offline --locked --lib
+markdown_stream -- --nocapture` passes all 32 cases, including the behavioral
+regression and the exhaustive split oracle. No snapshot is regenerated. The
+full TUI filter, strict all-target Clippy, formatting, and new-head remote CI
+remain separate integration checks.
