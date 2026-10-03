@@ -8,8 +8,14 @@ mod sidebar;
 mod spinner;
 #[cfg(test)]
 mod tests;
+mod transcript_cache;
+#[cfg(test)]
+mod transcript_cache_tests;
 #[cfg(test)]
 mod transcript_scroll_tests;
+#[cfg(test)]
+#[path = "render/transcript_theme_tests.rs"]
+mod transcript_theme_tests;
 mod viewport;
 
 use std::path::Path;
@@ -29,6 +35,7 @@ pub(crate) use self::cells::{ActiveCell, HistoryCell};
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
 pub use self::layout::render;
 pub(crate) use self::overlay::popup_block;
+pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
 use super::line_utils::prefix_lines;
@@ -36,6 +43,7 @@ use super::state::{TranscriptEntry, TranscriptScrollLayout, TuiApp};
 use super::tool_text::{
     bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
 };
+use super::transcript_rows::TranscriptRows;
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
 
@@ -94,11 +102,8 @@ fn render_transcript(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         return;
     }
 
-    app.transcript_selection.update_snapshot(
-        viewport.lines.as_slice(),
-        area,
-        viewport.scroll_offset,
-    );
+    app.transcript_selection
+        .update_snapshot(&viewport.lines, area, viewport.scroll_offset);
     viewport.render(f, area);
     app.transcript_selection
         .highlight_visible_range(f.buffer_mut());
@@ -110,13 +115,17 @@ pub(crate) fn transcript_viewport(
     viewport_height: u16,
 ) -> TranscriptViewport {
     let lines = renderable_transcript_lines(app, width);
-    let mut viewport = TranscriptViewport::new(lines, 0, width);
-    viewport.scroll_offset = app.transcript_scroll.update_layout(TranscriptScrollLayout {
+    let scroll_offset = app.transcript_scroll.update_layout(TranscriptScrollLayout {
         width,
         height: viewport_height,
-        content_rows: viewport.lines.len(),
+        content_rows: lines.len(),
     });
-    viewport
+    TranscriptViewport {
+        lines,
+        scroll_offset,
+        #[cfg(test)]
+        work: app.committed_render_cache.borrow().work.clone(),
+    }
 }
 
 pub(crate) fn scroll_transcript(app: &mut TuiApp, delta: i32) {
@@ -128,52 +137,8 @@ pub(crate) fn scroll_transcript(app: &mut TuiApp, delta: i32) {
     app.transcript_scroll.scroll(delta);
 }
 
-fn renderable_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
-    let mut lines = committed_transcript_lines(app, width);
-
-    let mut active_lines = active_turn_cell(app).display_lines(width);
-    if !active_lines.is_empty() {
-        if !lines.is_empty() {
-            lines.push(turn_divider_line(width));
-        }
-        lines.append(&mut active_lines);
-    }
-
-    lines
-}
-
-fn committed_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
-    {
-        let cache = app.committed_render_cache.borrow();
-        if cache.generation == app.committed_render_generation && cache.width == width {
-            return cache.lines.clone();
-        }
-    }
-
-    let cwd = (!app.snapshot.cwd.is_empty()).then(|| Path::new(app.snapshot.cwd.as_str()));
-    let mut lines = Vec::new();
-    for turn in &app.committed_turns {
-        let mut turn_lines = committed_turn_lines(
-            turn.entries.as_slice(),
-            cwd,
-            width,
-            app.thinking_collapsed,
-            turn.thinking_duration,
-        );
-        if turn_lines.is_empty() {
-            continue;
-        }
-        if !lines.is_empty() {
-            lines.push(turn_divider_line(width));
-        }
-        lines.append(&mut turn_lines);
-    }
-
-    let mut cache = app.committed_render_cache.borrow_mut();
-    cache.generation = app.committed_render_generation;
-    cache.width = width;
-    cache.lines = lines.clone();
-    lines
+fn renderable_transcript_lines(app: &TuiApp, width: u16) -> TranscriptRows {
+    transcript_cache::materialize(app, width)
 }
 
 fn turn_divider_line(width: u16) -> Line<'static> {

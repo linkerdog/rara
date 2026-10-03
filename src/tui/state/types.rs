@@ -641,12 +641,7 @@ pub struct TranscriptTurn {
     pub thinking_duration: Option<std::time::Duration>,
 }
 
-#[derive(Default)]
-pub(crate) struct CommittedTranscriptRenderCache {
-    pub generation: u64,
-    pub width: u16,
-    pub lines: Vec<Line<'static>>,
-}
+pub(crate) use crate::tui::render::CommittedTranscriptRenderCache;
 
 pub struct AgentMarkdownStreamState {
     pub(crate) raw_text: String,

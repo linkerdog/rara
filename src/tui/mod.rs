@@ -59,7 +59,10 @@ mod tests;
 mod text_wrap;
 mod theme;
 mod tool_text;
+mod transcript_rows;
 mod transcript_text;
+#[cfg(test)]
+mod transcript_work;
 
 #[cfg(test)]
 pub(crate) use self::event_dispatch::dispatch_event;

@@ -9,6 +9,7 @@ use ratatui::text::Line;
 #[cfg(test)]
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
 use crate::tui::markdown_render::{RenderContext, render_streaming_markdown};
+use crate::tui::theme::{self, ThemeRevision};
 
 #[derive(Clone, Copy)]
 enum RenderBoundary {
@@ -30,6 +31,7 @@ pub(crate) struct MarkdownStreamCollector {
     width: Option<usize>,
     cwd: PathBuf,
     lines: Vec<Line<'static>>,
+    theme_revision: ThemeRevision,
     #[cfg(test)]
     work: MarkdownWork,
 }
@@ -60,6 +62,7 @@ impl MarkdownStreamCollector {
             width,
             cwd: cwd.to_path_buf(),
             lines: Vec::new(),
+            theme_revision: theme::revision(),
             #[cfg(test)]
             work: MarkdownWork::default(),
         }
@@ -96,6 +99,11 @@ impl MarkdownStreamCollector {
     }
 
     pub fn lines(&mut self) -> &[Line<'static>] {
+        let theme_revision = theme::revision();
+        if self.theme_revision != theme_revision {
+            self.reset_render();
+            self.theme_revision = theme_revision;
+        }
         if self.needs_render() {
             self.refresh();
             self.rendered_source_len = self.buffer.len();
@@ -108,7 +116,7 @@ impl MarkdownStreamCollector {
     }
 
     pub fn needs_render(&self) -> bool {
-        self.rendered_source_len != self.buffer.len()
+        self.rendered_source_len != self.buffer.len() || self.theme_revision != theme::revision()
     }
 
     fn refresh(&mut self) {
@@ -229,6 +237,7 @@ impl MarkdownStreamCollector {
 
     #[cfg(test)]
     pub fn finalize(&mut self) {
+        self.theme_revision = theme::revision();
         self.open_fence = None;
         self.record_parse(self.buffer.len());
         self.lines =

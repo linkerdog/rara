@@ -384,7 +384,7 @@ fn renderable_transcript_lines_include_committed_and_active_turns() {
     });
 
     let rendered = renderable_transcript_lines(&app, 100)
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
@@ -427,7 +427,7 @@ fn renderable_transcript_lines_insert_turn_dividers_between_rounds() {
     });
 
     let rendered = renderable_transcript_lines(&app, 24)
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
@@ -453,7 +453,7 @@ fn startup_header_renders_but_does_not_enter_transcript_lines() {
     assert!(rendered.contains("── RARA"));
 
     let transcript = renderable_transcript_lines(&app, 100)
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
@@ -551,7 +551,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
     }]);
 
     let first = renderable_transcript_lines(&app, 100)
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
@@ -567,7 +567,7 @@ fn renderable_transcript_lines_cache_is_invalidated_when_committed_turns_change(
     }]);
 
     let second = renderable_transcript_lines(&app, 100)
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n");
@@ -609,12 +609,12 @@ fn transcript_viewport_is_independent_from_overlay_state() {
 
     let base_rendered = base
         .lines
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
     let overlay_rendered = with_overlay
         .lines
-        .into_iter()
+        .iter()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 

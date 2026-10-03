@@ -53,9 +53,14 @@ Row counting, viewport slicing, and selection consume those materialized rows;
 the renderer must not wrap them again. Soft-wrap word separators are omitted
 from display and copied text, while explicit blank lines are retained.
 
-Snapshot rebuilding is guarded by the viewport area, scroll offset, and complete
-visual-row content. Unchanged frames reuse the previous screen-area-to-text
-mapping. Styles do not change copied text. Graphemes wider than the available
+The snapshot retains shared immutable row blocks rather than independently
+hashing/stringifying all transcript rows. Area and scroll updates only replace
+geometry and shared handles. Unchanged committed blocks retain styled rows,
+plain text, and measured widths across frames and appended turns. Width, cwd,
+thinking visibility, committed replacement, reset, and restore invalidate the
+history layout. The replaceable active block uses complete styled-line equality,
+including middle content, styles, and alignment, not an edge-only fingerprint.
+Styles do not change copied text. Graphemes wider than the available
 transcript row are displayed as a single replacement character rather than
 creating invisible selectable content.
 
@@ -71,7 +76,7 @@ visual rows are appended, while tail-following uses the newly measured end.
 Layout changes clamp an anchor without implicitly enabling tail-following.
 Reaching the bottom through manual scrolling restores tail-following.
 
-Offsets, viewport slices, and selection snapshot keys use `usize`. Only local
+Offsets, viewport slices, and selection row indices use `usize`. Only local
 terminal coordinates use `u16`; a long transcript must not be passed through
 `Paragraph::scroll`. The existing one-row breathing room at the tail remains.
 Reset and thread restoration explicitly return to tail-following. Scroll input
@@ -113,6 +118,8 @@ best-effort fallbacks for local sessions.
 | Scroll bounds and tail-following | Pure state tests for extreme deltas, empty/short content, layout changes, appends, and return to tail |
 | Stable streaming anchor | Production key dispatch followed by appended stream deltas; visible buffer rows remain unchanged |
 | Long transcript reachability | Production renderer with 70,000 rows; tail buffer, highlight, and copied text agree |
+| Shared snapshot reuse | Work counts for unchanged frames, scroll, copy, and streamed tails; retained allocations on committed append |
+| Snapshot refresh | Same-sized middle replacement and full styled-tail invalidation; width/cwd/visibility/reset/restore guards |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
 | Clipboard fallback safety | Manual SSH/local verification |
 | Render highlight | Manual TUI verification; future snapshot if styling changes |
@@ -136,3 +143,4 @@ machine clipboard rather than the user's local desktop clipboard.
 - [2026-05-13-transcript-copy-selection](../journal/2026-05-13-transcript-copy-selection.md)
 - [2026-10-02-shared-transcript-wrapping](../journal/2026-10-02-shared-transcript-wrapping.md)
 - [2026-10-02-transcript-scroll-anchors](../journal/2026-10-02-transcript-scroll-anchors.md)
+- [2026-10-03-transcript-row-reuse](../journal/2026-10-03-transcript-row-reuse.md)
