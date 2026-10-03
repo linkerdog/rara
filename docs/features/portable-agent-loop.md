@@ -94,6 +94,32 @@ failures stop collection before subsequent blocks or completion callbacks.
 The application and downstream fixture consume this implementation. The shared
 model effect is not an independent session runtime or a context/prompt policy.
 
+### Tool Effects
+
+`execute_tool_batch` owns serial admission, invocation, result completion, and
+provider-ID result collection. `ToolBatchEffects` supplies session-scoped
+policy: batch preparation, per-call admission, invocation, and result handling.
+Every stage completes before the next call is admitted. An approval pause
+returns `AwaitingApproval` without invoking the paused call or later calls.
+Effect errors propagate without replay or implicit transcript commit.
+
+Admission may invoke a tool, provide an already-handled reply, pause for
+approval, or explicitly omit a call after host diagnostics. The native adapter
+preserves existing mode restrictions, approval/classifier/hook order, and its
+legacy hook-failure omission. The shared executor does not grant permission.
+
+`execute_tool_call` forwards the host's trusted context and binds progress and
+the context call ID to the provider call. Model arguments cannot replace host
+identity. Cancellation stays cooperative: invocation awaits the tool's actual
+return and does not fabricate an early terminal result. Tool failures are
+passed to host result policy, which may convert them into model-visible errors
+as the native application does. Result-policy failures stop the batch.
+
+`ToolReply` preserves the existing user-message tool-result envelope, omitting
+`is_error` on success. Hosts retain result compaction, batch budgets, persistence,
+and visible result events. The application and downstream fixture use the same
+batch and invocation code.
+
 ### Loop Decisions
 
 - `max_turns` wins over token exhaustion when both are reached. Limits are
@@ -150,6 +176,7 @@ claim browser execution.
 | Existing application | Agent planning, approval, hooks, duplicate-tool, budget, and session integration tests |
 | Async effects | Suspended model/tool/checkpoint/finalization effects prevent later work; errors preserve progress and stop admission |
 | Model effects | Stream/fallback ordering, reasoning evidence, original versus executable tool arguments, cancellation, policy errors, and metadata-only history |
+| Tool effects | Approval pauses, suspended invocation/result handling, trusted call identity, error/omission replies, and serial result ordering |
 | Dependency boundary | External Git fixture audits both core and agent dependency closures |
 | Portable compilation | Native tests and browser-target compilation without feature flags |
 
@@ -181,3 +208,4 @@ existing ownership and cancellation-return barriers.
 - [2026-10-04-portable-agent-loop](../journal/2026-10-04-portable-agent-loop.md)
 - [2026-10-04-shared-agent-executor](../journal/2026-10-04-shared-agent-executor.md)
 - [2026-10-04-portable-model-turn](../journal/2026-10-04-portable-model-turn.md)
+- [2026-10-04-portable-tool-execution](../journal/2026-10-04-portable-tool-execution.md)

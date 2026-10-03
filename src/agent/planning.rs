@@ -365,22 +365,27 @@ impl Agent {
             .map(|request| format!("Running approved shell command: {}", request.summary()))
             .unwrap_or_else(|_| "Running approved bash command.".to_string());
         report(AgentEvent::Status(status_detail));
-        match tool
-            .call_with_context_events(
-                input.clone(),
-                self.tool_call_context(&pending.tool_use_id),
-                &mut |progress| match progress {
-                    ToolProgressEvent::Output { stream, chunk } => {
-                        report(AgentEvent::ToolProgress {
-                            call_id: pending.tool_use_id.clone(),
-                            name: "bash".to_string(),
-                            stream,
-                            chunk,
-                        });
-                    }
-                },
-            )
-            .await
+        let call = ToolCall {
+            id: pending.tool_use_id.clone(),
+            name: "bash".to_string(),
+            input: input.clone(),
+        };
+        match rara_agent::execute_tool_call(
+            tool,
+            &call,
+            self.tool_call_context(&pending.tool_use_id),
+            &mut |progress| match progress.event {
+                ToolProgressEvent::Output { stream, chunk } => {
+                    report(AgentEvent::ToolProgress {
+                        call_id: progress.call_id,
+                        name: progress.name,
+                        stream,
+                        chunk,
+                    });
+                }
+            },
+        )
+        .await
         {
             Ok(result) => {
                 let result_text = self.tool_result_store.compact_result(
@@ -842,16 +847,5 @@ pub(super) fn strip_continue_inspection_control(text: &str) -> (String, bool) {
 }
 
 pub(super) fn tool_result_message(tool_use_id: &str, content: String, is_error: bool) -> Message {
-    let mut block = json!({
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": content,
-    });
-    if is_error {
-        block["is_error"] = json!(true);
-    }
-    Message {
-        role: "user".to_string(),
-        content: json!([block]),
-    }
+    rara_agent::ToolReply { content, is_error }.into_message(tool_use_id)
 }

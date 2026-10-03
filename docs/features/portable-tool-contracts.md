@@ -106,8 +106,9 @@ repository and revision, including for forks.
    The [portable loop machine](portable-agent-loop.md) now owns deterministic
    transitions, and its shared asynchronous executor is consumed by the
    application through `LoopEffects`. Model dispatch and response collection are
-   also shared; native context/model policy, tool execution, and full session
-   packaging remain to be extracted.
+   also shared. Serial tool admission/invocation/result collection now uses the
+   same executor with native policy adapters. Portable context preparation,
+   native policy assembly, and full session packaging remain to be extracted.
 3. **Session ownership:** move actor, commands, replay, and turn outcomes into a
    minimal runtime package using the shared executor. Preserve the lifecycle
    invariants in [runtime-session.md](runtime-session.md). Exit only when a
