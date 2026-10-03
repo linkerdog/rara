@@ -26,6 +26,7 @@ enum BackendOutcome {
     Answer,
     PlanApproval,
     Failure,
+    CancellationTextFailure,
     Panic,
 }
 
@@ -64,6 +65,9 @@ impl LlmBackend for DrainingBackend {
             }),
             BackendOutcome::PlanApproval => ExitPlanModeBackend.ask(_messages, _tools).await,
             BackendOutcome::Failure => Err(anyhow::anyhow!("scripted provider failure")),
+            BackendOutcome::CancellationTextFailure => Err(anyhow::anyhow!(
+                "provider failure quoting cancelled by user"
+            )),
             BackendOutcome::Panic => panic!("scripted provider panic"),
         }
     }
