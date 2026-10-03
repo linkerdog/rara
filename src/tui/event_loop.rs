@@ -4,10 +4,11 @@ use std::sync::Arc;
 use crossterm::{event::EventStream, terminal::size as terminal_size};
 use futures::StreamExt;
 use rara_state::state_db::StateDb;
-use tokio::time::{Duration, MissedTickBehavior, interval};
+use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 use super::controller::{RuntimeActivity, TuiController};
 use super::event_stream::{UiEvent, translate_event};
+use super::frame_scheduler::FrameScheduler;
 use super::render::{desired_viewport_height, render};
 use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
@@ -134,6 +135,8 @@ async fn run_tui_session(
     let mut events = EventStream::new();
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut frames = FrameScheduler::default();
+    let mut clear_on_draw = false;
 
     maintainer.sync_snapshot(&mut processor).await?;
     maintainer.start_repo_context_detection();
@@ -149,11 +152,15 @@ async fn run_tui_session(
     }
 
     loop {
-        let mut needs_redraw = maintainer.needs_redraw;
+        let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
         }
-        {
+        needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
+        if needs_redraw {
+            frames.request(Instant::now());
+        }
+        if frames.is_due(Instant::now()) {
             let app = maintainer.app_mut();
             clamp_command_palette_selection(app);
             let size = terminal_size()?;
@@ -164,16 +171,20 @@ async fn run_tui_session(
                 Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
             }
 
-            if needs_redraw {
-                terminal.draw(|f| render(f, app))?;
-                needs_redraw = false;
+            if clear_on_draw {
+                if let Err(err) = terminal.clear_visible_screen() {
+                    log::warn!("Failed to clear the visible terminal frame: {err}");
+                    app.push_notice(format!("Skipped viewport clear: {err}"));
+                }
+                clear_on_draw = false;
             }
-            if app.check_composer_paste_flush() {
-                needs_redraw = true;
-            }
+            terminal.draw(|f| render(f, app))?;
+            frames.mark_drawn(Instant::now());
         }
+        needs_redraw = false;
 
         tokio::select! {
+            _ = frames.wait() => {}
             _ = tick.tick() => {
                 let mut changed = false;
                 let app = maintainer.app_mut();
@@ -221,17 +232,7 @@ async fn run_tui_session(
                             needs_redraw = true;
                         }
                         Some(UiEvent::Draw) => {
-                            let app = maintainer.app_mut();
-                            let size = terminal_size()?;
-                            app.terminal_width = size.0;
-                            let desired_height = desired_viewport_height(app, size.0, size.1);
-                            match update_terminal_viewport(&mut terminal, desired_height, app) {
-                                Ok(()) => {}
-                                Err(err) => app.push_notice(format!(
-                                    "Skipped viewport redraw update: {err}"
-                                )),
-                            }
-                            let _ = terminal.clear_visible_screen();
+                            clear_on_draw = true;
                             needs_redraw = true;
                         }
                         Some(UiEvent::Paste(text)) => {
@@ -256,7 +257,7 @@ async fn run_tui_session(
                 }
             }
         }
-        maintainer.needs_redraw = needs_redraw;
+        maintainer.needs_redraw |= needs_redraw;
     }
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
         handle.abort();

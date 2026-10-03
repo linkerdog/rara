@@ -94,6 +94,14 @@ tail. Long histories remain reachable without a 16-bit global-row offset; see
 [mouse text selection](../features/mouse-text-selection.md) for shared scrolling,
 rendering, and copy behavior.
 
+Presentation changes are applied in event order, while repaint requests are
+coalesced at a session-local frame deadline. A final update must become visible
+without requiring another event or waiting for the maintenance tick. Input
+updates state immediately; resize requests are retained until the next paint
+measures current terminal dimensions. Painting may wait one frame interval. See
+[streaming transcript](../features/streaming-transcript.md) for scheduling and
+the separate incremental-work contracts.
+
 ### RUN-05: Terminal Lifetime And Restoration
 
 Terminal mode ownership begins before raw mode or input reporting is enabled.
