@@ -128,6 +128,15 @@ boundaries for issue #921:
   lines, for both labelled and unlabelled fences at every chunk boundary.
 - Committing raw stream text does not render rows that are immediately
   discarded; the committed-cell renderer owns complete-message presentation.
+- Live thinking selects its four-row tail from borrowed materialized Markdown
+  rows before copying span contents. Hidden thinking rows must not be traversed
+  or cloned by the presentation cell. The heading, duration, hidden-row count,
+  dim styling, and finalization order retain their existing behavior. This bound
+  applies to row projection; Markdown parsing and wrapping long selected rows
+  remain separate costs.
+- A confirmed table may start inside the previously mutable paragraph. Holding
+  that table must preserve all preceding prose with canonical paragraph spacing,
+  regardless of delta boundaries, and release the complete table on finalization.
 
 ## Validation Matrix
 
@@ -143,6 +152,8 @@ boundaries for issue #921:
 | Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
 | Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
 | Active response | Production clone/wrap/text work over long unchanged and growing streams; stable allocation reuse, compact transitions, and preview selection refresh |
+| Live thinking | Production cell copy counts depend on the selected four-row tail, not accumulated rows; styled head/tail projection, empty input, and duration remain correct |
+| Table boundary | Tables interrupting mutable paragraphs preserve the canonical preceding prose at every chunk split and finalize to complete-message rows |
 | Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
 | Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
@@ -161,6 +172,10 @@ on a slow output device.
   traverse their selected content; changed prefix blocks are rewrapped. Row
   counters exclude that assembly/comparison work, parser/sanitizer work, and
   forest metadata. This is not a complete per-delta bound.
+- Live thinking's body-copy counter covers only the selected four-row window.
+  Committed thinking still parses its message during active-prefix assembly;
+  live source parsing and wrapping unusually long selected rows are not bounded
+  by the window's row count.
 - Persistent-index append can copy logarithmically many root handles while an
   older snapshot is retained, and can create logarithmically many carry nodes.
   No constant-cost metadata append or constant-cost indexed access is claimed.
@@ -185,4 +200,5 @@ on a slow output device.
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
+- [Bounded thinking window](../journal/2026-10-03-bounded-thinking-window.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

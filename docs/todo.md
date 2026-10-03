@@ -58,10 +58,13 @@ Active backlog only. Keep this file small and current.
       comparison, and changed-prefix rewrapping remain explicit costs. Long
       mutable blocks and source-wide reference fallbacks still need work bounds;
       exact-head CI/review/merge and terminal acceptance remain separate gates.
+      Live thinking now copies only its selected four-row tail; its source
+      parsing and long-row wrapping costs remain separate. See
+      [the thinking checkpoint](journal/2026-10-03-bounded-thinking-window.md).
       See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
       See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
-      Audit tables that begin within a mutable paragraph against the canonical
-      renderer before closing the review tail.
+      Tables interrupting mutable paragraphs have a canonical-renderer check at
+      every Unicode-safe two-chunk split, including CRLF and reference contexts.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
