@@ -8958,6 +8958,7 @@ dependencies = [
  "portable-pty",
  "pulldown-cmark",
  "rand 0.10.3",
+ "rara-agent",
  "rara-app-server",
  "rara-background-tasks",
  "rara-bedrock",
@@ -9005,6 +9006,15 @@ dependencies = [
  "uuid",
  "vt100",
  "walkdir",
+]
+
+[[package]]
+name = "rara-agent"
+version = "0.0.22"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -9074,6 +9084,7 @@ dependencies = [
  "rara-observability",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -9222,15 +9233,14 @@ dependencies = [
  "async-trait",
  "glob",
  "rara-apply-patch",
+ "rara-core",
  "rara-file-search",
  "rara-memory",
- "rara-observability",
  "rara-tool-macros",
  "regex",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
  "tokio",
  "walkdir",
 ]
