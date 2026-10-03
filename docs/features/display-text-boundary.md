@@ -10,6 +10,7 @@ not bound a single long line.
 ## Scope
 
 - Presentation-local sanitization before markdown and transcript ingestion.
+- Chunk-independent internal-control cleanup in assistant Markdown streams.
 - Paste sanitization before active-surface routing and burst buffering.
 - Stateful per-source tool progress, bounded by bytes and logical lines.
 - Canonical visual rows and content-sensitive selection snapshots.
@@ -47,6 +48,17 @@ does not first allocate a huge sanitized or formatted display string.
 
 ## Contracts
 
+- After each assistant delta, Markdown input equals complete-message internal
+  control cleanup of the terminal-sanitized source prefix. Split legacy markers,
+  internal-block separators, late DeepSeek evidence, and orphaned DSML tails
+  cannot depend on provider chunk boundaries. Literal `<think>` remains visible
+  without DeepSeek control evidence.
+- Ordinary angle brackets, including arbitrarily long partial marker names,
+  use bounded recognition state without revisiting accumulated source. Completed
+  legacy markers can revise visible text through canonical cleanup. Internal
+  block or DeepSeek evidence switches that stream to canonical replay, including
+  later plain chunks: these rules can retrospectively change earlier text and
+  are not covered by an O(new-delta) ingestion claim.
 - CSI, OSC, DCS, SOS, PM, APC, generic escape sequences, and nonprinting C0/C1
   controls are removed regardless of chunk boundaries. Partial sequences never
   enter display storage. A CR or LF ends any unfinished control sequence and
@@ -93,6 +105,7 @@ does not first allocate a huge sanitized or formatted display string.
 | Boundary | Required evidence |
 | --- | --- |
 | Stream carry | Every character-boundary split of CSI/string escapes and CRLF; live and finalized markdown agree |
+| Internal control carry | Every character-boundary split and character-sized deltas agree with canonical source cleanup and Markdown rows; ordinary angle brackets and long unfinished legacy names do not replay accumulated source |
 | Source isolation | Interleaved invocations and stdout/stderr; unfinished controls do not affect another source or turn |
 | Bounded progress | 10 MB no-newline chunk, many lines, CR progress, multibyte eviction; stored text stays within both limits |
 | Paste | Composer, burst expansion, editable overlays, and read-only ownership after sanitization |
@@ -116,8 +129,13 @@ large chunk still requires work proportional to its input size.
 - Column normalization is not a general Unicode spoofing detector. Raw source
   and visually confusable Unicode require a separate inspection/annotation
   policy that preserves legitimate text and emoji.
+- Streams containing internal blocks or DeepSeek evidence replay canonical
+  control cleanup on each later nonempty delta. A future incremental replacement
+  must preserve transformation order, delayed separators, retrospective leading
+  think removal, malformed DSML literals, and persistent orphan-tail suppression.
 
 ## Source Journals
 
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
+- [Streaming control-token cleanup](../journal/2026-10-04-streaming-control-cleanup.md)

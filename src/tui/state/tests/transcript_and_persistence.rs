@@ -426,7 +426,8 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     app.finalize_agent_stream(Some("\u{4f60}\u{597d}\u{ff01}\u{6709}\u{4ec0}\u{4e48}\u{6211}\u{53ef}\u{4ee5}\u{5e2e}\u{4f60}\u{7684}\u{ff1f}".into()));
 

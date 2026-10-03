@@ -55,10 +55,17 @@ wrap, stringify, or hash unchanged historical rows. Appended committed turns
 reuse prior blocks; width, thinking visibility, cwd, replacement, and reset
 invalidate the appropriate blocks. Semantic and syntax theme revisions invalidate
 committed styles and the stream's materialized Markdown, even without a new
-delta. Reinstalling the same resolved theme preserves the caches. Active-tail
-layout reuse compares complete
-styled logical lines rather than an edge-only or text-length fingerprint.
-That conservative equality remains the boundary for the general active prefix.
+delta. Reinstalling the same resolved theme preserves the caches.
+
+Active-prefix assembly is keyed by session-owned mutation revisions for its
+owned inputs, plus width, theme, runtime phase, busy state, execution mode,
+thinking visibility, interaction selection, and stream presence. Revisions
+change before mutable access, including nested
+edits and replacement; retained identity tokens prevent allocator-address reuse
+from matching an old cache entry. Reads do not hash or compare accumulated input.
+An unchanged key reuses the prefix without assembling or comparing logical rows.
+A changed key may rebuild the prefix; complete styled-line equality can still
+retain wrapped rows if that rebuild has no visible effect.
 
 An eligible final streaming response is separate from that prefix. The session's
 stream state owns source and layout caches with separate borrow lifetimes. The
@@ -70,8 +77,15 @@ replacement, finalization, source-wide reference invalidation, and open-fence
 fallback advance the epoch. Stable logical body rows are promoted to immutable
 wrapped blocks, while preview and truncation-summary rows remain replaceable.
 An unchanged response read traverses neither source rows nor stable body rows.
-Prefix cards, ordering, suppression, animation, and thinking visibility retain
-their existing assembly and exact styled-line comparison.
+Prefix cards retain their ordering, suppression, and thinking visibility.
+Response-body appends do not invalidate the prefix key. A visible live-thinking
+cell occupies a separate replaceable row block between two retained static
+sections. Thinking source and displayed-duration changes refresh that block
+without reassembling, comparing, or wrapping those sections. Empty/nonempty
+thinking transitions, stream presence, and other structural inputs still
+invalidate the surrounding layout. Replacing a runtime snapshot or any other
+tracked prefix input also invalidates it. An unchanged phase detail from
+successive deltas preserves its revision.
 
 Committed and streaming block indexes use a persistent binary-carry forest.
 Its balanced subtrees cache row counts, and its root list has at most
@@ -128,6 +142,15 @@ boundaries for issue #921:
   lines, for both labelled and unlabelled fences at every chunk boundary.
 - Committing raw stream text does not render rows that are immediately
   discarded; the committed-cell renderer owns complete-message presentation.
+- Live thinking selects its four-row tail from borrowed materialized Markdown
+  rows before copying span contents. Hidden thinking rows must not be traversed
+  or cloned by the presentation cell. The heading, duration, hidden-row count,
+  dim styling, and finalization order retain their existing behavior. This bound
+  applies to row projection; Markdown parsing and wrapping long selected rows
+  remain separate costs.
+- A confirmed table may start inside the previously mutable paragraph. Holding
+  that table must preserve all preceding prose with canonical paragraph spacing,
+  regardless of delta boundaries, and release the complete table on finalization.
 
 ## Validation Matrix
 
@@ -143,6 +166,10 @@ boundaries for issue #921:
 | Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
 | Shared history | Retained styled/text allocations across appended turns and indexed windows across block boundaries |
 | Active response | Production clone/wrap/text work over long unchanged and growing streams; stable allocation reuse, compact transitions, and preview selection refresh |
+| Live thinking | Production cell copy counts depend on the selected four-row tail, not accumulated rows; styled head/tail projection, empty input, and duration remain correct |
+| Active prefix | Production assembly counts stay flat on unchanged paints, scrolling, composer-only edits, and response appends; nested same-length changes, replacement, interaction/queue state, thinking source/duration, theme, and width match uncached rendering |
+| Thinking slot | Growing thinking and duration ticks retain both static sections; production wrapping touches only the selected window and chrome; empty/visible transitions, spacing, history dividers, and cross-section copy match uncached rendering |
+| Table boundary | Tables interrupting mutable paragraphs preserve the canonical preceding prose at every chunk split and finalize to complete-message rows |
 | Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
 | Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
@@ -157,10 +184,17 @@ on a slow output device.
 ## Open Risks
 
 - Historical and eligible streaming-response styled/wrapped rows are shared.
-  General active-prefix/non-streaming/thinking assembly and comparison still
-  traverse their selected content; changed prefix blocks are rewrapped. Row
-  counters exclude that assembly/comparison work, parser/sanitizer work, and
-  forest metadata. This is not a complete per-delta bound.
+  Unchanged active prefixes bypass assembly and styled-line comparison. Changed
+  structural prefix inputs still require full prefix assembly/comparison and
+  potentially rewrapping. Live thinking source/duration updates replace only
+  their visible block while retaining surrounding rows. The
+  assembly counter covers actual assembly calls; row counters do not measure
+  source bytes, parser/sanitizer work, or forest metadata. This is not a complete
+  per-delta bound.
+- Live thinking's body-copy counter covers only the selected four-row window.
+  Committed thinking still parses its message on a prefix cache miss;
+  live source parsing and wrapping unusually long selected rows are not bounded
+  by the window's row count.
 - Persistent-index append can copy logarithmically many root handles while an
   older snapshot is retained, and can create logarithmically many carry nodes.
   No constant-cost metadata append or constant-cost indexed access is claimed.
@@ -175,7 +209,10 @@ on a slow output device.
   an unconditional O(new-delta) guarantee for every Markdown document.
 - Source-cache work counters exclude the display sanitizer and control-token
   scrubber. Terminal-control parsing is incremental with constant-size carry;
-  control-token fallback can still revisit accumulated source. See
+  ordinary angle brackets use bounded control-token recognition without source
+  replay. Completed legacy markers replay once per affected delta; internal
+  blocks and DeepSeek evidence retain canonical replay for subsequent nonempty
+  deltas. Those fallbacks can still revisit accumulated source. See
   [display text boundary](display-text-boundary.md). Neither boundary proves a
   complete per-delta work bound for arbitrary Markdown.
 
@@ -185,4 +222,7 @@ on a slow output device.
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
+- [Bounded thinking window](../journal/2026-10-03-bounded-thinking-window.md)
+- [Active prefix cache](../journal/2026-10-03-active-prefix-cache.md)
+- [Live thinking row slot](../journal/2026-10-03-live-thinking-row-slot.md)
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)

@@ -72,9 +72,8 @@ impl TuiApp {
 
     pub fn show_pending_plan_approval(&mut self, tool_use_id: Option<&str>) {
         self.clear_plan_approval_interaction();
-        self.snapshot
-            .pending_interactions
-            .push(self.plan_approval_interaction(tool_use_id));
+        let interaction = self.plan_approval_interaction(tool_use_id);
+        self.snapshot.pending_interactions.push(interaction);
         self.approval_picker_idx = 0;
         self.persist_runtime_state();
     }

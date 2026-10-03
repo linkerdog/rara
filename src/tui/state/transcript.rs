@@ -265,7 +265,7 @@ impl TuiApp {
         self.agent_markdown_stream = None;
         self.agent_thinking_stream = None;
         self.clear_active_live_sections();
-        self.bottom_pane.pending_planning_suggestion = None;
+        self.bottom_pane.pending_planning_suggestion = None.into();
         self.bottom_pane.pending_follow_up_messages.clear();
         self.bottom_pane.queued_follow_up_messages.clear();
         self.running_tool_boundary_count = 0;
@@ -285,8 +285,9 @@ impl TuiApp {
 
     pub fn set_runtime_phase(&mut self, phase: RuntimePhase, detail: Option<String>) {
         self.runtime_phase = phase;
-        self.runtime_phase_detail =
-            detail.map(|text| crate::tui::display_sanitize::sanitize_display_line(&text));
+        self.runtime_phase_detail.set_if_changed(
+            detail.map(|text| crate::tui::display_sanitize::sanitize_display_line(&text)),
+        );
     }
 
     pub fn runtime_phase_label(&self) -> &'static str {
@@ -343,7 +344,7 @@ impl TuiApp {
             self.clear_active_live_sections();
             return;
         }
-        let turn = std::mem::take(&mut self.active_turn);
+        let turn = std::mem::take(&mut self.active_turn).into_inner();
         self.committed_turns.push(turn);
         self.clear_live_log();
         // Append preserves prior immutable render blocks; layout sees the new count.
@@ -373,7 +374,7 @@ impl TuiApp {
     }
 
     pub fn clear_active_live_sections(&mut self) {
-        self.active_live = super::ActiveLiveSections::default();
+        self.active_live = super::ActiveLiveSections::default().into();
         self.tool_progress = crate::tui::tool_progress::ToolProgressState::default();
     }
 
@@ -584,13 +585,13 @@ impl TuiApp {
                 still_pending.push(item);
             }
         }
-        self.bottom_pane.pending_follow_up_messages = still_pending;
+        self.bottom_pane.pending_follow_up_messages = still_pending.into();
         self.bottom_pane.queued_follow_up_messages.extend(released);
     }
 
     #[cfg(test)]
     pub fn queue_planning_suggestion(&mut self, prompt: impl Into<String>) {
-        self.bottom_pane.pending_planning_suggestion = Some(prompt.into());
+        self.bottom_pane.pending_planning_suggestion = Some(prompt.into()).into();
         self.bottom_pane.notice = Some(
             "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
                 .into(),
@@ -599,6 +600,6 @@ impl TuiApp {
     }
 
     pub fn clear_pending_planning_suggestion(&mut self) {
-        self.bottom_pane.pending_planning_suggestion = None;
+        self.bottom_pane.pending_planning_suggestion = None.into();
     }
 }
