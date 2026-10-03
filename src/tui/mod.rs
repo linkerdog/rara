@@ -6,7 +6,10 @@ mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
+#[cfg(test)]
+mod display_boundary_tests;
 mod display_sanitize;
+mod display_tail;
 mod event_dispatch;
 mod event_loop;
 mod event_stream;
@@ -58,6 +61,7 @@ mod testing;
 mod tests;
 mod text_wrap;
 mod theme;
+mod tool_progress;
 mod tool_text;
 mod transcript_rows;
 mod transcript_text;

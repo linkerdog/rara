@@ -1,9 +1,6 @@
-use rara_tools::tool::ToolOutputStream;
-
 pub(super) use crate::control_tokens::scrub_internal_control_tokens;
 use crate::tool_result::render_bash_outcome_summary;
 use crate::tools::bash::BashCommandInput;
-use crate::tui::state::TuiApp;
 use crate::tui::terminal_event::{
     TerminalEvent, output_tail_preview as terminal_output_tail_preview,
 };
@@ -682,71 +679,6 @@ fn tool_result_preview(content: &str) -> Option<String> {
     } else {
         Some(preview_lines.join("\n"))
     }
-}
-
-pub(super) fn format_tool_progress(name: &str, stream: ToolOutputStream, chunk: &str) -> String {
-    let Some(visible_chunk) = output_tail_preview(chunk) else {
-        return String::new();
-    };
-    let stream_label = match stream {
-        ToolOutputStream::Stdout => "stdout",
-        ToolOutputStream::Stderr => "stderr",
-    };
-    format!("{name} {stream_label}:\n{visible_chunk}\n")
-}
-
-pub(super) fn append_tool_progress(
-    app: &mut TuiApp,
-    name: &str,
-    stream: ToolOutputStream,
-    chunk: &str,
-) -> bool {
-    let rendered = format_tool_progress(name, stream, chunk);
-    if rendered.is_empty() {
-        return false;
-    }
-
-    if let Some(last) = app.active_turn.entries.last_mut()
-        && last.role == "Tool Progress"
-    {
-        last.message.push_str(&rendered);
-        limit_tool_progress_entry(&mut last.message);
-        return true;
-    }
-
-    app.push_entry("Tool Progress", rendered);
-    if let Some(last) = app.active_turn.entries.last_mut() {
-        limit_tool_progress_entry(&mut last.message);
-    }
-    true
-}
-
-fn limit_tool_progress_entry(message: &mut String) {
-    let line_count = message
-        .as_bytes()
-        .iter()
-        .filter(|&&byte| byte == b'\n')
-        .count();
-    if line_count <= super::TOOL_PROGRESS_LINE_LIMIT {
-        return;
-    }
-
-    let remove_lines = line_count - super::TOOL_PROGRESS_LINE_LIMIT;
-    let mut removed = 0_usize;
-    let mut cutoff = 0_usize;
-    for (index, byte) in message.bytes().enumerate() {
-        if byte == b'\n' {
-            removed += 1;
-            if removed == remove_lines {
-                cutoff = index + 1;
-                break;
-            }
-        }
-    }
-
-    let mut folded = String::from("... live output truncated ...\n");
-    folded.push_str(&message[cutoff..]);
-    *message = folded;
 }
 
 pub(super) fn format_apply_patch_result(value: &serde_json::Value) -> String {

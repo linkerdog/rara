@@ -5,11 +5,10 @@ mod tests;
 use rara_persistence::redaction::redact_secrets;
 
 use self::helpers::{
-    append_tool_progress, exploration_action_label, exploration_action_label_for,
-    exploration_note_lines, exploration_result_note, format_tool_result, format_tool_use,
-    is_exploration_tool_name, is_oauth_prompt_message, planning_action_label,
-    planning_action_label_for, planning_note_lines, planning_result_note,
-    scrub_internal_control_tokens, subagent_request_input, tool_action_label,
+    exploration_action_label, exploration_action_label_for, exploration_note_lines,
+    exploration_result_note, format_tool_result, format_tool_use, is_exploration_tool_name,
+    is_oauth_prompt_message, planning_action_label, planning_action_label_for, planning_note_lines,
+    planning_result_note, scrub_internal_control_tokens, subagent_request_input, tool_action_label,
     tool_action_label_for,
 };
 use super::super::state::{
@@ -25,8 +24,8 @@ use crate::session_promotion::{
 };
 use crate::tui::display_sanitize::sanitize_display_text;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+use crate::tui::tool_progress::{ProgressCompletion, ProgressSource, append_tool_progress};
 
-const TOOL_PROGRESS_LINE_LIMIT: usize = 16;
 const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
 pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
@@ -178,7 +177,15 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
                 TerminalTarget::Pty => "pty",
                 TerminalTarget::BackgroundTask => "background task",
             };
-            if !append_tool_progress(app, name, event.stream.into(), &event.chunk) {
+            if !append_tool_progress(
+                app,
+                ProgressSource {
+                    call_id: event.id,
+                    name: name.into(),
+                    stream: event.stream.into(),
+                },
+                &event.chunk,
+            ) {
                 return;
             }
             app.set_runtime_phase(
@@ -187,6 +194,29 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             );
         }
         TuiEvent::Terminal(event) => {
+            match &event {
+                TerminalEvent::End(command) => {
+                    let name = match command.target {
+                        TerminalTarget::Pty => "pty",
+                        TerminalTarget::BackgroundTask => "background task",
+                    };
+                    let completion = match command.id.as_deref() {
+                        Some(id) => ProgressCompletion::CallId(id),
+                        None => ProgressCompletion::LegacyName(name),
+                    };
+                    app.tool_progress.finish(completion);
+                }
+                TerminalEvent::Stop(collection) => {
+                    for item in &collection.items {
+                        if let Some(id) = &item.id {
+                            app.tool_progress.finish(ProgressCompletion::CallId(id));
+                        }
+                    }
+                }
+                TerminalEvent::Begin(_)
+                | TerminalEvent::OutputDelta(_)
+                | TerminalEvent::List(_) => {}
+            }
             app.finalize_agent_stream(None);
             let role = event.transcript_role();
             let message = event.to_transcript_message();
@@ -205,12 +235,21 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             app.push_terminal_event(event);
         }
         TuiEvent::ToolProgress {
+            call_id,
             name,
             stream,
             chunk,
         } => {
             app.finalize_agent_thinking_stream();
-            if !append_tool_progress(app, &name, stream, &chunk) {
+            if !append_tool_progress(
+                app,
+                ProgressSource {
+                    call_id,
+                    name: name.clone(),
+                    stream,
+                },
+                &chunk,
+            ) {
                 return;
             }
             app.set_runtime_phase(
@@ -314,6 +353,11 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
             content,
             is_error,
         }) => {
+            let completion = match call_id.as_deref() {
+                Some(id) => ProgressCompletion::CallId(id),
+                None => ProgressCompletion::LegacyName(&name),
+            };
+            app.tool_progress.finish(completion);
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME || is_exploration_tool_name(&name) {
                 return;
             }
@@ -353,23 +397,20 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
             );
         }
         RuntimeEvent::Tool(ToolEvent::Progress {
-            call_id: _,
+            call_id,
             name,
             stream,
             chunk,
         }) => {
-            if let Some(event) = TerminalEvent::from_tool_progress(&name, stream.into(), &chunk) {
-                apply_tui_event(app, TuiEvent::Terminal(event));
-            } else {
-                apply_tui_event(
-                    app,
-                    TuiEvent::ToolProgress {
-                        name,
-                        stream: stream.into(),
-                        chunk,
-                    },
-                );
-            }
+            apply_tui_event(
+                app,
+                TuiEvent::ToolProgress {
+                    call_id,
+                    name,
+                    stream: stream.into(),
+                    chunk,
+                },
+            );
         }
         RuntimeEvent::Memory(event) => {
             app.push_system(

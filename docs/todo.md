@@ -70,6 +70,15 @@ Active backlog only. Keep this file small and current.
       Typed stop admission, execution-return terminal publication, matching-turn
       completion barriers, and stale-event fencing have focused automated proof.
       See [the cancellation checkpoint](journal/2026-10-03-turn-cancellation-barrier.md).
+- [ ] Finish [#923](https://github.com/linkerdog/rara/issues/923) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Stateful display ingestion, invocation/stream-isolated bounded progress,
+      safe paste/terminal previews, and same-length middle-edit selection have
+      focused automated coverage. Legacy identity-free events cannot separate
+      concurrent same-name calls. Define a Unicode formatting/annotation policy
+      for bidi overrides and invisible text without breaking joiners or emoji;
+      terminal-control filtering alone does not prevent visual spoofing. See
+      [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
       Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
       opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).

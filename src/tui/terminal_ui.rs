@@ -7,7 +7,7 @@ use super::custom_terminal::Terminal;
 use super::state::TuiApp;
 
 pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = super::display_sanitize::sanitize_paste_text(&text);
     if !app.composer_input_is_active() {
         let text = normalized.replace('\n', " ");
         if app.overlay

@@ -49,7 +49,7 @@ fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
         label_color,
         spinner,
         spinner_elapsed,
-        detail,
+        detail: crate::tui::display_sanitize::sanitize_display_line(&detail),
         plan_badge,
         perm_badge,
         perm_label,

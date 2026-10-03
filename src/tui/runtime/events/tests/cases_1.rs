@@ -3,7 +3,7 @@ use serde_json::json;
 use tempfile::tempdir;
 
 use super::helpers::{
-    format_apply_patch_result, format_apply_patch_use, format_tool_progress, format_tool_result,
+    format_apply_patch_result, format_apply_patch_use, format_tool_result,
     format_tool_use, is_oauth_prompt_message, planning_note_lines, scrub_internal_control_tokens,
     subagent_request_input,
 };
@@ -19,6 +19,7 @@ use crate::session_promotion::{
 use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
 use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+use crate::tui::tool_progress::format_tool_progress;
 
 #[test]
 fn runtime_agent_event_preserves_structured_semantics_for_tui() {

@@ -263,7 +263,8 @@ impl TuiApp {
 
     pub fn set_runtime_phase(&mut self, phase: RuntimePhase, detail: Option<String>) {
         self.runtime_phase = phase;
-        self.runtime_phase_detail = detail;
+        self.runtime_phase_detail =
+            detail.map(|text| crate::tui::display_sanitize::sanitize_display_line(&text));
     }
 
     pub fn runtime_phase_label(&self) -> &'static str {
@@ -351,6 +352,7 @@ impl TuiApp {
 
     pub fn clear_active_live_sections(&mut self) {
         self.active_live = super::ActiveLiveSections::default();
+        self.tool_progress = crate::tui::tool_progress::ToolProgressState::default();
     }
 
     fn push_active_progress_entry(&mut self, role: &'static str, message: String) {
