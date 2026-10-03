@@ -3,7 +3,7 @@
 // The MIT License (MIT)
 // Copyright (c) 2016-2022 Florian Dehau
 // Copyright (c) 2023-2025 The Ratatui Developers
-//! Custom ratatui terminal wrapper with alternate-screen + resize.
+//! Custom ratatui terminal wrapper with an inline primary-screen viewport.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -35,7 +35,6 @@ use crossterm::style::SetColors;
 use crossterm::style::SetForegroundColor;
 use crossterm::terminal::Clear;
 use ratatui::backend::Backend;
-use ratatui::backend::ClearType;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::layout::Rect;
@@ -43,6 +42,8 @@ use ratatui::layout::Size;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::widgets::{StatefulWidget, Widget};
+
+mod inline;
 
 /// Returns the display width of a cell symbol, ignoring OSC escape sequences.
 ///
@@ -143,6 +144,8 @@ where
     /// Last known position of the cursor. Used to find the new area when the viewport is inlined
     /// and the terminal resized.
     pub last_known_cursor_pos: Position,
+    /// Whether an inline frame has reserved rows in the primary screen.
+    inline_viewport_owned: bool,
 }
 
 impl<B> Drop for Terminal<B>
@@ -150,13 +153,12 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
-    #[allow(clippy::print_stderr)]
     fn drop(&mut self) {
         // Attempt to restore the cursor state
         if self.hidden_cursor
             && let Err(err) = self.show_cursor()
         {
-            eprintln!("Failed to show the cursor: {err}");
+            log::warn!("Failed to show the cursor: {err}");
         }
     }
 }
@@ -169,9 +171,10 @@ where
     /// Creates a new [`Terminal`] with the given [`Backend`] and [`TerminalOptions`].
     pub fn new(mut backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;
-        let cursor_pos = backend
-            .get_cursor_position()
-            .unwrap_or(Position { x: 0, y: 0 });
+        let cursor_pos = backend.get_cursor_position().unwrap_or_else(|error| {
+            log::warn!("Failed to query initial terminal cursor position: {error}");
+            Position { x: 0, y: 0 }
+        });
         Ok(Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
@@ -180,6 +183,7 @@ where
             viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
             last_known_screen_size: screen_size,
             last_known_cursor_pos: cursor_pos,
+            inline_viewport_owned: false,
         })
     }
 
@@ -223,10 +227,7 @@ where
         draw(&mut self.backend, updates.into_iter())
     }
 
-    /// Updates the Terminal so that internal buffers match the requested area.
-    ///
-    /// Requested area will be saved to remain consistent when rendering. This leads to a full clear
-    /// of the screen.
+    /// Record the backend dimensions after viewport reconciliation.
     pub fn resize(&mut self, screen_size: Size) -> io::Result<()> {
         self.last_known_screen_size = screen_size;
         Ok(())
@@ -383,20 +384,6 @@ where
     }
 
     // ---- helpers (pub(super)) ------------------------------------------------
-
-    /// Clear the entire visible screen (not just the viewport) and force a full redraw.
-    pub fn clear_visible_screen(&mut self) -> io::Result<()> {
-        let home = Position { x: 0, y: 0 };
-        // Some terminals (notably Terminal.app) behave more reliably if we pair ED2
-        // with an explicit cursor-home before/after, matching the common `clear`
-        // sequence (`CSI 2J` + `CSI H`).
-        self.set_cursor_position(home)?;
-        self.backend.clear_region(ClearType::All)?;
-        self.set_cursor_position(home)?;
-        std::io::Write::flush(&mut self.backend)?;
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
 
     /// Clears the inactive buffer and swaps it with the current buffer
     pub fn swap_buffers(&mut self) {

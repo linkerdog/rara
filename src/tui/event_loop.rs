@@ -1,15 +1,18 @@
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crossterm::{event::EventStream, terminal::size as terminal_size};
 use futures::StreamExt;
 use rara_state::state_db::StateDb;
+use ratatui::backend::CrosstermBackend;
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 use super::controller::{RuntimeActivity, TuiController};
+use super::custom_terminal::Terminal;
 use super::event_stream::{UiEvent, translate_event};
 use super::frame_scheduler::FrameScheduler;
-use super::render::{desired_viewport_height, render};
+use super::render::render;
 use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand,
@@ -20,7 +23,7 @@ use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
 use super::terminal_modes::TerminalModeGuard;
-use super::terminal_ui::{build_terminal, handle_paste, update_terminal_viewport};
+use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 
@@ -88,8 +91,7 @@ async fn run_tui_session(
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
     app.terminal_width = initial_size.0;
-    let viewport_height = desired_viewport_height(&app, initial_size.0, initial_size.1);
-    let mut terminal = build_terminal(viewport_height)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut processor = RuntimeCommandProcessor::new(runtime);
     let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
         processor.event_bus(),
@@ -132,11 +134,6 @@ async fn run_tui_session(
     }
     let oauth_manager = Arc::new(oauth_manager);
     maintainer.app_mut().codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
-    let mut events = EventStream::new();
-    let mut tick = interval(Duration::from_millis(166));
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut frames = FrameScheduler::default();
-    let mut clear_on_draw = false;
 
     maintainer.sync_snapshot(&mut processor).await?;
     maintainer.start_repo_context_detection();
@@ -150,6 +147,45 @@ async fn run_tui_session(
             ))
             .await?;
     }
+
+    let result = run_event_loop(
+        &mut terminal,
+        &mut maintainer,
+        &mut processor,
+        &oauth_manager,
+    )
+    .await;
+    if let Err(error) = terminal.finish_inline_viewport() {
+        if result.is_ok() {
+            return Err(error.into());
+        }
+        log::warn!("Failed to position shell cursor after TUI error: {error}");
+    }
+    result?;
+    if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
+        handle.abort();
+    }
+    let session_id = processor.session_id().or_else(|| {
+        (!maintainer.app().snapshot.session_id.is_empty())
+            .then(|| maintainer.app().snapshot.session_id.clone())
+    });
+    Ok(CompletedTuiSession {
+        session_id,
+        processor,
+    })
+}
+
+// Keep the terminal alive across loop errors so shell handoff precedes mode restoration.
+async fn run_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    maintainer: &mut TuiController,
+    processor: &mut RuntimeCommandProcessor,
+    oauth_manager: &Arc<OAuthManager>,
+) -> anyhow::Result<()> {
+    let mut events = EventStream::new();
+    let mut tick = interval(Duration::from_millis(166));
+    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut frames = FrameScheduler::default();
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
@@ -165,20 +201,7 @@ async fn run_tui_session(
             clamp_command_palette_selection(app);
             let size = terminal_size()?;
             app.terminal_width = size.0;
-            let desired_height = desired_viewport_height(app, size.0, size.1);
-            match update_terminal_viewport(&mut terminal, desired_height, app) {
-                Ok(()) => {}
-                Err(err) => app.push_notice(format!("Skipped viewport update: {err}")),
-            }
-
-            if clear_on_draw {
-                if let Err(err) = terminal.clear_visible_screen() {
-                    log::warn!("Failed to clear the visible terminal frame: {err}");
-                    app.push_notice(format!("Skipped viewport clear: {err}"));
-                }
-                clear_on_draw = false;
-            }
-            terminal.draw(|f| render(f, app))?;
+            terminal.draw_inline(|f| render(f, app))?;
             frames.mark_drawn(Instant::now());
         }
         needs_redraw = false;
@@ -201,16 +224,16 @@ async fn run_tui_session(
                 match runtime_activity {
                     RuntimeActivity::Event(Some(event)) => {
                         needs_redraw |= maintainer.apply_runtime_event(event);
-                        needs_redraw |= maintainer.complete_query_if_ready(&mut processor).await?;
+                        needs_redraw |= maintainer.complete_query_if_ready(processor).await?;
                     }
                     RuntimeActivity::Event(None) => {}
                     RuntimeActivity::Completed(completion) => {
                         needs_redraw |= maintainer
-                            .receive_runtime_task_completion(&mut processor, completion)
+                            .receive_runtime_task_completion(processor, completion)
                             .await?;
                     }
                     RuntimeActivity::Command(Some(command)) => {
-                        maintainer.apply_runtime_command(&mut processor, command).await?;
+                        maintainer.apply_runtime_command(processor, command).await?;
                         needs_redraw = true;
                     }
                     RuntimeActivity::Command(None) => {}
@@ -221,7 +244,7 @@ async fn run_tui_session(
                     Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
                             if maintainer
-                                .dispatch_event(&mut processor, event, &oauth_manager)
+                                .dispatch_event(processor, event, oauth_manager)
                                 .await?
                             {
                                 if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
@@ -232,7 +255,7 @@ async fn run_tui_session(
                             needs_redraw = true;
                         }
                         Some(UiEvent::Draw) => {
-                            clear_on_draw = true;
+                            terminal.invalidate_viewport();
                             needs_redraw = true;
                         }
                         Some(UiEvent::Paste(text)) => {
@@ -241,7 +264,7 @@ async fn run_tui_session(
                             needs_redraw = true;
                         }
                         Some(UiEvent::FocusChanged(_focused)) => {
-                            maintainer.sync_snapshot(&mut processor).await?;
+                            maintainer.sync_snapshot(processor).await?;
                             maintainer.publish_snapshot_projection();
                             needs_redraw = true;
                         }
@@ -259,17 +282,7 @@ async fn run_tui_session(
         }
         maintainer.needs_redraw |= needs_redraw;
     }
-    if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
-        handle.abort();
-    }
-    let session_id = processor.session_id().or_else(|| {
-        (!maintainer.app().snapshot.session_id.is_empty())
-            .then(|| maintainer.app().snapshot.session_id.clone())
-    });
-    Ok(CompletedTuiSession {
-        session_id,
-        processor,
-    })
+    Ok(())
 }
 
 fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
@@ -278,6 +291,7 @@ fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::path::PathBuf;
 
     use super::should_start_initial_rebuild;

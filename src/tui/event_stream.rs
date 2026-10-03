@@ -44,9 +44,24 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
         Event::Mouse(mouse_event) => Some(UiEvent::App(map_mouse_to_event(mouse_event, app))),
         Event::Resize(_, _) => Some(UiEvent::Draw),
         Event::Paste(text) => Some(UiEvent::Paste(text)),
-        Event::FocusGained => Some(UiEvent::FocusChanged(true)),
-        Event::FocusLost => Some(UiEvent::FocusChanged(false)),
+        Event::FocusGained | Event::FocusLost => {
+            let focused = matches!(event, Event::FocusGained);
+            app.terminal_focused = focused;
+            Some(UiEvent::FocusChanged(focused))
+        }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn review_regression_terminal_focus_updates_display_state() {
+    let mut harness = super::testing::TuiHarness::new(Default::default()).expect("harness");
+    translate_event(Event::FocusLost, harness.app_mut());
+    assert!(!harness.app().terminal_focused);
+    assert!(!harness.app().terminal_diagnostics_view().focused);
+    translate_event(Event::FocusGained, harness.app_mut());
+    assert!(harness.app().terminal_focused);
+    assert!(harness.app().terminal_diagnostics_view().focused);
 }
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &TuiApp) -> AppEvent {

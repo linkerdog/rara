@@ -140,7 +140,8 @@ not replace the original runtime/tool artifact. See
 Terminal mode ownership begins before raw mode or input reporting is enabled.
 Non-TTY stdout is rejected before ownership or escape-sequence output begins.
 Startup failures, event-loop errors, normal exits, and unwinding must restore
-raw mode, mouse reporting, bracketed paste, and cursor visibility. Partial
+raw mode, mouse reporting, bracketed paste, focus reporting, synchronized output,
+and cursor visibility. Partial
 initialization has the same restoration obligation as a running UI.
 
 Cleanup attempts every owned mode even when one operation fails, preserving
@@ -159,7 +160,31 @@ such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 Only one TUI may own the process terminal at a time. Restoration is idempotent
 and does not modify keyboard enhancement stacks that the TUI never enabled.
 This contract does not cover uncatchable termination such as SIGKILL or imply
-viewport, suspend/resume, or shell-prompt positioning guarantees.
+suspend/resume guarantees. Viewport and normal shell handoff are covered by
+RUN-06.
+
+### RUN-06: Viewport Ownership And Shell Handoff
+
+The primary-screen viewport includes both transcript and bottom pane. Allocate
+the terminal's available rows once; composer growth changes the internal split,
+not the size of the outer viewport. Sidebar width continues to determine the
+composer's wrapping width.
+
+Before the first frame, reserve rows below the shell cursor so existing shell
+output moves into native scrollback. Do not erase the visible screen or purge
+scrollback with ED2/ED3. Reserve, invalidate, paint, and place the cursor inside
+one synchronized update. Resizing invalidates the owned viewport and repaints
+blank cells as well as content; ordinary composer edits do not clear it.
+
+Normal exit places the shell cursor at column zero on a clean line below the
+last frame. A terminal at the bottom edge scrolls one line to make room. Error
+cleanup attempts the same handoff without hiding the original error. Unwinding
+retains mode cleanup without repositioning over diagnostics already emitted by
+the panic hook. Terminal input modes are restored before asynchronous exit work.
+
+Focus reporting is enabled with the other terminal modes and disabled during
+cleanup. Focus gained/lost updates the presentation state before publishing
+the next status projection.
 
 ## Validation Matrix
 
@@ -170,6 +195,7 @@ viewport, suspend/resume, or shell-prompt positioning guarantees.
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
 | RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
+| RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 
 ## Open Risks
 
@@ -189,3 +215,4 @@ viewport, suspend/resume, or shell-prompt positioning guarantees.
 - [Turn cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
 
 - [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)
+- [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
