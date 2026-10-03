@@ -24,7 +24,7 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, PromptSourceContextEntry,
     RetrievalSourceContextEntry,
 };
-use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+use crate::control_tokens::{ControlTokenReplay, scrub_internal_control_tokens};
 #[cfg(test)]
 use crate::hook_registry::HookRegistry;
 use crate::lsp_manager::LspManager;
@@ -651,11 +651,13 @@ pub struct TranscriptTurn {
 pub(crate) use crate::tui::render::CommittedTranscriptRenderCache;
 
 pub struct AgentMarkdownStreamState {
+    #[cfg(test)]
+    control_scrubbed_bytes: usize,
     presentation_revision: PresentationRevision,
     pub(crate) raw_text: String,
     sanitizer: StreamSanitizer,
     last_visible_text: String,
-    incremental_passthrough: bool,
+    control_replay: ControlTokenReplay,
     collector: RefCell<MarkdownStreamCollector>,
     response_layout: RefCell<crate::tui::render::StreamRowCache>,
 }
@@ -663,11 +665,13 @@ pub struct AgentMarkdownStreamState {
 impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
+            #[cfg(test)]
+            control_scrubbed_bytes: 0,
             presentation_revision: Default::default(),
             raw_text: String::new(),
             sanitizer: StreamSanitizer::default(),
             last_visible_text: String::new(),
-            incremental_passthrough: true,
+            control_replay: ControlTokenReplay::default(),
             collector: RefCell::new(MarkdownStreamCollector::new(None, &cwd)),
             response_layout: RefCell::default(),
         }
@@ -677,7 +681,7 @@ impl AgentMarkdownStreamState {
         self.presentation_revision = Default::default();
         let delta = self.sanitizer.push_delta(delta);
         let delta = delta.as_str();
-        if self.incremental_passthrough && !delta.contains('<') {
+        if !self.control_replay.requires_replay(delta) {
             self.raw_text.push_str(delta);
             self.last_visible_text.push_str(delta);
             if !delta.is_empty() {
@@ -687,16 +691,19 @@ impl AgentMarkdownStreamState {
         }
 
         self.raw_text.push_str(delta);
+        #[cfg(test)]
+        {
+            self.control_scrubbed_bytes += self.raw_text.len();
+        }
         let visible_text = scrub_internal_control_tokens(&self.raw_text);
         if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
             if !new_visible_delta.is_empty() {
                 self.collector.get_mut().push_delta(new_visible_delta);
             }
         } else {
-            self.replace_display_text(&visible_text);
+            self.collector.get_mut().replace_source(&visible_text);
         }
         self.last_visible_text = visible_text;
-        self.incremental_passthrough = !has_pending_internal_control_context(&self.raw_text);
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {
@@ -705,10 +712,6 @@ impl AgentMarkdownStreamState {
 
     pub(crate) fn presentation_revision(&self) -> PresentationRevision {
         self.presentation_revision.clone()
-    }
-
-    fn replace_display_text(&mut self, text: &str) {
-        self.collector.get_mut().replace_source(text);
     }
 
     fn rendered_collector(&self) -> Ref<'_, MarkdownStreamCollector> {
@@ -751,6 +754,10 @@ impl AgentMarkdownStreamState {
         self.collector.get_mut().finalize();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/control_stream.rs"]
+mod control_stream_tests;
 
 #[derive(Default)]
 pub struct ActiveLiveSections {

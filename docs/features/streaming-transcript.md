@@ -209,7 +209,10 @@ on a slow output device.
   an unconditional O(new-delta) guarantee for every Markdown document.
 - Source-cache work counters exclude the display sanitizer and control-token
   scrubber. Terminal-control parsing is incremental with constant-size carry;
-  control-token fallback can still revisit accumulated source. See
+  ordinary angle brackets use bounded control-token recognition without source
+  replay. Completed legacy markers replay once per affected delta; internal
+  blocks and DeepSeek evidence retain canonical replay for subsequent nonempty
+  deltas. Those fallbacks can still revisit accumulated source. See
   [display text boundary](display-text-boundary.md). Neither boundary proves a
   complete per-delta work bound for arbitrary Markdown.
 

@@ -59,6 +59,9 @@ Active backlog only. Keep this file small and current.
       replace only their visible row block, preserving both surrounding sections.
       Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
       mutable blocks and source-wide reference fallbacks still need work bounds;
+      ordinary angle brackets now avoid control-cleanup replay, while completed
+      legacy markers and complex control contexts retain explicit replay costs.
+      See [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md);
       exact-head CI/review/merge and terminal acceptance remain separate gates.
       Live thinking now copies only its selected four-row tail; its source
       parsing and long-row wrapping costs remain separate. See
@@ -82,7 +85,10 @@ Active backlog only. Keep this file small and current.
       Stateful display ingestion, invocation/stream-isolated bounded progress,
       safe paste/terminal previews, and same-length middle-edit selection have
       focused automated coverage. Legacy identity-free events cannot separate
-      concurrent same-name calls. Define a Unicode formatting/annotation policy
+      concurrent same-name calls. Assistant control-token cleanup now agrees
+      across chunk boundaries, including delayed separators and DSML evidence;
+      see [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md).
+      Define a Unicode formatting/annotation policy
       for bidi overrides and invisible text without breaking joiners or emoji;
       terminal-control filtering alone does not prevent visual spoofing. See
       [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
