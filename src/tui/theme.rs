@@ -6,7 +6,10 @@
 // the default Nord-compatible palette and as fallback values for renderers that
 // have not been migrated yet.
 use std::collections::BTreeMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{
+    OnceLock, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use ratatui::style::Color;
 
@@ -243,7 +246,7 @@ impl ThemeToken {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedTuiTheme {
     tokens: BTreeMap<ThemeToken, Color>,
 }
@@ -274,6 +277,20 @@ impl ResolvedTuiTheme {
 }
 
 static ACTIVE_THEME: OnceLock<RwLock<ResolvedTuiTheme>> = OnceLock::new();
+static THEME_REVISION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ThemeRevision {
+    semantic: u64,
+    syntax: u64,
+}
+
+pub(crate) fn revision() -> ThemeRevision {
+    ThemeRevision {
+        semantic: THEME_REVISION.load(Ordering::Acquire),
+        syntax: crate::tui::highlight::syntax_theme_revision(),
+    }
+}
 
 fn theme_lock() -> &'static RwLock<ResolvedTuiTheme> {
     ACTIVE_THEME.get_or_init(|| RwLock::new(ResolvedTuiTheme::default()))
@@ -281,9 +298,15 @@ fn theme_lock() -> &'static RwLock<ResolvedTuiTheme> {
 
 pub(crate) fn install_config(config: &TuiThemeConfig) {
     let theme = ResolvedTuiTheme::from_config(config);
-    match theme_lock().write() {
-        Ok(mut active) => *active = theme,
-        Err(poisoned) => *poisoned.into_inner() = theme,
+    {
+        let mut active = match theme_lock().write() {
+            Ok(active) => active,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *active != theme {
+            *active = theme;
+            THEME_REVISION.fetch_add(1, Ordering::Release);
+        }
     }
     crate::tui::highlight::install_syntax_theme(config.syntax_theme.as_deref());
 }

@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use crossterm::event::KeyEvent;
+use crossterm::event::{Event, KeyEvent};
 use futures::StreamExt;
 use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
 use ratatui::buffer::{Buffer, Cell};
@@ -20,7 +20,7 @@ use crate::runtime_control::{RuntimeControlEvent, SessionControlRequest};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tui::custom_terminal::{Frame, Terminal};
 use crate::tui::event_dispatch::dispatch_event_with_runtime;
-use crate::tui::keymap::map_key_to_event;
+use crate::tui::event_stream::{UiEvent, translate_event};
 use crate::tui::render;
 use crate::tui::runtime::apply_tui_event;
 use crate::tui::runtime_port::{
@@ -115,7 +115,9 @@ impl TuiHarness {
     /// Exercise production key routing and dispatch, with runtime I/O captured
     /// at the same port used by the live controller.
     pub(crate) async fn press_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let event = map_key_to_event(key, &self.app);
+        let Some(UiEvent::App(event)) = translate_event(Event::Key(key), &mut self.app) else {
+            return Ok(false);
+        };
         dispatch_event_with_runtime(
             event,
             &mut self.app,

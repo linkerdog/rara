@@ -40,6 +40,32 @@ fn fence_previews_do_not_advance_multiline_syntax_state() {
 }
 
 #[test]
+fn open_fence_empty_rows_match_canonical_spans() {
+    for marker in ["```", "~~~"] {
+        for language in ["", "unknown-language", "rust"] {
+            let first = format!("Intro\n\n{marker}{language}\ncode\n");
+            let last = format!("next\n{marker}\n\nAfter.");
+            assert_live_equals_full(&[&first, "\n", "\n", &last]);
+        }
+    }
+}
+
+#[test]
+fn fence_and_nested_blocks_match_canonical_at_every_split() {
+    let sources = [
+        "Intro\n\n```\ncode\n\nnext\n```\n\nAfter.",
+        "Intro\r\n\r\n~~~rust\r\nlet x = 1;\r\n\r\n~~~\r\nAfter.",
+        "- first\n\n  ```\n  code\n\n  next\n  ```\n\nAfter.",
+        "> quote\n>\n> ```\n> code\n>\n> next\n> ```\n\nAfter.",
+    ];
+    for source in sources {
+        for (split, _) in source.char_indices().chain([(source.len(), '\0')]) {
+            assert_live_equals_full(&[&source[..split], &source[split..]]);
+        }
+    }
+}
+
+#[test]
 fn fence_candidates_and_normalization_keep_canonical_fallback() {
     for chunks in [
         vec![

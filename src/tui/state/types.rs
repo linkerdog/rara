@@ -410,6 +410,7 @@ pub enum TaskCompletion {
     Query {
         agent: Agent,
         result: anyhow::Result<()>,
+        goal_turn: Option<crate::runtime_goals::GoalTurn>,
     },
     Compact {
         agent: Agent,
@@ -647,6 +648,7 @@ pub struct AgentMarkdownStreamState {
     last_visible_text: String,
     incremental_passthrough: bool,
     collector: RefCell<MarkdownStreamCollector>,
+    response_layout: RefCell<crate::tui::render::StreamRowCache>,
 }
 
 impl AgentMarkdownStreamState {
@@ -656,6 +658,7 @@ impl AgentMarkdownStreamState {
             last_visible_text: String::new(),
             incremental_passthrough: true,
             collector: RefCell::new(MarkdownStreamCollector::new(None, &cwd)),
+            response_layout: RefCell::default(),
         }
     }
 
@@ -691,11 +694,15 @@ impl AgentMarkdownStreamState {
         self.collector.get_mut().replace_source(text);
     }
 
-    pub(crate) fn display_lines(&self) -> Ref<'_, [Line<'static>]> {
+    fn rendered_collector(&self) -> Ref<'_, MarkdownStreamCollector> {
         if self.collector.borrow().needs_render() {
             self.collector.borrow_mut().lines();
         }
-        Ref::map(self.collector.borrow(), |collector| {
+        self.collector.borrow()
+    }
+
+    pub(crate) fn display_lines(&self) -> Ref<'_, [Line<'static>]> {
+        Ref::map(self.rendered_collector(), |collector| {
             collector.cached_lines()
         })
     }
@@ -705,7 +712,10 @@ impl AgentMarkdownStreamState {
         width: u16,
         view: crate::tui::render::ResponseView,
     ) -> crate::tui::transcript_rows::TranscriptRows {
-        self.collector.borrow_mut().response_rows(width, view)
+        let collector = self.rendered_collector();
+        self.response_layout
+            .borrow_mut()
+            .materialize(collector.rendered_stream(), width, view)
     }
 
     #[cfg(test)]
@@ -715,9 +725,10 @@ impl AgentMarkdownStreamState {
 
     #[cfg(test)]
     pub(crate) fn layout_work(&self) -> crate::tui::transcript_work::WorkMeter {
-        self.collector.borrow().layout_work()
+        self.response_layout.borrow().work.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn finalize_display_lines(&mut self) {
         self.collector.get_mut().finalize();
     }
@@ -851,66 +862,4 @@ pub struct SkillPickerEntry {
     pub disable_model_invocation: bool,
 }
 
-/// Represents the lifecycle state of a ralph loop goal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GoalStatus {
-    /// Agent is actively working toward the goal across turns.
-    Pursuing,
-    /// User paused the goal; can be resumed.
-    Paused,
-    /// Agent reported a genuine blocker after repeated attempts to resolve it.
-    Blocked,
-    /// Goal was completed successfully.
-    Complete,
-    /// Goal exceeded its configured token budget; soft-stop.
-    BudgetLimited,
-}
-
-/// Tracks a long-running objective that the agent autonomously works toward.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RalphGoal {
-    /// The objective text set by `/goal <objective>`.
-    pub objective: String,
-    /// Current lifecycle status.
-    pub status: GoalStatus,
-    /// Optional token budget (input tokens). None = unlimited.
-    pub token_budget: Option<u32>,
-    /// Total input tokens consumed by goal turns.
-    pub tokens_used: u32,
-    /// Number of autonomous turns completed toward this goal.
-    pub turns_completed: u32,
-    /// Unix timestamp in seconds when the goal was created.
-    pub created_at_epoch_seconds: u64,
-}
-
-impl RalphGoal {
-    pub fn new(objective: String, token_budget: Option<u32>) -> Self {
-        Self {
-            objective,
-            status: GoalStatus::Pursuing,
-            token_budget,
-            tokens_used: 0,
-            turns_completed: 0,
-            created_at_epoch_seconds: current_unix_timestamp_secs(),
-        }
-    }
-
-    pub fn time_used_seconds(&self) -> u64 {
-        current_unix_timestamp_secs().saturating_sub(self.created_at_epoch_seconds)
-    }
-
-    pub fn remaining_tokens(&self) -> Option<u32> {
-        self.token_budget
-            .map(|budget| budget.saturating_sub(self.tokens_used))
-    }
-}
-
-pub fn current_unix_timestamp_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
-}
-
-/// Shared handle for model-facing goal tools and TUI to observe/update goal state.
-pub type GoalHandle = std::sync::Arc<std::sync::RwLock<Option<RalphGoal>>>;
+pub use crate::runtime_goals::{GoalHandle, GoalStatus, RalphGoal, current_unix_timestamp_secs};

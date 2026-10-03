@@ -1,4 +1,7 @@
 //! Immutable styled/text rows, indexed without flattening retained history.
+//!
+//! Snapshots belong to the single UI task along with TuiApp. Rc intentionally
+//! keeps them non-Send; runtime workers send events, never these render caches.
 
 use std::rc::Rc;
 

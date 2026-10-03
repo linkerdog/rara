@@ -60,6 +60,8 @@ Active backlog only. Keep this file small and current.
       exact-head CI/review/merge and terminal acceptance remain separate gates.
       See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
       See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
+      Audit tables that begin within a mutable paragraph against the canonical
+      renderer before closing the review tail.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
@@ -114,6 +116,14 @@ Active backlog only. Keep this file small and current.
       services; only test-only fixtures retain local registry setup helpers.
 - [x] Construct `TuiController` directly from an injected port and add
       deterministic scripted lifecycle controls to the shared harness.
+
+## Thread Goals
+
+- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
+      restored pursuing goal only when the runtime is idle, ready, and free of
+      pending interactions. Define cancelled-turn usage reconciliation and
+      explicit goal pause/resume policy there; the turn cancellation barrier does
+      not change goal state. Keep richer goal controls in that follow-up.
 
 ## Memory Lifecycle
 

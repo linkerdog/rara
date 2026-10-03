@@ -86,3 +86,59 @@ diagnostic remains; strict Rust/Clippy checks introduce no new warnings.
 
 Exact-head remote CI, review, merge, and real-terminal acceptance remain separate
 delivery gates. This checkpoint does not complete the other TUI quality issues.
+
+## Review Integration Checkpoint
+
+Merged parent `6b57389db33c98e1fce1f1ce09adb80e136130c8` without rewriting the
+stack. The merge retains main's goal-turn accounting receipt and the terminal
+restoration and paste-order fixes. Dependency manifests and generated locks are
+unchanged relative to the parent.
+
+The review identified three reproducible gaps: stop admission discarded the
+original execution error, completed queries fenced out untagged `/compact`
+events, and a lost broadcast terminal could strand a completed task. Focused
+regressions reproduced all three before the fixes. The native session actor
+confirms that the first accepted stop determines terminal status. Codex's
+`core/src/tasks/mod.rs` separates abort admission from completion; Claude Code's
+`src/query.ts` drains remaining tool results before returning from an abort.
+These references support preserving the execution-return boundary rather than
+publishing success or cancellation at input time.
+
+The resulting contract and implementation are:
+
+- Preserve the original execution error both as a diagnostic and as the cause
+  of the stopped result. The accepted stop still wins over a successful return
+  and discards newly raised interactions. A request after execution return
+  cannot remove the returned plan approval.
+- Release active-turn ownership at the terminal boundary while retaining the
+  closed-turn identity fence. A running query still rejects unscoped turn output;
+  subsequent maintenance lifecycle events remain visible.
+- Retain the fully sequenced event in the existing task channel before making
+  its broadcast visible, under the bus publication lock. Before projecting a
+  broadcast, drain receipts only through that event's sequence, keeping a future
+  receipt pending. Drain the remainder after joining the producer. Both paths
+  use the same identity and sequence fence, so replay cannot duplicate output.
+  Replaying only at join would be insufficient: a later catalog event could
+  otherwise advance the cursor beyond the lost query tail and terminal.
+- Finalize recovered partial output when a query task panics, mark the task
+  failed, and return the join error. The existing panic regression caught the
+  previously hidden live-stream cleanup gap once recovery made the tail visible.
+
+Validation for this checkpoint:
+
+- `cargo test --offline --locked --lib tui:: -- --nocapture`: 826 passed,
+  1 ignored, no failures. Coverage includes actual broadcast lag followed by a
+  later catalog sequence, a wholly dropped query projection, replay cutoff at
+  the current broadcast, both approval/stop orders, real `/compact`, error cause
+  preservation, task panic, and the existing cancel/interrupt interleavings.
+- `cargo test --offline --locked --lib runtime_event_bus::tests -- --nocapture`:
+  11 passed, including receipt-before-broadcast visibility.
+- The first plan-approval fixture accidentally let the initial runtime snapshot
+  overwrite Plan mode. Correcting setup order fixed that fixture; its hang is
+  not counted as behavioral RED evidence. Scripted task waits now have bounded
+  test deadlines. No production cancellation timeout was introduced.
+
+Noncooperative provider cancellation, queued-follow-up policy, and cancelled-goal
+usage/state policy remain separate product work. Goal continuation/accounting is
+tracked by #931; this change does not silently pause a goal or discard queued
+user prompts. Exact-head CI and real-terminal acceptance remain delivery gates.

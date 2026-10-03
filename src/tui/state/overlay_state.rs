@@ -163,8 +163,7 @@ impl TuiApp {
         // When dismissing the command palette, clear the `/` input so
         // sync_command_palette_with_input won't immediately re-open it.
         if matches!(self.overlay, Some(Overlay::CommandPalette)) {
-            self.bottom_pane.input.clear();
-            self.bottom_pane.input_cursor_offset = None;
+            self.bottom_pane.clear_input();
             self.command_palette_idx = 0;
         }
 
