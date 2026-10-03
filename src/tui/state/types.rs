@@ -819,6 +819,8 @@ pub struct TuiApp {
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub(crate) transcript_scroll: TranscriptScroll,
     pub(crate) transcript_selection: TranscriptSelection,
+    pub(crate) clipboard: Option<crate::tui::clipboard::Clipboard>,
+    pub(crate) scroll_acceleration: super::ScrollAcceleration,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,

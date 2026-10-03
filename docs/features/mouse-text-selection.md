@@ -97,6 +97,21 @@ Clipboard output first emits OSC 52 so SSH sessions can copy to the local
 terminal clipboard when the terminal permits it. Platform clipboard commands are
 best-effort fallbacks for local sessions.
 
+Native clipboard work runs asynchronously, with a two-second deadline covering
+stdin delivery, process exit, and all fallback attempts. The UI continues to
+handle keys, rendering, runtime events, and cancellation while a helper stalls.
+Each session owns at most one active copy and one pending selection; newer
+pending selections replace older pending ones. Helpers run in order so an older
+helper cannot overwrite a newer native copy. Superseded completions do not
+replace the latest copy notice. Session shutdown cancels owned clipboard work.
+
+OSC 52 accepts at most 100,000 raw UTF-8 bytes, checked before base64 encoding
+or terminal output. Oversized selections are not truncated: local native
+helpers still receive the full selection; a terminal-only session reports the
+size limit. SSH sessions never write to the remote machine's native clipboard.
+Keep the existing direct, tmux, and screen sequence wrapping. Terminal-mediated
+copy is a request, not proof that the terminal accepted the clipboard write.
+
 ## Contracts
 
 - Selection only starts when there is no active overlay and the mouse down event
@@ -113,11 +128,17 @@ best-effort fallbacks for local sessions.
   uses the same transcript scroll direction as wheel and keyboard scrolling.
 - Keyboard, wheel, and drag autoscroll clamp every delta to the current visual
   rows. Overscrolling cannot accumulate invisible scroll debt.
+- Wheel acceleration history belongs to the current TUI session. Rapid input
+  in one session cannot accelerate another session's first wheel event, and
+  this input path does not require process-global mutexes.
 - An up-scrolled view stays on its top visual row during append-only streaming;
   width changes retain that numeric anchor subject to the new bounds, not a
   semantic text-location anchor across reflow or content replacement.
 - Rendering, highlight, and copy remain reachable beyond 65,535 visual rows.
-- Clipboard failures must not terminate the TUI; they surface as notices.
+- Clipboard failures must not terminate the TUI; they surface as notices and
+  warning logs without including the selected content. Nonzero helper exit
+  status is a failure. Timeout/cancellation drops and terminates the owned
+  helper instead of leaving a process waiting for input indefinitely.
 
 ## Validation Matrix
 
@@ -134,15 +155,19 @@ best-effort fallbacks for local sessions.
 | Active stream snapshot | Retained stable body allocations; current preview copy after drag extension; full/compact, suppression, thinking, and finalization transitions |
 | Snapshot refresh | Same-sized middle replacement and full styled-tail invalidation; width/cwd/visibility/reset/restore guards |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
-| Clipboard fallback safety | Manual SSH/local verification |
+| Clipboard responsiveness | Scripted stalled backend while production input dispatch continues; bounded pending requests and completion ordering |
+| Clipboard delivery | UTF-8 byte limit and exact OSC 52 wrapping; write/spawn/exit failures; stalled stdin/exit timeout and child cleanup |
+| Clipboard environment | SSH skips native helpers; local oversized text reaches the native backend intact; no real clipboard writes in automated tests |
 | Render highlight | Manual TUI verification; future snapshot if styling changes |
 
 ## Operational Notes
 
 OSC 52 depends on terminal policy. Some terminals disable remote clipboard
-writes by default, and tmux/screen may require passthrough support. RARA still
-attempts native clipboard fallback, but over SSH that fallback writes the remote
-machine clipboard rather than the user's local desktop clipboard.
+writes by default, and tmux/screen may require passthrough support. Successful
+sequence output is reported as a terminal clipboard request. Local sessions
+also attempt native clipboard helpers and distinguish their confirmed exit
+status from terminal-mediated delivery. Physical terminal acceptance remains
+dependent on terminal policy.
 
 ## Open Risks
 
@@ -160,3 +185,4 @@ machine clipboard rather than the user's local desktop clipboard.
 - [2026-10-03-active-stream-rows](../journal/2026-10-03-active-stream-rows.md)
 - [2026-10-03-display-text-boundary](../journal/2026-10-03-display-text-boundary.md)
 - [2026-10-03-unicode-boundaries](../journal/2026-10-03-unicode-boundaries.md)
+- [2026-10-03-ui-clipboard-safety](../journal/2026-10-03-ui-clipboard-safety.md)

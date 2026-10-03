@@ -115,8 +115,19 @@ impl TuiHarness {
     /// Exercise production key routing and dispatch, with runtime I/O captured
     /// at the same port used by the live controller.
     pub(crate) async fn press_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(UiEvent::App(event)) = translate_event(Event::Key(key), &mut self.app) else {
-            return Ok(false);
+        self.send_terminal_event(Event::Key(key)).await
+    }
+
+    pub(crate) async fn send_terminal_event(&mut self, event: Event) -> anyhow::Result<bool> {
+        let event = match translate_event(event, &mut self.app) {
+            Some(UiEvent::App(event)) => event,
+            Some(UiEvent::Paste(text)) => {
+                crate::tui::terminal_ui::handle_paste(text, &mut self.app);
+                return Ok(false);
+            }
+            Some(UiEvent::Draw | UiEvent::FocusChanged(_)) | None => return Ok(false),
+            #[cfg(unix)]
+            Some(UiEvent::Suspend) => return Ok(false),
         };
         dispatch_event_with_runtime(
             event,
