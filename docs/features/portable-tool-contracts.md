@@ -17,11 +17,10 @@ blocked extraction of the shared agent execution layer.
 
 ## Non-Goals
 
-This boundary does not extract `RuntimeSession` or introduce another agent loop.
-The application still owns provider construction, bootstrap, agent execution,
-and the session actor. Full downstream runtime support remains
-[#860](https://github.com/linkerdog/rara/issues/860); browser execution and the
-serializable sans-IO agent remain
+This boundary does not own sessions or introduce another agent loop. Session
+ownership is provided by the [downstream runtime](downstream-runtime.md), using
+the shared agent effects. The application retains native provider construction
+and policy assembly. Provider/context extraction and browser execution remain
 [#871](https://github.com/linkerdog/rara/issues/871).
 
 ## Architecture
@@ -107,14 +106,16 @@ repository and revision, including for forks.
    transitions, and its shared asynchronous executor is consumed by the
    application through `LoopEffects`. Model dispatch and response collection are
    also shared. Serial tool admission/invocation/result collection now uses the
-   same executor with native policy adapters. Portable context preparation,
-   native policy assembly, and full session packaging remain to be extracted.
+   same executor with native policy adapters. The lightweight runtime supplies
+   host context preparation; native context/provider assembly remains separate.
 3. **Session ownership:** move actor, commands, replay, and turn outcomes into a
    minimal runtime package using the shared executor. Preserve the lifecycle
    invariants in [runtime-session.md](runtime-session.md). Exit only when a
    downstream Git fixture injects a fake backend and custom tool through
    `RuntimeSession`, verifies deltas, identities, cancellation and transcript
    readback, and excludes native application integrations from its graph.
+   The [downstream runtime](downstream-runtime.md) owns this shared actor and
+   records the public-session fixture and dependency contract.
 4. **Browser execution:** use the serializable transition boundary, extract
    portable effect drivers, and adapt clocks/future bounds and HTTP/SSE
    transports. Browser runtime tests are a distinct gate from compilation;

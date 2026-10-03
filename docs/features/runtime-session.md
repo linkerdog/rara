@@ -46,9 +46,14 @@ architecture. The 2026-08-22 checkpoint implements:
   shutdown that closes and waits for the session's active child-agent tree;
 - embedded, ask, print, exec, Wire, and ACP adapters over the session handle.
 
+The lightweight `rara-runtime` package now owns the shared actor, commands,
+turn outcomes, event log, and replay used by native and host adapters. Its
+[downstream contract](downstream-runtime.md) defines explicit host assembly and
+the independent Git consumer gate.
+
 The following target items are not delivered by this checkpoint: TUI command
 migration, agent rebuild and queued/steered input, store-trait injection,
-lightweight crate extraction, a network AppServer transport, and the Nowledge
+a network AppServer transport, and the Nowledge
 Mem parity harness. They remain explicit follow-up work and must not be treated
 as production Rig-replacement evidence.
 
@@ -95,6 +100,24 @@ local-model dependencies must not be unconditional dependencies of the minimal
 runtime library.
 
 ### Session Ownership
+
+The lightweight package owns the session command loop, turn admission,
+cooperative stop fencing, completion barrier, and shutdown receipt. A
+session-scoped execution adapter supplies application policy and resources.
+Native application assembly and host-controlled assembly use that same owner;
+an adapter must not introduce another session scheduling loop.
+
+An admitted turn transfers its executor out of the adapter until execution
+actually returns. Cancellation only signals that executor and its descendants;
+it does not drop the future or publish a terminal event early. Completion
+returns the executor before transcript readback, pending-input publication,
+memory capture, or acceptance of another turn. Shutdown retains a shared result
+even when the caller awaiting it is cancelled.
+
+Host assembly injects its backend and tools and uses the shared model, tool,
+and loop effects. Native approval, extension, memory, and persistence policy
+remain application adapters. The external acceptance fixture must exercise the
+public session builder and handle, not implement its own effects driver.
 
 `RuntimeSession` is a cloneable command and observation handle. It does not
 expose `Agent`, registries, mutable runtime state, locks, or task join handles.
@@ -363,7 +386,7 @@ safety filtering, audit behavior, and authority rather than accepting those
 values from model arguments. Its canonical types now live in the
 [portable core tool contract](portable-tool-contracts.md), with compatibility
 re-exports through the existing tool path. A distinct injectable middleware
-stack and lightweight runtime package remain target work.
+stack remains target work.
 
 The application uses the [shared loop executor](portable-agent-loop.md) for
 effect scheduling and the pure machine for continuation, bounded repair,
@@ -373,8 +396,9 @@ Model dispatch and response collection use the shared `execute_model_turn`
 effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
 Serial tool batches and trusted-context invocation use shared tool effects;
 native admission, result policy, and batch budgets remain explicit adapters.
-Only machine control state is serializable. Portable context/policy assembly and
-session ownership remain necessary for a lightweight host runtime.
+Only machine control state is serializable. The lightweight host runtime uses
+explicit host context and policy while native application assembly remains an
+adapter; complete native context/provider extraction remains #871 work.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
@@ -397,7 +421,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 7. Runtime replacement must be generation-fenced when it is added.
 8. Adapters translate commands and events but do not implement turn lifecycle.
 9. Memory is an injected facility, not a runtime or session owner.
-10. The target minimal Rust library does not require TUI, ACP, local-model,
+10. The minimal Rust runtime library does not require TUI, ACP, local-model,
     OAuth, or application provider implementations.
 11. Dropping one handle or transport connection does not stop a registry-owned
     session.
@@ -423,7 +447,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Adapters | partial | Embedded, ACP, Wire, print, exec, and ask use `RuntimeSession`; TUI command ownership remains compatible but separate. |
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
-| Dependency boundary | target | The future minimal runtime dependency graph excludes Ratatui, Candle, ACP, and OAuth. |
+| Dependency boundary | delivered | The independent `rara-runtime` Git consumer excludes Ratatui, Candle, ACP, OAuth, and application provider implementations. |
 | Build | partial | Root Cargo library tests, strict all-target Clippy, formatting, and the default `//:rara_unit_tests` Bazel gate pass; exact-head remote CI/review/merge remain separate gates. |
 
 ## Host Integration Example
@@ -464,9 +488,8 @@ model-generated tool arguments.
 
 ## Open Risks
 
-- Extracting the current root agent loop into a lightweight crate requires
-  dependency inversion for provider construction, hooks, persistence, and
-  extension discovery.
+- Native context/provider extraction and browser session execution still
+  require platform and policy work beyond the lightweight host package.
 - Existing persisted transcripts need an explicit compatibility codec before a
   host changes message formats.
 - Durable prompt admission and crash continuation require a separate contract
@@ -479,3 +502,4 @@ model-generated tool arguments.
 - `docs/journal/2026-08-22-runtime-session.md`
 - [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
 - [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)
+- [Lightweight session ownership](../journal/2026-10-04-lightweight-session-runtime.md)

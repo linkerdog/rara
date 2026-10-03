@@ -48,6 +48,8 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
+- `downstream-runtime.md`: lightweight host package, shared native/session owner,
+  public Git consumer fixture, dependency closure, and version policy.
 - `portable-agent-loop.md`: serializable shared loop decisions, asynchronous
   execution, host effect boundaries, and external dependency validation.
 - `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation

@@ -1,8 +1,8 @@
 //! Public, session-scoped runtime ownership.
 
-mod actor;
 mod builder;
 mod command;
+mod driver;
 mod error;
 mod handle;
 mod host;
