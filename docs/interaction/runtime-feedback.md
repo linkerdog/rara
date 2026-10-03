@@ -102,6 +102,12 @@ measures current terminal dimensions. Painting may wait one frame interval. See
 [streaming transcript](../features/streaming-transcript.md) for scheduling and
 the separate incremental-work contracts.
 
+Live Markdown keeps incomplete text replaceable. A table confirmed by
+newline-completed source, together with following source, is withheld until
+the response's canonical final render. Earlier prose remains visible; event
+delivery and transcript chronology are unchanged. Agent and thinking streams
+materialize changed source on presentation access and reuse unchanged rows.
+
 ### RUN-05: Terminal Lifetime And Restoration
 
 Terminal mode ownership begins before raw mode or input reporting is enabled.
@@ -152,4 +158,6 @@ viewport, suspend/resume, or shell-prompt positioning guarantees.
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
+- [Incremental Markdown](../journal/2026-10-03-incremental-markdown.md)
+
 - [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)

@@ -35,6 +35,17 @@ mutable suffix that may be replaced when later markdown changes its meaning.
 Tables and other structurally unresolved blocks must not freeze stale rows.
 Finalization must agree with the canonical complete-message renderer.
 
+The incremental source cache performs no parsing during delta ingestion.
+Presentation access materializes at most once for a changed source revision,
+using newline-completed top-level block boundaries to retain a stable prefix.
+Incomplete lines remain a replaceable preview, never a stable boundary.
+Retained source offsets include indentation that the parser may skip. The
+canonical writer resumes with the stable prefix's root formatting state;
+separator rows are not reconstructed with independent block-joining rules.
+Confirmed tables and following source are held until canonical finalization;
+reference definitions require explicit source-wide invalidation. Source
+replacement resets source and row boundaries together.
+
 ## Contracts
 
 ### Frame Scheduling
@@ -60,8 +71,8 @@ Finalization must agree with the canonical complete-message renderer.
 
 ### Incremental Markdown And Rows
 
-These contracts are the remaining implementation target for issue #921, not
-claims established by the frame-scheduling checkpoint alone:
+The source cache and frame scheduler are separate from the remaining
+whole-transcript visual-row reuse target for issue #921:
 
 - Append bookkeeping examines new source, not the complete accumulated string.
 - Completed stable blocks are not re-parsed or copied on each delta. Mutable
@@ -74,6 +85,10 @@ claims established by the frame-scheduling checkpoint alone:
 - Closing fences, table delimiters/rows, list tightness, and references must not
   leave duplicated or stale committed output. Complete-message rendering is
   the final correctness oracle.
+- Open-fence fast paths preserve canonical styled rows, including empty code
+  lines, for both labelled and unlabelled fences at every chunk boundary.
+- Committing raw stream text does not render rows that are immediately
+  discarded; the committed-cell renderer owns complete-message presentation.
 
 ## Validation Matrix
 
@@ -84,6 +99,7 @@ claims established by the frame-scheduling checkpoint alone:
 | Late frames and deadline stability | No catch-up burst; repeated requests do not postpone the pending deadline |
 | Event preservation | Apply all ordered deltas; fewer paints still show the complete final response |
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
+| Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
 
@@ -96,13 +112,21 @@ on a slow output device.
 
 ## Open Risks
 
-- Incremental markdown and visual-row/selection caching remain open after the
-  first scheduling checkpoint.
+- Whole-history styled/wrapped-row and selection reuse remain open; source
+  caching does not remove each frame's complete-history clone/wrap/hash work.
 - Deterministic scheduler and renderer tests do not prove OS terminal latency,
   terminal key encoding, viewport lifecycle, or clipboard acceptance.
 - Arbitrary markdown may have a long mutable suffix. Work bounds must distinguish
   new source, unstable structure, and one-time full finalization/reflow.
+- Unindented top-level open fences reuse syntax state for completed code lines.
+  Quoted/indented fences, normalization, closer candidates, and source-wide
+  references conservatively use canonical mutable-tail or full-source replay.
+  Long single paragraphs/lists still require mutable-tail work; this is not
+  an unconditional O(new-delta) guarantee for every Markdown document.
+- Source-cache work counters exclude the display sanitizer and control-token
+  scrubber; their incremental-state contract is tracked separately by #923.
 
 ## Source Journals
 
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
+- [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)

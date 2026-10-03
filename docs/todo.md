@@ -49,8 +49,13 @@ Active backlog only. Keep this file small and current.
       [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md)
       and [the scroll-anchor checkpoint](journal/2026-10-02-transcript-scroll-anchors.md).
       Scroll input still refreshes complete visual rows before navigation.
-      Frame scheduling is the first independent stage; incremental markdown and
-      visual-row/selection reuse remain open. See
+      Frame scheduling and stable/mutable Markdown source caching are implemented
+      checkpoints. Complete-history clone/wrap/hash reuse, scroll-path reuse,
+      and render/copy/scroll work-count acceptance remain open. Long mutable
+      blocks and source-wide reference fallbacks still need explicit work bounds.
+      Audit runtime theme invalidation and tables that begin within a mutable
+      paragraph against the canonical renderer before closing the review tail.
+      See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
