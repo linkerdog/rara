@@ -827,6 +827,7 @@ pub struct TuiApp {
     pub(crate) tool_progress: crate::tui::tool_progress::ToolProgressState,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,
+    pub(crate) quit_shortcut: super::QuitShortcutState,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
     pub shared_task_root: Option<PathBuf>,

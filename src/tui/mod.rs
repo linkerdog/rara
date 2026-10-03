@@ -24,6 +24,10 @@ mod input_text;
 #[cfg(test)]
 mod interaction_tests;
 mod interaction_text;
+#[cfg(unix)]
+mod job_control;
+#[cfg(test)]
+mod key_control_tests;
 mod keymap;
 mod line_utils;
 mod list_picker;

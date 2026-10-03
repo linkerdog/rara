@@ -57,6 +57,8 @@ impl Drop for TerminalOwnerScope {
 
 pub(super) struct TerminalModeGuard {
     active: bool,
+    #[cfg(unix)]
+    resumed_tty: Option<std::fs::File>,
 }
 
 impl TerminalModeGuard {
@@ -100,7 +102,11 @@ impl TerminalModeGuard {
         TERMINAL_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| io::Error::other("the process terminal already has an active TUI"))?;
-        let guard = Self { active: true };
+        let guard = Self {
+            active: true,
+            #[cfg(unix)]
+            resumed_tty: None,
+        };
         let scope = TerminalOwnerScope::enter();
         initialize()?;
         if scope.panicked() {
@@ -109,7 +115,7 @@ impl TerminalModeGuard {
         Ok(guard)
     }
 
-    pub(super) async fn run_owner<F: Future>(&self, future: F) -> io::Result<F::Output> {
+    pub(super) async fn run_owner<F: Future>(future: F) -> io::Result<F::Output> {
         let mut future = pin!(future);
         poll_fn(|cx| {
             // Workers may run on this same thread while the owner yields Pending.
@@ -127,6 +133,33 @@ impl TerminalModeGuard {
 
     pub(super) fn restore(&mut self) -> io::Result<()> {
         self.restore_with(restore_terminal_modes)
+    }
+
+    #[cfg(unix)]
+    pub(super) fn monitor_resumed_tty(&mut self) -> io::Result<()> {
+        self.resumed_tty = Some(std::fs::File::open("/dev/tty")?);
+        self.maintain_raw_mode()
+    }
+
+    /// A shell may restore saved termios after SIGCONT and our initial setup.
+    /// Keep checking on maintenance ticks: crossterm's cached flag cannot
+    /// observe that late write, and no fixed delay establishes a safe boundary.
+    pub(super) fn maintain_raw_mode(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        if self.active
+            && let Some(tty) = &self.resumed_tty
+        {
+            use nix::sys::termios::{cfmakeraw, tcgetattr};
+
+            let observed = tcgetattr(tty)?;
+            let mut raw = observed.clone();
+            cfmakeraw(&mut raw);
+            if observed != raw {
+                disable_raw_mode()?;
+                enable_raw_mode()?;
+            }
+        }
+        Ok(())
     }
 
     // Isolates the ownership-consumption boundary for failure injection.

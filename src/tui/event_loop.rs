@@ -47,9 +47,13 @@ pub async fn run_tui(
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
     let mut terminal_modes = TerminalModeGuard::start()?;
-    let result = terminal_modes
-        .run_owner(run_tui_session(runtime, oauth_manager, startup))
-        .await?;
+    let result = TerminalModeGuard::run_owner(run_tui_session(
+        runtime,
+        oauth_manager,
+        startup,
+        &mut terminal_modes,
+    ))
+    .await?;
     if let Err(error) = terminal_modes.restore() {
         if result.is_ok() {
             return Err(error.into());
@@ -70,6 +74,7 @@ async fn run_tui_session(
     runtime: RuntimeClient,
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
+    terminal_modes: &mut TerminalModeGuard,
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
@@ -153,6 +158,7 @@ async fn run_tui_session(
         &mut maintainer,
         &mut processor,
         &oauth_manager,
+        terminal_modes,
     )
     .await;
     if let Err(error) = terminal.finish_inline_viewport() {
@@ -181,6 +187,7 @@ async fn run_event_loop(
     maintainer: &mut TuiController,
     processor: &mut RuntimeCommandProcessor,
     oauth_manager: &Arc<OAuthManager>,
+    terminal_modes: &mut TerminalModeGuard,
 ) -> anyhow::Result<()> {
     let mut events = EventStream::new();
     let mut tick = interval(Duration::from_millis(166));
@@ -209,8 +216,10 @@ async fn run_event_loop(
         tokio::select! {
             _ = frames.wait() => {}
             _ = tick.tick() => {
+                terminal_modes.maintain_raw_mode()?;
                 let mut changed = false;
                 let app = maintainer.app_mut();
+                changed |= app.quit_shortcut.expire(std::time::Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);
                     changed = true;
@@ -266,6 +275,11 @@ async fn run_event_loop(
                         Some(UiEvent::FocusChanged(_focused)) => {
                             maintainer.sync_snapshot(processor).await?;
                             maintainer.publish_snapshot_projection();
+                            needs_redraw = true;
+                        }
+                        #[cfg(unix)]
+                        Some(UiEvent::Suspend) => {
+                            events = super::job_control::suspend(terminal, terminal_modes, events)?;
                             needs_redraw = true;
                         }
                         None => {}
