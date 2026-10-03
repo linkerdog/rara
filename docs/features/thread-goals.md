@@ -132,6 +132,9 @@ interaction, no queued user input, and no active overlay. Admission checks the
 current goal again; a new turn, thread restore, clear, replacement, lifecycle
 change, or user stop invalidates an older request. A backend rebuild preserves
 this identity. Waiting for readiness must not drop or duplicate the request.
+Plan mode keeps an automatic request pending until execute mode is eligible;
+it does not silently discard the request. Rejected or failed goal admission
+retains runtime ownership of the ready agent and starts no task.
 
 A user cancellation or interruption durably defers automatic continuation
 without changing the goal's lifecycle. A new explicitly started turn clears
@@ -325,6 +328,10 @@ status, zero usage, or a fresh creation time to hide corrupted data.
   their lifecycle but cannot recover an unrecorded user stop.
 - If saving an interruption fails, the TUI warns that the goal may resume after
   restart. The pending in-process admission is invalidated even on write failure.
+- An abrupt process crash does not persist a user-stop deferral. A pursuing
+  goal can retry the same work on each explicit thread resume, including work
+  that repeatedly panics or exhausts memory. There is no crash-loop counter;
+  successful-turn accounting does not charge incomplete crashed turns.
 - The three-turn blocked audit is intentionally prompt/tool-contract enforced,
   like Codex, rather than a second runtime state machine. A malicious or weak
   model can still misuse the tool, so provider behavior should be observed.
@@ -339,3 +346,4 @@ status, zero usage, or a fresh creation time to hide corrupted data.
 - [Unicode boundary checkpoint](../journal/2026-10-03-unicode-boundaries.md)
 - `docs/journal/2026-10-02-thread-goal-persistence.md`
 - [Goal resume and local controls](../journal/2026-10-03-goal-resume.md).
+- [TUI review follow-ups](../journal/2026-10-04-tui-review-followups.md).

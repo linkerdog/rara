@@ -85,10 +85,10 @@ possible `Write` calls or output from dependencies.
 
 The root `clippy.toml` disallows raw RGB/indexed Ratatui constructors and
 white/black/yellow `Stylize` shortcuts. Renderers should use semantic theme
-tokens. Theme resolution owns configurable palette values and has an explicit
-module exception; the two syntax-color conversion functions have narrow
-exceptions. Isolated test fixtures may print protocol markers or diagnostics
-under test-only lint expectations with reasons.
+tokens. Theme palette constants, configurable color resolution, and the two
+syntax-color conversion functions have item-level exceptions with reasons.
+Isolated test fixtures may print protocol markers or diagnostics under
+function-level lint expectations; surrounding helpers retain the print gate.
 
 These gates use the existing strict Clippy job. A real renderer stderr write
 must fail the print gate; a temporary raw-color/shortcut insertion must fail
@@ -129,6 +129,12 @@ and input state, a pending frame wakes independently of maintenance/input,
 idle maintenance does not repaint, and resize invalidates stale cells even
 when a burst ends at the original dimensions. Errors must retain their normal
 notice or fatal-session behavior.
+
+Drive confirmed keyboard quit, `/quit`, and query cancellation through the
+production select loop. A first Ctrl-C requests cancellation without ending the
+loop or dropping the task; confirmed quit stops outstanding work. Session-level
+terminal tests must also observe the final shell cursor handoff before terminal
+mode restoration, rather than inferring their order from separate helper tests.
 
 The private I/O seam is not a public extension API. These loop tests complement
 the isolated PTY tests; a fake suspend callback cannot establish OS job-control

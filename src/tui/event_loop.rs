@@ -108,7 +108,7 @@ async fn run_tui_session(
     let mut processor = RuntimeCommandProcessor::new(runtime);
     let (runtime_port, runtime_commands) = InProcessRuntimeClientPort::new(
         processor.event_bus(),
-        Arc::new(std::sync::RwLock::new(app.snapshot.clone())),
+        Arc::new(std::sync::RwLock::new(app.snapshot.clone().into_inner())),
     );
     let runtime_port: Arc<dyn RuntimeClientPort> = Arc::new(runtime_port);
     let mut maintainer = TuiController::new(app, runtime_port, runtime_commands);
@@ -162,10 +162,7 @@ async fn run_tui_session(
     }
 
     let result = {
-        let mut events = TerminalEventSource {
-            events: Some(EventStream::new()),
-            modes: terminal_modes,
-        };
+        let mut events = TerminalEventSource::new(terminal_modes);
         run_event_loop(
             &mut terminal,
             &mut maintainer,
@@ -198,16 +195,25 @@ async fn run_tui_session(
 /// Owns terminal input and mode handoff. Implementors must release the input
 /// reader before suspension and surface maintenance/reacquisition errors.
 /// Input reads must be cancellation-safe because select drops losing futures.
-trait EventSource<B: Backend<Error = io::Error> + Write> {
+pub(super) trait EventSource<B: Backend<Error = io::Error> + Write> {
     async fn next_event(&mut self) -> Option<io::Result<Event>>;
     fn maintain_raw_mode(&mut self) -> io::Result<()>;
     #[cfg(unix)]
     fn suspend(&mut self, terminal: &mut Terminal<B>) -> io::Result<()>;
 }
 
-struct TerminalEventSource<'a> {
+pub(super) struct TerminalEventSource<'a> {
     events: Option<EventStream>,
     modes: &'a mut TerminalModeGuard,
+}
+
+impl<'a> TerminalEventSource<'a> {
+    pub(super) fn new(modes: &'a mut TerminalModeGuard) -> Self {
+        Self {
+            events: Some(EventStream::new()),
+            modes,
+        }
+    }
 }
 
 impl EventSource<CrosstermBackend<io::Stdout>> for TerminalEventSource<'_> {

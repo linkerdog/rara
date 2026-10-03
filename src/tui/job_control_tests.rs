@@ -1,16 +1,9 @@
-#![expect(
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "Isolated PTY fixtures exchange protocol markers and report cleanup failures."
-)]
-
 use std::io::{self, Read, Write};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, EventStream, KeyCode};
+use crossterm::event::{Event, KeyCode};
 use crossterm::terminal::is_raw_mode_enabled;
-use futures::StreamExt;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::{Pid, getpgrp};
 use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
@@ -19,6 +12,7 @@ use ratatui::widgets::Paragraph;
 
 use super::super::custom_terminal::Terminal;
 use super::super::terminal_modes::TerminalModeGuard;
+use crate::tui::event_loop::{EventSource, TerminalEventSource};
 
 struct PtyJob {
     shell: Box<dyn Child + Send + Sync>,
@@ -27,6 +21,10 @@ struct PtyJob {
 }
 
 impl Drop for PtyJob {
+    #[expect(
+        clippy::print_stderr,
+        reason = "Isolated PTY cleanup reports failures to the test runner."
+    )]
     fn drop(&mut self) {
         if self.reaped {
             return;
@@ -78,6 +76,10 @@ impl OutputProbe {
 }
 
 #[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "The isolated PTY reader reports cleanup failures."
+)]
 fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -236,6 +238,10 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
 // Only the PTY's foreground job signals its own process group.
 #[test]
 #[ignore = "job-control subprocess fixture"]
+#[expect(
+    clippy::print_stdout,
+    reason = "The isolated PTY child emits protocol markers to its parent."
+)]
 fn suspend_child() {
     println!("PTY_JOB_GROUP={}\nPTY_JOB_READY", getpgrp());
     io::stdout().flush().expect("job identity");
@@ -252,7 +258,7 @@ fn suspend_child() {
         TerminalModeGuard::run_owner(async {
             let mut terminal =
                 Terminal::new(CrosstermBackend::new(io::stdout())).expect("terminal");
-            let mut events = EventStream::new();
+            let mut events = TerminalEventSource::new(&mut modes);
             for cycle in 1..=2 {
                 terminal
                     .draw_inline(|frame| {
@@ -262,13 +268,12 @@ fn suspend_child() {
                 println!("FRAME_READY");
                 io::stdout().flush().expect("frame marker");
                 // Start the reader worker before suspension, as the live loop does.
-                let pending = tokio::time::timeout(Duration::from_millis(20), events.next()).await;
+                let pending = tokio::time::timeout(Duration::from_millis(20), events.next_event()).await;
                 assert!(
                     pending.is_err(),
                     "unexpected input before suspend: {pending:?}"
                 );
-                events =
-                    super::suspend(&mut terminal, &mut modes, events).expect("suspend and resume");
+                events.suspend(&mut terminal).expect("suspend and resume");
                 assert!(is_raw_mode_enabled().expect("resumed raw mode"));
                 terminal
                     .draw_inline(|frame| {
@@ -288,8 +293,8 @@ fn suspend_child() {
                 for expected in ['x', 'y'] {
                     loop {
                         tokio::select! {
-                            _ = maintenance.tick() => modes.maintain_raw_mode().expect("repair raw mode"),
-                            event = events.next() => {
+                            _ = maintenance.tick() => events.maintain_raw_mode().expect("repair raw mode"),
+                            event = events.next_event() => {
                                 if let Event::Key(key) = event.expect("input stream").expect("input event") {
                                     assert_eq!(key.code, KeyCode::Char(expected));
                                     break;
