@@ -78,6 +78,21 @@ cargo fmt --all -- --check
 git diff --check
 ```
 
+## Review Follow-Up
+
+Review follow-up shares DSML evidence spellings with the canonical parser and
+adds two focused drift guards. Every internal/EOS/DSML token must select sticky
+replay across every character boundary, including tokens added later. Legacy
+recognition is compared with canonical cleanup for every ASCII byte in a name,
+empty names, and non-ASCII names across every character boundary. Production
+grammar and replay costs are unchanged.
+
+```bash
+cargo test --locked --lib control_tokens::
+cargo test --locked --lib tui::state::tests::control_stream::
+bazel test //:rara_unit_tests --test_arg=control_tokens::
+```
+
 ## Follow-Ups
 
 Completed legacy markers and streams containing complex controls retain
