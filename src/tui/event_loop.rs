@@ -90,7 +90,11 @@ async fn run_tui_session(
     app.memory_handler = Some(Arc::new(
         crate::protocol_sources::MemoryControlHandler::with_store(
             runtime.event_bus.clone(),
-            runtime.agent().expect("runtime agent").memory_store.clone(),
+            runtime
+                .agent()
+                .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready for the TUI"))?
+                .memory_store
+                .clone(),
         ),
     ));
     app.sandbox_network_access
@@ -219,6 +223,12 @@ async fn run_event_loop(
                 terminal_modes.maintain_raw_mode()?;
                 let mut changed = false;
                 let app = maintainer.app_mut();
+                if let Some(clipboard) = &mut app.clipboard
+                    && let Some(notice) = clipboard.poll().await
+                {
+                    app.push_notice(notice);
+                    changed = true;
+                }
                 changed |= app.quit_shortcut.expire(std::time::Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);

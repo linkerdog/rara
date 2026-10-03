@@ -329,9 +329,15 @@ fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
 fn command_palette_item(app: &TuiApp, spec: &CommandSpec) -> ListItem<'static> {
     // Display name with leading slash for consistent width
     let full_name = format!("/{}", spec.name);
-    let command = crate::tui::command::parse_local_command(&full_name).expect("registered command");
-    let description =
-        crate::tui::command::command_unavailable_reason(app, &command).unwrap_or(spec.summary);
+    let description = match crate::tui::command::parse_local_command(&full_name) {
+        Some(command) => {
+            crate::tui::command::command_unavailable_reason(app, &command).unwrap_or(spec.summary)
+        }
+        None => {
+            log::warn!("Command palette entry has no registered command: {full_name}");
+            "Command unavailable."
+        }
+    };
     ListItem::new(Line::from(vec![
         Span::styled(
             format!("{full_name:<12}"),
@@ -543,6 +549,33 @@ mod tests {
     use super::*;
     use crate::config::ConfigManager;
     use crate::tui::command::COMMAND_SPECS;
+
+    #[test]
+    fn malformed_palette_entry_is_rendered_unavailable_without_panicking() {
+        let temp = tempdir().expect("tempdir");
+        let app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        let spec = CommandSpec {
+            category: "test",
+            name: "missing-command",
+            usage: "/missing-command",
+            summary: "Must not claim this command is usable.",
+            detail: "test registration mismatch",
+        };
+        let area = Rect::new(0, 0, 80, 1);
+        let mut buffer = Buffer::empty(area);
+        let mut state = ListState::default();
+        List::new(vec![command_palette_item(&app, &spec)]).render(area, &mut buffer, &mut state);
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("Command unavailable."));
+        assert!(!text.contains(spec.summary));
+    }
 
     #[test]
     fn command_palette_state_scrolls_to_selected_item() {

@@ -17,6 +17,41 @@ use crate::tui::testing::FakeRuntimeClient;
 use crate::workspace::WorkspaceMemory;
 
 #[tokio::test]
+async fn goal_follow_up_rejects_missing_or_inactive_state_without_panicking() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let missing = super::start_goal_follow_up(&mut app, &mut None, None)
+        .await
+        .expect_err("missing goal");
+    assert!(missing.to_string().contains("active goal"));
+    for status in [
+        GoalStatus::Paused,
+        GoalStatus::Blocked,
+        GoalStatus::Complete,
+    ] {
+        let mut goal = RalphGoal::new("guard follow-up".into(), None);
+        goal.status = status;
+        app.goal = Some(goal);
+        let error = super::start_goal_follow_up(&mut app, &mut None, None)
+            .await
+            .expect_err("inactive goal");
+        assert!(error.to_string().contains("inactive goals"));
+    }
+    app.goal = Some(RalphGoal::new("guard follow-up".into(), None));
+    let missing = super::start_goal_follow_up(&mut app, &mut None, None)
+        .await
+        .expect_err("missing agent");
+    assert!(missing.to_string().contains("ready runtime agent"));
+    assert_eq!(
+        app.goal.as_ref().expect("goal retained").status,
+        GoalStatus::Pursuing
+    );
+}
+
+#[tokio::test]
 async fn goal_commands_persist_create_pause_and_clear_into_a_fresh_app() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).expect("state db"));

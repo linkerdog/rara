@@ -184,12 +184,11 @@ async fn dispatch_event_inner(
         }
         AppEvent::FinishTranscriptSelection(position) => {
             if let Some(text) = app.transcript_selection.finish(position) {
-                match crate::tui::clipboard::copy_text(text.as_str()) {
-                    Ok(()) => app.push_notice("Copied transcript selection to clipboard."),
-                    Err(err) => {
-                        app.push_notice(format!("Failed to copy transcript selection: {err}"))
-                    }
-                }
+                let notice = app
+                    .clipboard
+                    .get_or_insert_with(super::clipboard::Clipboard::from_environment)
+                    .request(text);
+                app.push_notice(notice);
             }
         }
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),

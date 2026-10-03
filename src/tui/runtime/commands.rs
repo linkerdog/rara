@@ -380,12 +380,15 @@ async fn start_goal_follow_up(
     agent_slot: &mut Option<Agent>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<()> {
-    let goal = app.goal.as_ref().expect("goal follow-up requires a goal");
+    let goal = app
+        .goal
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("goal follow-up requires an active goal"))?;
     let prompt = match goal.status {
         GoalStatus::Pursuing => crate::runtime_client::goal_continuation_prompt(goal),
         GoalStatus::BudgetLimited => crate::runtime_client::goal_budget_limit_prompt(goal),
         GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::Complete => {
-            unreachable!("inactive goals cannot start a follow-up")
+            anyhow::bail!("inactive goals cannot start a follow-up");
         }
     };
 
@@ -396,7 +399,7 @@ async fn start_goal_follow_up(
     } else {
         let agent = agent_slot
             .take()
-            .expect("goal continuation requires a ready runtime agent");
+            .ok_or_else(|| anyhow::anyhow!("goal continuation requires a ready runtime agent"))?;
         start_goal_continuation_task(app, prompt, agent);
     }
     Ok(())
@@ -567,7 +570,10 @@ fn spawn_mcp_tool_cache_population(
     let tools = cache.share();
     tokio::spawn(async move {
         {
-            let mut map = tools.lock().unwrap();
+            let Ok(mut map) = tools.lock() else {
+                log::warn!("Cannot refresh MCP tools: tool cache lock is poisoned");
+                return;
+            };
             map.clear();
         }
         let tmp = McpToolCache::from_shared(tools);

@@ -91,6 +91,8 @@ impl TuiApp {
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: TranscriptScroll::default(),
             transcript_selection: crate::tui::selection::TranscriptSelection::default(),
+            clipboard: None,
+            scroll_acceleration: super::ScrollAcceleration::default(),
             context_scroll: 0,
             terminal_width: 80,
             agent_markdown_stream: None,
