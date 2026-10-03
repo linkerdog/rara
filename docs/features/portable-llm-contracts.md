@@ -31,6 +31,10 @@ The core depends on `rara-observability` for task-owned attempt handles; that
 dependency has no reverse edge or transport/async-runtime dependency. Cargo and
 Bazel both declare it explicitly.
 
+The adjacent [portable tool contract](portable-tool-contracts.md) supplies the
+canonical custom-tool trait and registry. A downstream Git fixture checks both
+contracts without the application package or workspace patches.
+
 ## Contracts
 
 - The canonical response preserves the previously used root wire shape:
