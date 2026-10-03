@@ -86,6 +86,14 @@ Resume behavior is owned by [threads](../features/threads.md) and
 [session transcript](../features/session-transcript.md). Tests must distinguish
 restored committed output, restored pending state, and newly running work.
 
+Transcript scrolling is bounded by the currently rendered visual rows. Repeated
+Up/PageUp at the top must not delay the next Down/PageDown. Manual upward
+navigation anchors the top visual row while streaming appends new rows; scrolling
+back to the bottom resumes tail-following. Clear and thread resume start at the
+tail. Long histories remain reachable without a 16-bit global-row offset; see
+[mouse text selection](../features/mouse-text-selection.md) for shared scrolling,
+rendering, and copy behavior.
+
 ### RUN-05: Terminal Lifetime And Restoration
 
 Terminal mode ownership begins before raw mode or input reporting is enabled.
