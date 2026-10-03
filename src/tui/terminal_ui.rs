@@ -1,9 +1,3 @@
-use std::io;
-
-use anyhow::Result;
-use ratatui::{backend::CrosstermBackend, layout::Rect};
-
-use super::custom_terminal::Terminal;
 use super::state::TuiApp;
 
 pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
@@ -30,40 +24,6 @@ pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
         app.flush_composer_paste();
         app.insert_active_input_text(&normalized);
     }
-}
-
-pub(super) fn build_terminal(
-    viewport_height: u16,
-) -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
-    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    let size = terminal.size()?;
-    terminal.set_viewport_area(viewport_area(size.width, size.height, viewport_height));
-    terminal.clear_visible_screen()?;
-    Ok(terminal)
-}
-
-pub(super) fn update_terminal_viewport(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    viewport_height: u16,
-    _app: &mut TuiApp,
-) -> Result<()> {
-    let size = terminal.size()?;
-    let area = viewport_area(size.width, size.height, viewport_height);
-    if area != terminal.viewport_area {
-        terminal.clear_visible_screen()?;
-        terminal.set_viewport_area(area);
-    }
-    Ok(())
-}
-
-fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
-    let viewport_height = viewport_height.max(1).min(height.max(1));
-    Rect::new(
-        0,
-        height.saturating_sub(viewport_height),
-        width,
-        viewport_height,
-    )
 }
 
 pub(crate) fn is_ssh_session() -> bool {

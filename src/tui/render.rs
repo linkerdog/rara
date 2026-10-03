@@ -35,7 +35,6 @@ use ratatui::{
 
 #[cfg(test)]
 use self::bottom_pane::desired_bottom_pane_height;
-pub(crate) use self::bottom_pane::desired_viewport_height;
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
 pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;

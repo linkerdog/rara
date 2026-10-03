@@ -2,9 +2,11 @@ use std::io;
 
 use super::{RestoreAction, restore_all};
 
-const RESTORE_ACTIONS: [RestoreAction; 4] = [
+const RESTORE_ACTIONS: [RestoreAction; 6] = [
+    RestoreAction::SynchronizedOutput,
     RestoreAction::Mouse,
     RestoreAction::BracketedPaste,
+    RestoreAction::Focus,
     RestoreAction::RawMode,
     RestoreAction::Cursor,
 ];
@@ -36,7 +38,7 @@ fn cleanup_returns_first_error_when_multiple_modes_fail() {
     })
     .expect_err("restoration failures must surface");
     assert_eq!(actions, RESTORE_ACTIONS);
-    assert_eq!(error.to_string(), "Mouse");
+    assert_eq!(error.to_string(), "SynchronizedOutput");
 }
 
 #[test]
@@ -123,7 +125,20 @@ mod pty {
             assert!(status.success(), "{scenario}: {output}");
             assert_eq!(after, before, "{scenario}: kernel terminal modes");
             assert!(output.contains("raw_after=false"), "{scenario}: {output}");
-            for reset in ["\x1b[?1000l", "\x1b[?1006l", "\x1b[?2004l", "\x1b[?25h"] {
+            if scenario == "normal" {
+                assert!(
+                    output.contains("\x1b[?1004h"),
+                    "focus reporting was not enabled: {output}"
+                );
+            }
+            for reset in [
+                "\x1b[?2026l",
+                "\x1b[?1000l",
+                "\x1b[?1006l",
+                "\x1b[?2004l",
+                "\x1b[?1004l",
+                "\x1b[?25h",
+            ] {
                 assert!(
                     scenario == "pipe" || output.contains(reset),
                     "missing {reset:?}: {scenario}: {output}"

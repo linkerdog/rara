@@ -8,9 +8,12 @@ use std::task::Poll;
 
 use crossterm::{
     cursor::Show,
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{EndSynchronizedUpdate, disable_raw_mode, enable_raw_mode},
 };
 
 // These own the single process terminal, never session runtime handles. The
@@ -63,7 +66,12 @@ impl TerminalModeGuard {
         }
         Self::acquire_with(|| {
             enable_raw_mode()?;
-            execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)
+            execute!(
+                io::stdout(),
+                EnableBracketedPaste,
+                EnableMouseCapture,
+                EnableFocusChange
+            )
         })
     }
 
@@ -143,16 +151,20 @@ impl Drop for TerminalModeGuard {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoreAction {
+    SynchronizedOutput,
     Mouse,
     BracketedPaste,
+    Focus,
     RawMode,
     Cursor,
 }
 
 fn restore_terminal_modes() -> io::Result<()> {
     restore_all(|action| match action {
+        RestoreAction::SynchronizedOutput => execute!(io::stdout(), EndSynchronizedUpdate),
         RestoreAction::Mouse => execute!(io::stdout(), DisableMouseCapture),
         RestoreAction::BracketedPaste => execute!(io::stdout(), DisableBracketedPaste),
+        RestoreAction::Focus => execute!(io::stdout(), DisableFocusChange),
         RestoreAction::RawMode => disable_raw_mode(),
         RestoreAction::Cursor => execute!(io::stdout(), Show),
     })
@@ -162,8 +174,10 @@ fn restore_terminal_modes() -> io::Result<()> {
 fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Result<()> {
     let mut first_error = None;
     for action in [
+        RestoreAction::SynchronizedOutput,
         RestoreAction::Mouse,
         RestoreAction::BracketedPaste,
+        RestoreAction::Focus,
         RestoreAction::RawMode,
         RestoreAction::Cursor,
     ] {

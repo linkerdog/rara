@@ -30,7 +30,7 @@ fn committed_turn_does_not_truncate_agent_response() {
 }
 
 #[test]
-fn keeps_history_reserve_once_transcript_exists() {
+fn transcript_and_composer_share_the_full_viewport() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -45,20 +45,20 @@ fn keeps_history_reserve_once_transcript_exists() {
         }],
     });
 
-    let height = desired_viewport_height(&app, 120, 24);
+    let height = render_app_viewport(&mut app, 120, 24).height;
     assert!(height > 5);
-    assert!(height < 24);
+    assert_eq!(height, 24);
 }
 
 #[test]
 fn startup_viewport_uses_full_height_for_header() {
     let temp = tempdir().expect("tempdir");
-    let app = TuiApp::new(ConfigManager {
+    let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
 
-    assert_eq!(desired_viewport_height(&app, 107, 53), 53);
+    assert_eq!(render_app_viewport(&mut app, 107, 53).height, 53);
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn overlay_viewport_uses_full_height_on_empty_transcript() {
     app.bottom_pane.input = "/model".into();
     app.open_overlay(Overlay::CommandPalette);
 
-    assert_eq!(desired_viewport_height(&app, 107, 53), 53);
+    assert_eq!(render_app_viewport(&mut app, 107, 53).height, 53);
 }
 
 #[test]
@@ -673,9 +673,9 @@ fn command_palette_does_not_change_scrolled_viewport_height() {
     });
     app.transcript_scroll.scroll(-5);
 
-    let base = desired_viewport_height(&app, 80, 24);
+    let base = render_app_viewport(&mut app, 80, 24).height;
     app.overlay = Some(Overlay::CommandPalette);
-    let with_palette = desired_viewport_height(&app, 80, 24);
+    let with_palette = render_app_viewport(&mut app, 80, 24).height;
 
     assert_eq!(base, 24);
     assert_eq!(base, with_palette);

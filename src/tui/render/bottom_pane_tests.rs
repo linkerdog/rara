@@ -315,8 +315,23 @@ fn composer_height_counts_the_same_indented_rows_as_rendering() {
 }
 
 #[test]
-fn viewport_reserves_composer_height_at_the_rendered_main_width() {
-    use crate::tui::render::bottom_pane::desired_viewport_height;
+fn review_regression_terminal_viewport_includes_bottom_pane_once() {
+    let mut tui =
+        crate::tui::testing::TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    tui.app_mut().push_entry("You", "Earlier prompt");
+    for input in ["short", "first\nsecond\nthird\nfourth"] {
+        tui.app_mut().bottom_pane.input = input.into();
+        assert_eq!(
+            crate::tui::testing::terminal_emulator::render_app_viewport(tui.app_mut(), 80, 24)
+                .height,
+            24
+        );
+    }
+}
+
+#[test]
+fn composer_height_uses_the_rendered_main_width() {
+    use crate::tui::render::bottom_pane::desired_bottom_pane_height;
     use crate::tui::testing::TuiHarness;
 
     let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
@@ -330,10 +345,16 @@ fn viewport_reserves_composer_height_at_the_rendered_main_width() {
         (160, false, 160),
     ] {
         tui.app_mut().sidebar_visible = sidebar_visible;
+        let rendered_width = crate::tui::pane_geometry::PaneColumns {
+            terminal_width,
+            sidebar_visible,
+        }
+        .main_width();
+        assert_eq!(rendered_width, main_width);
         let expected_bottom = 720_usize.div_ceil(usize::from(main_width - 2)).max(3) as u16 + 2;
         assert_eq!(
-            desired_viewport_height(tui.app(), terminal_width, 40),
-            40 - expected_bottom,
+            desired_bottom_pane_height(tui.app(), rendered_width, 40),
+            expected_bottom,
             "width={terminal_width}, sidebar={sidebar_visible}"
         );
     }

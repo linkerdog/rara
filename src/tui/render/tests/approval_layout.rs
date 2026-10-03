@@ -42,7 +42,7 @@ fn long_shell_command_keeps_every_choice_in_actual_viewport() {
     for (width, rows) in [(180, 28), (80, 24), (60, 14), (40, 10)] {
         for selected in 0..4 {
             app.approval_picker_idx = selected;
-            let height = desired_viewport_height(&app, width, rows);
+            let height = render_app_viewport(&mut app, width, rows).height;
             let screen = render_screen_text(&mut app, width, height);
             for label in [
                 "[1] Allow once",
@@ -66,9 +66,9 @@ fn long_shell_command_keeps_every_choice_in_actual_viewport() {
 
 #[test]
 fn pending_decision_uses_available_terminal_height() {
-    let (_temp, app) = pending_shell_app();
+    let (_temp, mut app) = pending_shell_app();
     for rows in [8, 10, 14, 24] {
-        assert_eq!(desired_viewport_height(&app, 80, rows), rows);
+        assert_eq!(render_app_viewport(&mut app, 80, rows).height, rows);
     }
 }
 

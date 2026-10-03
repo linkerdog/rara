@@ -12,9 +12,9 @@ use super::viewport::TranscriptViewport;
 use super::{
     committed_turn_cell, compact_progress_summary_lines, compact_recent_first_summary_lines,
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    desired_bottom_pane_height, desired_viewport_height, display_directory_for_startup,
-    formatted_message_lines, prefixed_message_lines, renderable_transcript_lines,
-    scroll_transcript, tool_action_label, transcript_viewport,
+    desired_bottom_pane_height, display_directory_for_startup, formatted_message_lines,
+    prefixed_message_lines, renderable_transcript_lines, scroll_transcript, tool_action_label,
+    transcript_viewport,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tools::bash::BashCommandInput;
@@ -26,6 +26,7 @@ use crate::tui::state::{
     RuntimeSnapshot, StatusTab, ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry,
     TranscriptEntryPayload, TranscriptScroll, TranscriptScrollLayout, TranscriptTurn, TuiApp,
 };
+use crate::tui::testing::terminal_emulator::render_app_viewport;
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
     crate::tui::state::PROVIDER_FAMILIES
