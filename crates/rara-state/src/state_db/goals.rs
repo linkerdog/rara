@@ -23,11 +23,17 @@ impl StateDb {
             None => existing.unwrap_or(now),
         };
         anyhow::ensure!(created >= 0, "goal creation timestamp must be non-negative");
+        let deferred = match goal.get("continuation_deferred") {
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| anyhow::anyhow!("goal continuation deferral must be a boolean"))?,
+            None => false,
+        };
         conn.execute(
             "INSERT OR REPLACE INTO goals
              (session_id, objective, condition, status, token_budget,
-              tokens_used, turns_completed, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+              tokens_used, turns_completed, created_at, updated_at, continuation_deferred)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 session_id,
                 goal["objective"].as_str().unwrap_or(""),
@@ -38,6 +44,7 @@ impl StateDb {
                 goal["turns_completed"].as_i64().unwrap_or(0),
                 created,
                 now,
+                deferred,
             ],
         )?;
         Ok(())
@@ -59,11 +66,15 @@ impl StateDb {
         let conn = self.conn.lock().expect("state db mutex poisoned");
         let mut stmt = conn.prepare(
             "SELECT objective, condition, status, token_budget,
-                        tokens_used, turns_completed, created_at
+                        tokens_used, turns_completed, created_at, continuation_deferred
                  FROM goals WHERE session_id = ?",
         )?;
         let row = stmt
             .query_row(params![session_id], |row| {
+                let deferred = row.get::<_, i64>(7)?;
+                if !matches!(deferred, 0 | 1) {
+                    return Err(rusqlite::Error::IntegralValueOutOfRange(7, deferred));
+                }
                 Ok(serde_json::json!({
                     "objective": row.get::<_, String>(0)?,
                     "condition": row.get::<_, Option<String>>(1)?,
@@ -72,6 +83,7 @@ impl StateDb {
                     "tokens_used": row.get::<_, i64>(4)?,
                     "turns_completed": row.get::<_, i64>(5)?,
                     "created_at_epoch_seconds": row.get::<_, i64>(6)?,
+                    "continuation_deferred": deferred == 1,
                 }))
             })
             .optional()?;

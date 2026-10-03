@@ -72,16 +72,49 @@ impl RuntimeCommandProcessor {
                     Some(services),
                 );
             }
-            RuntimeCommand::ContinueGoal { prompt } => {
-                let services = self.runtime.task_services();
-                let agent_slot = self.runtime.agent_mut();
-                if let Some(agent) = agent_slot.take() {
-                    super::tasks::start_goal_continuation_task_with_services(
-                        app, prompt, agent, services,
-                    );
-                } else {
-                    app.push_notice("Goal resume is waiting for the runtime agent. Try again.");
+            RuntimeCommand::ContinueGoal { ticket, mode } => {
+                if !app.goal_handle.matches_resume_ticket(&ticket) {
+                    return Ok(());
                 }
+                if self.agent().is_none() || !crate::tui::goal_resume::idle_for_goal(app, mode) {
+                    app.pending_goal_resume = Some(crate::tui::goal_resume::PendingGoalResume {
+                        ticket,
+                        mode,
+                        enqueued: false,
+                    });
+                    return Ok(());
+                }
+                app.pending_goal_resume = None;
+                let goal = match app.goal_handle.claim_continuation(&ticket, mode) {
+                    Ok(Some(goal)) => goal,
+                    Ok(None) => return Ok(()),
+                    Err(error) => {
+                        log::warn!("Goal admission failed: {error:#}");
+                        app.push_notice(format!("Goal resume failed: {error:#}"));
+                        return Ok(());
+                    }
+                };
+                let prompt = if goal.status == crate::runtime_goals::GoalStatus::BudgetLimited {
+                    crate::runtime_client::goal_budget_limit_prompt(&goal)
+                } else {
+                    crate::runtime_client::goal_continuation_prompt(&goal)
+                };
+                let notice = format!(
+                    "Resuming goal: {}. /goal pause to pause; permissions: {}.",
+                    goal.objective,
+                    app.permission_mode_label()
+                );
+                app.goal = Some(goal);
+                let services = self.runtime.task_services();
+                let agent = self
+                    .runtime
+                    .agent_mut()
+                    .take()
+                    .expect("ready agent checked before admission");
+                super::tasks::start_goal_continuation_task_with_services(
+                    app, prompt, agent, services,
+                );
+                app.push_notice(notice);
             }
             RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
                 input_control::submit_follow_up(app, prompt, false);

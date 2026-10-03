@@ -695,7 +695,7 @@ fn blocked_goal_uses_compact_warning_badge() {
 
     let view = build_bottom_pane_view(&app, 80, 24);
 
-    assert_eq!(view.activity.goal_label, Some(("blocked", STATUS_WARNING)));
+    assert_eq!(view.activity.goal_label, Some(("Blocked", STATUS_WARNING)));
 }
 
 #[test]

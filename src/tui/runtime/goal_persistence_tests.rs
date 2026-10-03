@@ -220,23 +220,15 @@ async fn resumed_goal_respects_persisted_budget_before_starting_a_turn() {
             assert_eq!(app.goal, Some(goal.clone()));
             assert_eq!(app.goal_handle.snapshot(), Some(goal.clone()));
             let commands = runtime.commands();
-            let [RuntimeCommand::ContinueGoal { prompt }] = commands.as_slice() else {
+            let [RuntimeCommand::ContinueGoal { ticket, mode }] = commands.as_slice() else {
                 panic!("expected one goal query: {commands:?}")
             };
-            let expected_prompt = if tokens_used >= 10 {
-                crate::runtime_client::goal_budget_limit_prompt(&goal)
-            } else {
-                crate::runtime_client::goal_continuation_prompt(&goal)
-            };
-            // Elapsed seconds may advance between command dispatch and this assertion.
-            let without_elapsed = |value: &str| {
-                value
-                    .lines()
-                    .filter(|line| !line.starts_with("- Time spent pursuing goal:"))
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(without_elapsed(prompt), without_elapsed(&expected_prompt));
+            assert_eq!(*mode, crate::runtime_goals::GoalContinuationMode::Requested);
+            assert!(app.goal_handle.matches_resume_ticket(ticket));
+            assert_eq!(
+                app.goal_handle.claim_continuation(ticket, *mode).unwrap(),
+                Some(goal.clone())
+            );
             let stored: RalphGoal = serde_json::from_value(
                 db.try_load_goal("command-thread")
                     .expect("load goal")

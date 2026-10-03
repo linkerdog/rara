@@ -30,8 +30,17 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         | Overlay::ModelNameEditor
                         | Overlay::OpenAiProfileLabelEditor,
                     ) => AppEvent::DeleteForward,
+                    Some(Overlay::Goal)
+                        if matches!(
+                            app.goal_ui.dialog,
+                            Some(super::goal_ui::GoalDialog::Edit(_))
+                        ) =>
+                    {
+                        AppEvent::DeleteForward
+                    }
                     Some(
-                        Overlay::Help(_)
+                        Overlay::Goal
+                        | Overlay::Help(_)
                         | Overlay::Status(_)
                         | Overlay::Context
                         | Overlay::SkillsPicker
@@ -44,6 +53,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         }
     }
     match app.overlay {
+        Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
         Some(Overlay::Help(tab)) => match key {
             KeyEvent {
                 code: KeyCode::Up, ..

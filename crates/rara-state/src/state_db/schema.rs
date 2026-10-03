@@ -103,6 +103,12 @@ impl StateDb {
             );
             ",
         )?;
+        ensure_column(
+            &conn,
+            "goals",
+            "continuation_deferred",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
         ensure_column(&conn, "sessions", "plan_explanation", "TEXT")?;
         ensure_column(&conn, "sessions", "prompt_runtime_json", "TEXT")?;
         ensure_column(

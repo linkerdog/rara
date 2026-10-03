@@ -19,6 +19,8 @@ mod event_loop;
 mod event_stream;
 mod format;
 mod frame_scheduler;
+mod goal_resume;
+mod goal_ui;
 mod highlight;
 mod input_control;
 #[cfg(test)]

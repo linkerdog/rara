@@ -269,6 +269,7 @@ pub(super) fn restore_thread_by_id(
     app.goal = restored_goal;
 
     app.bottom_pane.notice = Some(resume_notice);
+    super::goal_resume::arm_after_restore(app);
     Ok(())
 }
 

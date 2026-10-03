@@ -128,7 +128,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         &agent,
                         goal_turn.as_ref(),
                         finished_plan_turn,
-                        app.has_pending_plan_approval(),
+                        app.active_pending_interaction().is_some(),
                     ) {
                         Ok(continuation) => continuation,
                         Err(error) => {
@@ -202,6 +202,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                             }
                             return Ok(());
                         }
+                        GoalContinuation::Continue { .. }
+                            if !app.bottom_pane.pending_follow_up_messages.is_empty()
+                                || !app.bottom_pane.queued_follow_up_messages.is_empty() => {}
                         GoalContinuation::Continue { goal, prompt } => {
                             app.goal = Some(goal);
                             app.apply_runtime_snapshot(
