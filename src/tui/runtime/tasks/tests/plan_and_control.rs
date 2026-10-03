@@ -5,7 +5,7 @@ async fn finish_plan_tasks(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
     tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(task) = app.bottom_pane.running_task.as_mut() {
             let completion = (&mut task.handle).await;
-            super::super::finish_running_task_if_ready_with_completion_mode(
+            super::super::completion::finish_running_task_if_ready_with_completion_mode(
                 app,
                 agent_slot,
                 Some(completion),

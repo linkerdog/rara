@@ -1,5 +1,8 @@
 mod builder;
-include!("tasks/completion.rs");
+mod completion;
+#[cfg(test)]
+pub(crate) use completion::finish_running_task_if_ready;
+pub(crate) use completion::{emit_query_heartbeat, finish_running_task_if_ready_from_runtime_port};
 mod oauth;
 #[cfg(test)]
 mod tests;
@@ -27,6 +30,7 @@ use crate::runtime_client::RuntimeTaskServices;
 pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuation_prompt};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::tui::message_role::MessageRole;
 
 fn local_tui_event_provenance(session_id: &str) -> RuntimeProvenance {
     RuntimeProvenance::local_tui(session_id.to_string())
@@ -319,7 +323,7 @@ pub(crate) fn start_query_task_with_services(
     let request = crate::runtime_control::InputControlRequest::SubmitUserPrompt {
         prompt: prompt.clone(),
     };
-    app.push_entry("You", prompt);
+    app.push_entry(MessageRole::User, prompt);
     start_input_control_task_with_services(
         app,
         agent,
@@ -365,7 +369,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         RuntimePhase::ProcessingResponse,
         Some("compacting history".into()),
     );
-    app.push_entry("You", "/compact");
+    app.push_entry(MessageRole::User, "/compact");
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
@@ -416,7 +420,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         RuntimePhase::ProcessingResponse,
         Some("reviewing changes".into()),
     );
-    app.push_entry("You", prompt.clone());
+    app.push_entry(MessageRole::User, prompt.clone());
     let goal_turn = app.goal_handle.begin_turn(agent.total_input_tokens);
 
     let handle = tokio::spawn(async move {
@@ -608,15 +612,15 @@ pub(super) fn start_rebuild_task(
         RuntimePhase::RebuildingBackend,
         Some(format!("preparing {provider} / {model}")),
     );
-    app.push_entry("Download", format!("Preparing {} / {}", provider, model));
+    app.push_entry(
+        MessageRole::Download,
+        format!("Preparing {} / {}", provider, model),
+    );
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let progress: crate::local_backend::LocalProgressReporter = Arc::new(move |message| {
-            let _ = tx.send(TuiEvent::Transcript {
-                role: "Download",
-                message,
-            });
+            let _ = tx.send(TuiEvent::DownloadProgress(message));
         });
         let result =
             rebuild_agent_with_progress(&config, Some(progress), plugin_dirs, agent_tree_control)

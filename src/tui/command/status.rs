@@ -330,7 +330,12 @@ fn render_context_observability(app: &TuiApp) -> String {
     )
 }
 
-include!("status_sections.rs");
+#[path = "status_sections.rs"]
+mod sections;
+use sections::{
+    render_planning_lifecycle_context, render_shared_tasks_context, render_todo_context,
+    shared_task_summary_line, todo_summary_line,
+};
 
 /// Reserved for the richer `/status` context tab tracked in docs/todo.md.
 #[allow(dead_code)] // Reserved for status-panel context section
@@ -775,7 +780,7 @@ pub fn recent_transcript_preview(app: &TuiApp, limit: usize) -> String {
             } else {
                 first_line
             };
-            format!("{}: {preview}", entry.role)
+            format!("{}: {preview}", entry.role.as_str())
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -885,7 +890,7 @@ pub fn is_local_provider(provider: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::format_unix_timestamp_utc;
+    use super::sections::format_unix_timestamp_utc;
 
     #[test]
     fn format_unix_timestamp_utc_renders_readable_utc_time() {

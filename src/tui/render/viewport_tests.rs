@@ -8,6 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::TranscriptViewport;
 use crate::tui::custom_terminal::Frame;
+use crate::tui::message_role::MessageRole;
 use crate::tui::selection::{ScreenPosition, TranscriptSelection};
 use crate::tui::text_wrap::display_width;
 use crate::tui::theme::TEXT_ACCENT;
@@ -206,7 +207,7 @@ fn full_renderer_follow_tail_keeps_final_word_and_updates_selection() {
             .restore_committed_turns(vec![TranscriptTurn {
                 thinking_duration: None,
                 entries: vec![TranscriptEntry {
-                    role: "Agent".into(),
+                    role: MessageRole::Agent,
                     message: format!("{} TAIL", "aaaa bbbb cccc dddd ".repeat(10)),
                     payload: None,
                 }],

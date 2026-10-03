@@ -4,6 +4,7 @@ use super::super::compact_summary_lines;
 use super::HistoryCell;
 use super::summary_cells::{ExploringCell, PlanningCell, RunningCell};
 use super::thinking_cells::ThinkingBlockCell;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::TranscriptEntry;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,13 +16,32 @@ pub(super) enum ProgressRole {
 }
 
 impl ProgressRole {
-    pub(super) fn from_entry_role(role: &str) -> Option<Self> {
+    pub(super) fn from_entry_role(role: &MessageRole) -> Option<Self> {
         match role {
-            "Thinking" => Some(Self::Thinking),
-            "Exploring" => Some(Self::Exploring),
-            "Planning" => Some(Self::Planning),
-            "Running" => Some(Self::Running),
-            _ => None,
+            MessageRole::Thinking => Some(Self::Thinking),
+            MessageRole::Exploring => Some(Self::Exploring),
+            MessageRole::Planning => Some(Self::Planning),
+            MessageRole::Running => Some(Self::Running),
+            MessageRole::User
+            | MessageRole::Agent
+            | MessageRole::System
+            | MessageRole::Runtime
+            | MessageRole::Responding
+            | MessageRole::Tool
+            | MessageRole::ToolResult
+            | MessageRole::ToolError
+            | MessageRole::ToolProgress
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::ShellApprovalCompleted
+            | MessageRole::QuestionAnswered
+            | MessageRole::PlanningQuestionAnswered
+            | MessageRole::ExplorationQuestionAnswered
+            | MessageRole::SubAgentQuestionAnswered
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => None,
         }
     }
 }
@@ -53,7 +73,7 @@ pub(super) fn explicit_progress_entry_groups<'a>(
 ) -> Vec<(ProgressRole, Vec<String>)> {
     let mut groups: Vec<(ProgressRole, Vec<String>)> = Vec::new();
     for entry in entries {
-        let Some(role) = ProgressRole::from_entry_role(entry.role.as_str()) else {
+        let Some(role) = ProgressRole::from_entry_role(&entry.role) else {
             continue;
         };
         let messages = progress_entry_message_lines(role, &entry.message);

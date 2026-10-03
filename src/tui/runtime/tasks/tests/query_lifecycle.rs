@@ -10,6 +10,7 @@ use crate::runtime_control::{
 };
 use crate::tui::controller::TuiController;
 use crate::tui::input_control::{InputControlOutcome, handle_session_control};
+use crate::tui::message_role::MessageRole;
 use crate::tui::runtime::RuntimeCommandProcessor;
 use crate::tui::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
@@ -506,7 +507,7 @@ async fn query_join_failure_closes_identity_without_waiting_for_terminal() {
         .committed_turns
         .iter()
         .flat_map(|turn| &turn.entries)
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .collect::<Vec<_>>()
         .join("\n");

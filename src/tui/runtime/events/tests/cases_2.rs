@@ -1,3 +1,6 @@
+use super::*;
+use crate::tui::message_role::MessageRole;
+
 #[test]
 fn structured_assistant_text_preserves_plan_mode_routing() {
     let temp = tempdir().expect("tempdir");
@@ -42,10 +45,7 @@ fn agent_dsml_only_message_does_not_enter_transcript() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Agent",
-            message: "<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"replace\"></｜DSML｜invoke>\n</｜DSML｜tool_calls>".into(),
-        },
+        runtime_event_from_agent_event(AgentEvent::AssistantText("<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"replace\"></｜DSML｜invoke>\n</｜DSML｜tool_calls>".into()), RuntimeProvenance::local_tui("session-1")),
     );
 
     assert!(app.active_turn.entries.is_empty());
@@ -90,17 +90,25 @@ fn bash_rg_tool_use_is_shown_as_exploration() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Tool",
-            message: "bash rg --files src/tui".into(),
-        },
+        runtime_event_from_agent_event(
+            AgentEvent::ToolUse {
+                call_id: "search-call".into(),
+                name: "bash".into(),
+                input: json!({"command": "rg --files src/tui"}),
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Tool",
-            message: "bash cd src && rg -n \"render\" tui".into(),
-        },
+        runtime_event_from_agent_event(
+            AgentEvent::ToolUse {
+                call_id: "search-call".into(),
+                name: "bash".into(),
+                input: json!({"command": "cd src && rg -n \"render\" tui"}),
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
 
     assert_eq!(
@@ -574,7 +582,7 @@ fn applies_terminal_begin_event_as_running_action() {
         vec!["Run cargo test".to_string()]
     );
     assert_eq!(app.active_turn.entries.len(), 1);
-    assert_eq!(app.active_turn.entries[0].role, "Terminal Event");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::TerminalEvent);
     match app.active_turn.entries[0].payload.as_ref() {
         Some(TranscriptEntryPayload::Terminal(TerminalEvent::Begin(command))) => {
             assert_eq!(command.target, TerminalTarget::BackgroundTask);
@@ -638,10 +646,7 @@ fn runtime_device_code_messages_update_prompt_and_polling_phases() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Runtime",
-            message: "Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into(),
-        },
+        TuiEvent::OAuthProgress("Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into()),
     );
     assert_eq!(app.runtime_phase, RuntimePhase::OAuthDeviceCodePrompt);
     let prompt_entry = app
@@ -649,16 +654,13 @@ fn runtime_device_code_messages_update_prompt_and_polling_phases() {
         .entries
         .last()
         .expect("persisted oauth prompt entry");
-    assert_eq!(prompt_entry.role, "System");
+    assert_eq!(prompt_entry.role, MessageRole::System);
     assert!(prompt_entry.message.contains("https://example.test"));
     assert!(prompt_entry.message.contains("Code: ABCD"));
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Runtime",
-            message: "Waiting for device-code confirmation.".into(),
-        },
+        TuiEvent::OAuthProgress("Waiting for device-code confirmation.".into()),
     );
     assert_eq!(app.runtime_phase, RuntimePhase::OAuthPollingDeviceCode);
 }
@@ -674,4 +676,82 @@ fn detects_persistent_oauth_prompt_messages() {
     assert!(!is_oauth_prompt_message(
         "Waiting for device-code confirmation."
     ));
+}
+
+#[test]
+fn download_progress_preserves_transcript_and_ready_phase() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    apply_tui_event(
+        &mut app,
+        TuiEvent::DownloadProgress("Downloading model weights".into()),
+    );
+    assert_eq!(app.runtime_phase, RuntimePhase::RebuildingBackend);
+    apply_tui_event(
+        &mut app,
+        TuiEvent::DownloadProgress("Ready · local model loaded".into()),
+    );
+    assert_eq!(app.runtime_phase, RuntimePhase::BackendReady);
+    assert_eq!(
+        app.runtime_phase_detail.as_deref(),
+        Some("Ready · local model loaded")
+    );
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .all(|entry| entry.role == MessageRole::Download)
+    );
+    assert_eq!(
+        app.active_turn.entries[0].message,
+        "Downloading model weights"
+    );
+    assert_eq!(
+        app.active_turn.entries[1].message,
+        "Ready · local model loaded"
+    );
+}
+
+#[test]
+fn unrelated_or_failed_results_do_not_create_delegated_questions() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    let question = json!({
+        "summary": "A summary from a result that must remain plain output",
+        "request_user_input": { "question": "Do not activate this question", "options": [], "note": null },
+    }).to_string();
+    for (name, content, is_error) in [
+        ("bash", question.clone(), false),
+        ("explore_agent", question, true),
+        ("spawn_agent", "not a JSON result".into(), false),
+    ] {
+        apply_tui_event(
+            &mut app,
+            runtime_event_from_agent_event(
+                AgentEvent::ToolResult {
+                    call_id: "result-call".into(),
+                    name: name.into(),
+                    content,
+                    is_error,
+                },
+                RuntimeProvenance::local_tui("session-1"),
+            ),
+        );
+        assert!(app.pending_request_input().is_none());
+        assert!(app.active_live.exploration_notes.is_empty());
+        assert!(app.active_live.planning_notes.is_empty());
+    }
+    assert_eq!(app.active_turn.entries.len(), 3);
+    assert!(
+        app.active_turn.entries[2]
+            .message
+            .contains("not a JSON result")
+    );
 }

@@ -1,3 +1,4 @@
+use crate::tui::message_role::MessageRole;
 use crate::{
     config::TuiThemeConfig,
     tui::{
@@ -56,7 +57,7 @@ fn committed_rows_refresh_after_theme_installation() {
         .app_mut()
         .restore_committed_turns(vec![TranscriptTurn {
             thinking_duration: None,
-            entries: vec![TranscriptEntry::new("Agent", SOURCE)],
+            entries: vec![TranscriptEntry::new(MessageRole::Agent, SOURCE)],
         }]);
     let mut rows = super::renderable_transcript_lines(harness.app(), 80);
     for config in themes() {
@@ -82,7 +83,7 @@ fn streamed_rows_refresh_without_new_source_after_theme_installation() {
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
     harness
         .app_mut()
-        .push_entry("You", "Show the themed stream.");
+        .push_entry(MessageRole::User, "Show the themed stream.");
     harness
         .app_mut()
         .set_runtime_phase(RuntimePhase::ProcessingResponse, None);

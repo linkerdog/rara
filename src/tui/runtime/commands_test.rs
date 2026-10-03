@@ -23,6 +23,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
 use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
 use crate::tools::tasklist::TaskListTool;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{
     ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask,
     TaskCompletion, TaskKind, TuiApp,
@@ -459,7 +460,7 @@ async fn goal_command_resumes_blocked_goal() {
         app.active_turn
             .entries
             .iter()
-            .all(|entry| entry.role != "You")
+            .all(|entry| entry.role != MessageRole::User)
     );
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
@@ -506,7 +507,7 @@ async fn goal_command_starts_an_active_goal_continuation_when_idle() {
         app.active_turn
             .entries
             .iter()
-            .all(|entry| entry.role != "You")
+            .all(|entry| entry.role != MessageRole::User)
     );
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
