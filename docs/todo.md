@@ -120,6 +120,9 @@ Active backlog only. Keep this file small and current.
       interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
       print/raw-color lints now have focused guards. Each new gate needs a
       concrete protected defect and RED evidence before becoming required.
+      Item-level lint ownership, actual-loop quit/cancel, full-session shell
+      handoff, and the real suspend input adapter are covered by
+      [the review follow-up checkpoint](journal/2026-10-04-tui-review-followups.md).
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.
