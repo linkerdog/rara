@@ -20,6 +20,11 @@ fn plan_response() -> LlmResponse {
                 name: "exit_plan_mode".into(),
                 input: json!({}),
             },
+            ContentBlock::ToolUse {
+                id: "after-plan-2".into(),
+                name: "bash".into(),
+                input: json!({"command": "touch never-run"}),
+            },
         ],
         10,
     )
@@ -104,10 +109,11 @@ async fn native_plan_decisions_preserve_identity_sources_and_fresh_accounting() 
                 30,
             ),
         ]));
+        let shell = Arc::new(RecordedShell::default());
         let session = session(
             root.path(),
             backend.clone(),
-            Arc::default(),
+            shell.clone(),
             AgentExecutionMode::Plan,
         )
         .await;
@@ -193,6 +199,24 @@ async fn native_plan_decisions_preserve_identity_sources_and_fresh_accounting() 
         }
         let requests = backend.requests.lock().expect("requests").clone();
         assert_eq!(requests.len(), 2);
+        let results = requests[1]
+            .iter()
+            .filter_map(|message| message.content.as_array())
+            .flatten()
+            .filter(|block| block["type"] == "tool_result")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            results.len(),
+            2,
+            "plan resume must pair every original call"
+        );
+        assert_eq!(results[0]["tool_use_id"], "plan-1");
+        assert_eq!(results[1]["tool_use_id"], "after-plan-2");
+        assert_eq!(results[1]["is_error"], true);
+        assert!(
+            shell.calls.lock().expect("shell calls").is_empty(),
+            "later calls must not run on resume"
+        );
         assert!(
             requests[1]
                 .iter()

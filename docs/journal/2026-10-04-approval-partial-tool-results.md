@@ -24,8 +24,16 @@ evidence at the existing approval boundary.
 
 The ordinary batch commit also advances plan progress and adds a continuation,
 so it is deliberately not reused for a pause. Approval still stops before the
-pending call and later calls; no tool result is invented for unexecuted work.
+pending call and later calls; no result is synthesized while approval is pending.
 The existing typed approval answer and session ownership stay unchanged.
+
+Review exposed a second gap at resume: the paused call acquired a real result,
+but abandoned later calls still had no result in the next provider request.
+Native approval continuation now uses the same interrupted-history repair as a
+fresh prompt, after recording the approval answer and before source refresh and
+checkpointing. Repair adds explicit errors for abandoned work, preserves real
+results, and never invokes another tool. Pending approval readback still keeps
+only completed results; repair waits until that approval has been resolved.
 
 ## Validation
 
@@ -35,6 +43,11 @@ Before the fix, paused readback contained zero completed result blocks instead
 of one. The fixture covers both approval and rejection, enabled checkpoint
 readback, original evidence in the next model request, provider call identity,
 and no replay of completed or later calls.
+
+The expanded assertions reproduced both resume gaps: shell approval supplied
+two results for three calls, and plan approval supplied one for two. They now
+cover shell approve/reject/cancel/interrupt, plan approve/continue/reject, the
+next model request, resumed checkpoint, and no execution of later calls.
 
 - `cargo test --locked --lib runtime_session::input_tests::`
 - `cargo test --locked --lib agent::tests::planning::`

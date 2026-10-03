@@ -99,7 +99,13 @@ model effect is not an independent session runtime or a context/prompt policy.
 provider-ID result collection. `ToolBatchEffects` supplies session-scoped
 policy: batch preparation, per-call admission, invocation, and result handling.
 Every stage completes before the next call is admitted. An approval pause
-returns `AwaitingApproval` without invoking the paused call or later calls.
+retains completed results without synthesizing a result for the pending call.
+After an approval answer has recorded its real result, native continuation
+repairs any abandoned later calls before the next model request and checkpoint.
+These synthetic results are errors; already completed calls are never replayed.
+Cancel/interrupt during the pause uses the same repair before a fresh prompt.
+
+An approval pause returns `AwaitingApproval` without invoking the paused call or later calls.
 Effect errors propagate without replay or implicit transcript commit.
 
 Admission may invoke a tool, provide an already-handled reply, pause for
