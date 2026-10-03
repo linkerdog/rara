@@ -8,6 +8,7 @@ use super::super::view_builder::{
     activity_status_line, build_bottom_pane_view, footer_summary_text, should_show_spinner,
 };
 use crate::config::ConfigManager;
+use crate::tui::message_role::MessageRole;
 use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, desired_composer_height, wrapped_text_cursor_position,
     wrapped_text_rows,
@@ -318,7 +319,8 @@ fn composer_height_counts_the_same_indented_rows_as_rendering() {
 fn review_regression_terminal_viewport_includes_bottom_pane_once() {
     let mut tui =
         crate::tui::testing::TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
-    tui.app_mut().push_entry("You", "Earlier prompt");
+    tui.app_mut()
+        .push_entry(MessageRole::User, "Earlier prompt");
     for input in ["short", "first\nsecond\nthird\nfourth"] {
         tui.app_mut().bottom_pane.input = input.into();
         assert_eq!(
@@ -335,7 +337,8 @@ fn composer_height_uses_the_rendered_main_width() {
     use crate::tui::testing::TuiHarness;
 
     let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
-    tui.app_mut().push_entry("You", "Earlier prompt");
+    tui.app_mut()
+        .push_entry(MessageRole::User, "Earlier prompt");
     tui.app_mut().bottom_pane.input = "x".repeat(720);
     for (terminal_width, sidebar_visible, main_width) in [
         (80, true, 80_u16),

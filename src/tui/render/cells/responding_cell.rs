@@ -12,6 +12,7 @@ use crate::tui::interaction_text::{
     pending_interaction_card_title, status_planning_suggestion_text,
 };
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
+use crate::tui::message_role::MessageRole;
 use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
@@ -43,13 +44,13 @@ enum RespondingCellContent<'a> {
         cwd: Option<&'a Path>,
     },
     Message {
-        role: &'static str,
+        role: MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
     },
     ToolResult {
-        role: &'a str,
+        role: &'a MessageRole,
         message: &'a str,
         max_lines: usize,
     },
@@ -96,7 +97,7 @@ impl<'a> RespondingCell<'a> {
     }
 
     pub(crate) fn from_message(
-        role: &'static str,
+        role: MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
@@ -129,7 +130,11 @@ impl<'a> RespondingCell<'a> {
         }
     }
 
-    pub(crate) fn from_tool_result(role: &'a str, message: &'a str, max_lines: usize) -> Self {
+    pub(crate) fn from_tool_result(
+        role: &'a MessageRole,
+        message: &'a str,
+        max_lines: usize,
+    ) -> Self {
         Self {
             content: RespondingCellContent::ToolResult {
                 role,
@@ -175,7 +180,7 @@ impl HistoryCell for RespondingCell<'_> {
                 message,
                 max_lines,
                 cwd,
-            } if *role == "Responding" => compact_message_lines(message, *max_lines),
+            } if *role == MessageRole::Responding => compact_message_lines(message, *max_lines),
             RespondingCellContent::CompactMessage {
                 message,
                 max_lines,
@@ -191,7 +196,9 @@ impl HistoryCell for RespondingCell<'_> {
                 role,
                 message,
                 max_lines,
-            } if *role == "Tool Progress" => tool_progress_lines(message, *max_lines, width),
+            } if **role == MessageRole::ToolProgress => {
+                tool_progress_lines(message, *max_lines, width)
+            }
             RespondingCellContent::ToolResult {
                 role,
                 message,
@@ -201,7 +208,8 @@ impl HistoryCell for RespondingCell<'_> {
                     lines
                 } else if let Some(cell) = LspDiagnosticsCell::from_message(message) {
                     cell.display_lines(width)
-                } else if let Some(lines) = render_message_diff_preview(Some(role), message, width)
+                } else if let Some(lines) =
+                    render_message_diff_preview(Some(role.as_str()), message, width)
                 {
                     lines
                 } else {
@@ -214,11 +222,11 @@ impl HistoryCell for RespondingCell<'_> {
 }
 
 fn bash_completion_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Option<Vec<Line<'static>>> {
-    if !matches!(role, "Tool Result" | "Tool Error") {
+    if !matches!(role, MessageRole::ToolResult | MessageRole::ToolError) {
         return None;
     }
 

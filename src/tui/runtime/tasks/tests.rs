@@ -31,6 +31,7 @@ use crate::runtime_control::{
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{
     GoalStatus, OAuthLoginMode, RalphGoal, RebuildSuccess, RunningTask, RuntimePhase,
     TaskCompletion, TaskKind, TuiApp,
@@ -420,7 +421,7 @@ async fn rebuild_success_keeps_long_warnings_in_transcript() {
         app.committed_turns
             .iter()
             .flat_map(|turn| turn.entries.iter())
-            .any(|entry| entry.role == "System" && entry.message == warning)
+            .any(|entry| entry.role == MessageRole::System && entry.message == warning)
     );
 }
 
@@ -528,7 +529,7 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
-    assert_eq!(app.active_turn.entries[0].role, "You");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(
         app.active_turn.entries[0].message,
         "first line\n\nsecond line"
@@ -576,7 +577,7 @@ async fn queued_follow_up_starts_after_query_failure() {
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
-    assert_eq!(app.active_turn.entries[0].role, "You");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(app.active_turn.entries[0].message, "inspect the failure");
 
     if let Some(task) = app.bottom_pane.running_task.take() {
@@ -621,7 +622,7 @@ async fn queued_follow_up_starts_after_query_cancellation() {
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
     assert_eq!(app.active_turn.entries.len(), 1);
-    assert_eq!(app.active_turn.entries[0].role, "You");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(app.active_turn.entries[0].message, "continue after cancel");
 
     if let Some(task) = app.bottom_pane.running_task.take() {

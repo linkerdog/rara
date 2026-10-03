@@ -26,6 +26,7 @@ use super::{
 use crate::tui::interaction_text::{
     pending_interaction_detail_text, pending_interaction_shortcut_text, shell_approval_text_lines,
 };
+use crate::tui::message_role::MessageRole;
 use crate::tui::plan_display::should_show_updated_plan;
 use crate::tui::queued_input::queued_follow_up_sections;
 use crate::tui::render::{
@@ -132,8 +133,11 @@ impl ActiveTurnCell<'_> {
         }
         let has_tool_activity = current_turn.iter().any(|entry| {
             matches!(
-                entry.role.as_str(),
-                "Tool" | "Tool Result" | "Tool Error" | "Tool Progress"
+                &entry.role,
+                MessageRole::Tool
+                    | MessageRole::ToolResult
+                    | MessageRole::ToolError
+                    | MessageRole::ToolProgress
             ) || matches!(
                 entry.payload,
                 Some(TranscriptEntryPayload::Terminal(_) | TranscriptEntryPayload::Tool(_))
@@ -141,13 +145,13 @@ impl ActiveTurnCell<'_> {
         });
         let user_message = current_turn
             .iter()
-            .find(|entry| entry.role == "You")
+            .find(|entry| entry.role == MessageRole::User)
             .map(|entry| entry.message.as_str())
             .unwrap_or("");
         let latest_agent = current_turn
             .iter()
             .rev()
-            .find(|entry| entry.role == "Agent")
+            .find(|entry| entry.role == MessageRole::Agent)
             .map(|entry| entry.message.as_str());
         let streaming_agent_lines = self.app.agent_stream_lines();
         let has_agent_stream = self.app.has_agent_stream();
@@ -157,20 +161,20 @@ impl ActiveTurnCell<'_> {
         let latest_system = current_turn
             .iter()
             .rev()
-            .find(|entry| entry.role == "System" && is_renderable_system_message(entry))
+            .find(|entry| entry.role == MessageRole::System && is_renderable_system_message(entry))
             .map(|entry| entry.message.as_str());
         let latest_tool_result = current_turn
             .iter()
             .rev()
             .find(|entry| {
                 matches!(
-                    entry.role.as_str(),
-                    "Tool Result" | "Tool Error" | "Tool Progress"
+                    &entry.role,
+                    MessageRole::ToolResult | MessageRole::ToolError | MessageRole::ToolProgress
                 )
             })
-            .map(|entry| (entry.role.as_str(), entry.message.as_str()));
+            .map(|entry| (&entry.role, entry.message.as_str()));
         let latest_completion = current_turn.iter().rev().find(|entry| {
-            let Some(kind) = completion_role_kind(entry.role.as_str()) else {
+            let Some(kind) = completion_role_kind(&entry.role) else {
                 return false;
             };
             !(turn_live && matches!(kind, InteractionCompletionKind::ShellApprovalCompleted))
@@ -226,7 +230,7 @@ impl ActiveTurnCell<'_> {
                     OrderedActiveSegment::Agent(message) => {
                         if !suppress_ordered_planning_chatter {
                             cells.push(Box::new(MessageCell::new(
-                                "Agent",
+                                &MessageRole::Agent,
                                 message,
                                 usize::MAX,
                                 self.cwd,
@@ -279,7 +283,7 @@ impl ActiveTurnCell<'_> {
 
         let explicit_exploration = current_turn
             .iter()
-            .find(|entry| entry.role == "Exploring")
+            .find(|entry| entry.role == MessageRole::Exploring)
             .map(|entry| entry.message.clone());
 
         let exploration_summary =
@@ -313,7 +317,7 @@ impl ActiveTurnCell<'_> {
 
         let explicit_planning = current_turn
             .iter()
-            .find(|entry| entry.role == "Planning")
+            .find(|entry| entry.role == MessageRole::Planning)
             .map(|entry| entry.message.clone());
 
         let planning_summary =
@@ -337,7 +341,7 @@ impl ActiveTurnCell<'_> {
 
         let explicit_running = current_turn
             .iter()
-            .find(|entry| entry.role == "Running")
+            .find(|entry| entry.role == MessageRole::Running)
             .map(|entry| entry.message.clone());
 
         let running_summary =
@@ -455,7 +459,7 @@ impl ActiveTurnCell<'_> {
         }
 
         if let Some(entry) = latest_completion
-            && let Some(kind) = completion_role_kind(entry.role.as_str())
+            && let Some(kind) = completion_role_kind(&entry.role)
         {
             cells.push(Box::new(CommittedInteractionCell::new(
                 kind,
@@ -484,7 +488,11 @@ impl ActiveTurnCell<'_> {
             || (!self.app.snapshot.plan_steps.is_empty()
                 && latest_agent.is_some_and(contains_structured_planning_output));
 
-        let responding_role = if turn_live { "Responding" } else { "Agent" };
+        let responding_role = if turn_live {
+            MessageRole::Responding
+        } else {
+            MessageRole::Agent
+        };
         let prefer_responding_chrome = turn_live
             && matches!(
                 self.app.runtime_phase,
@@ -546,7 +554,7 @@ impl ActiveTurnCell<'_> {
                     }
                 } else {
                     cells.push(Box::new(RespondingCell::from_message(
-                        responding_role,
+                        responding_role.clone(),
                         agent_message,
                         usize::MAX,
                         self.cwd,
@@ -573,7 +581,7 @@ impl ActiveTurnCell<'_> {
                 }
             } else {
                 cells.push(Box::new(RespondingCell::from_message(
-                    responding_role,
+                    responding_role.clone(),
                     agent_message,
                     usize::MAX,
                     self.cwd,
@@ -588,7 +596,7 @@ impl ActiveTurnCell<'_> {
             )));
         } else if let Some(system_message) = latest_system {
             cells.push(Box::new(RespondingCell::from_message(
-                "System",
+                MessageRole::System,
                 system_message,
                 14,
                 self.cwd,

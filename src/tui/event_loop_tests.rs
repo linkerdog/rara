@@ -22,6 +22,7 @@ use crate::runtime_control::{
 };
 use crate::tui::controller::TuiController;
 use crate::tui::custom_terminal::Terminal;
+use crate::tui::message_role::MessageRole;
 use crate::tui::runtime::RuntimeCommandProcessor;
 use crate::tui::runtime_port::{RuntimeCommand, RuntimeProjectionEvent};
 use crate::tui::state::{
@@ -182,7 +183,7 @@ async fn bursts_preserve_input_and_runtime_order_and_wake_one_trailing_frame() {
     fixture
         .controller
         .app_mut()
-        .push_entry("You", "Stream the ordered tokens.");
+        .push_entry(MessageRole::User, "Stream the ordered tokens.");
     let input = fixture.input.clone();
     let port = fixture.port.clone();
     let screen = fixture.screen.clone();

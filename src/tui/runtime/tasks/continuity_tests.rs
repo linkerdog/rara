@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 struct GoalTurnUsageBackend;
 
@@ -563,7 +564,7 @@ async fn pursuing_goal_continues_without_a_hidden_completion_classifier() {
         app.committed_turns
             .iter()
             .flat_map(|turn| turn.entries.iter())
-            .all(|entry| !(entry.role == "System" && entry.message.starts_with("no:")))
+            .all(|entry| !(entry.role == MessageRole::System && entry.message.starts_with("no:")))
     );
 
     if let Some(task) = app.bottom_pane.running_task.take() {

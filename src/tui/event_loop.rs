@@ -29,6 +29,7 @@ use super::terminal_modes::TerminalModeGuard;
 use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
+use crate::tui::message_role::MessageRole;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {
@@ -152,7 +153,7 @@ async fn run_tui_session(
     if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
         maintainer
             .app_mut()
-            .push_entry("Runtime", "Loading explicit plugin directories.");
+            .push_entry(MessageRole::Runtime, "Loading explicit plugin directories.");
         maintainer
             .send_runtime_command(RuntimeCommand::Maintenance(
                 RuntimeMaintenanceCommand::Rebuild,

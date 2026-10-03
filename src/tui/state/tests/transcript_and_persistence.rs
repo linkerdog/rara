@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn resume_picker_refreshes_recent_threads_on_open() {
@@ -143,12 +144,12 @@ fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_l
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "\u{4f60}\u{597d}".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Agent".into(),
+                role: MessageRole::Agent,
                 message: "\u{4f60}\u{597d}\u{ff01}".into(),
                 payload: None,
             },
@@ -171,7 +172,7 @@ fn finalize_agent_stream_updates_latest_committed_turn_when_final_text_arrives_l
         app.committed_turns.last().map(|turn| turn
             .entries
             .iter()
-            .filter(|entry| entry.role == "Agent")
+            .filter(|entry| entry.role == MessageRole::Agent)
             .count()),
         Some(1)
     );
@@ -205,7 +206,7 @@ fn streamed_agent_output_scrubs_internal_runtime_blocks_before_commit() {
         .active_turn
         .entries
         .iter()
-        .find(|entry| entry.role == "Agent")
+        .find(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .expect("agent message");
     assert!(message.contains("Visible answer."));
@@ -246,11 +247,11 @@ fn finalized_agent_stream_does_not_replace_agent_text_before_tool_boundary() {
         path: dir.path().join("config.json"),
     };
     let mut app = TuiApp::new(cm).expect("app");
-    app.push_entry("You", "Fix the rendering order");
+    app.push_entry(MessageRole::User, "Fix the rendering order");
 
     app.append_agent_delta("First assistant segment.");
     app.finalize_agent_stream(None);
-    app.push_entry("Running", "Run cargo check");
+    app.push_entry(MessageRole::Running, "Run cargo check");
     app.append_agent_delta("Second assistant segment.");
     app.finalize_agent_stream(None);
 
@@ -258,7 +259,7 @@ fn finalized_agent_stream_does_not_replace_agent_text_before_tool_boundary() {
         .active_turn
         .entries
         .iter()
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .map(|entry| entry.message.as_str())
         .collect::<Vec<_>>();
     assert_eq!(
@@ -295,7 +296,7 @@ fn committed_turn_keeps_thinking_before_final_agent_message() {
         path: dir.path().join("config.json"),
     };
     let mut app = TuiApp::new(cm).expect("app");
-    app.push_entry("You", "Explain the ordering bug");
+    app.push_entry(MessageRole::User, "Explain the ordering bug");
 
     app.append_agent_thinking_delta("Trace the event stream.");
     app.append_agent_delta("The transcript has two ordering sources.");
@@ -321,7 +322,7 @@ fn committed_turn_preserves_interleaved_assistant_segments() {
         path: dir.path().join("config.json"),
     };
     let mut app = TuiApp::new(cm).expect("app");
-    app.push_entry("You", "Inspect, run a tool, and finish");
+    app.push_entry(MessageRole::User, "Inspect, run a tool, and finish");
 
     app.append_agent_thinking_delta("Inspect the implementation.");
     app.append_agent_delta("I found the relevant state transition.");
@@ -369,7 +370,7 @@ fn flushed_agent_thinking_stream_scrubs_internal_runtime_blocks() {
 
     assert_eq!(app.active_turn.entries.len(), 1);
     let entry = app.active_turn.entries.first().expect("thinking entry");
-    assert_eq!(entry.role, "Thinking");
+    assert_eq!(entry.role, MessageRole::Thinking);
     assert_eq!(entry.message, "Visible thought.\n\nNext thought.");
     assert!(!entry.message.contains("agent_runtime"));
     assert!(!entry.message.contains("tool_results_available"));
@@ -405,22 +406,22 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "\u{4f60}\u{597d}".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Agent".into(),
+                role: MessageRole::Agent,
                 message: "\u{4f60}\u{597d}".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "System".into(),
+                role: MessageRole::System,
                 message: "temporary runtime detail".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Agent".into(),
+                role: MessageRole::Agent,
                 message: "\u{4f60}\u{597d}\u{ff01}".into(),
                 payload: None,
             },
@@ -433,7 +434,7 @@ fn finalize_agent_stream_replaces_earlier_agent_entries_in_active_turn() {
         .active_turn
         .entries
         .iter()
-        .filter(|entry| entry.role == "Agent")
+        .filter(|entry| entry.role == MessageRole::Agent)
         .collect::<Vec<_>>();
     assert_eq!(agent_entries.len(), 1);
     assert_eq!(
@@ -454,15 +455,15 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
     let turns = vec![
         TranscriptTurn {
             thinking_duration: None,
-            entries: vec![TranscriptEntry::new("You", "hello")],
+            entries: vec![TranscriptEntry::new(MessageRole::User, "hello")],
         },
         TranscriptTurn {
             thinking_duration: None,
-            entries: vec![TranscriptEntry::new("Agent", "hi there")],
+            entries: vec![TranscriptEntry::new(MessageRole::Agent, "hi there")],
         },
         TranscriptTurn {
             thinking_duration: None,
-            entries: vec![TranscriptEntry::new("You", "bye")],
+            entries: vec![TranscriptEntry::new(MessageRole::User, "bye")],
         },
     ];
     let n = turns.len();
@@ -483,8 +484,8 @@ fn active_turn_entries_write_and_clear_live_log() {
     app.attach_state_db(std::sync::Arc::new(state_db));
     app.snapshot.session_id = "live-entry-session".to_string();
 
-    app.push_entry("You", "hello");
-    app.push_entry("Agent", "hi");
+    app.push_entry(MessageRole::User, "hello");
+    app.push_entry(MessageRole::Agent, "hi");
 
     let live_entries = thread_turn_log::load_live_entries(
         &app.state_db.as_ref().unwrap().rollout_root(),
@@ -630,8 +631,8 @@ fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
     app.attach_state_db(std::sync::Arc::new(state_db));
     app.snapshot.session_id = "live-persist-failure-session".to_string();
 
-    app.push_entry("You", "keep me");
-    app.push_entry("Agent", "until canonical write succeeds");
+    app.push_entry(MessageRole::User, "keep me");
+    app.push_entry(MessageRole::Agent, "until canonical write succeeds");
     let rollout_root = app.state_db.as_ref().unwrap().rollout_root();
     let session_dir = rollout_root.join("live-persist-failure-session");
     std::fs::create_dir(session_dir.join("turns.jsonl")).expect("turns path directory");
@@ -666,7 +667,7 @@ fn reset_transcript_clears_live_log() {
     app.attach_state_db(std::sync::Arc::new(state_db));
     app.snapshot.session_id = "live-reset-session".to_string();
 
-    app.push_entry("You", "clear me");
+    app.push_entry(MessageRole::User, "clear me");
     assert_eq!(
         thread_turn_log::load_live_entries(
             &app.state_db.as_ref().unwrap().rollout_root(),

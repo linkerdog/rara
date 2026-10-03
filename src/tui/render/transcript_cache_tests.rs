@@ -3,6 +3,7 @@
     reason = "Work-count regression tests expose measured counts in test diagnostics."
 )]
 
+use crate::tui::message_role::MessageRole;
 use crate::tui::{
     selection::ScreenPosition,
     state::{RuntimePhase, RuntimeSnapshot, TranscriptEntry, TranscriptTurn},
@@ -20,7 +21,7 @@ fn history_harness() -> TuiHarness {
         .restore_committed_turns(vec![TranscriptTurn {
             thinking_duration: None,
             entries: vec![TranscriptEntry::new(
-                "Agent",
+                MessageRole::Agent,
                 format!("```text\n{history}```"),
             )],
         }]);
@@ -32,7 +33,7 @@ fn same_length_middle_edit_refreshes_production_selection() {
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
     harness
         .app_mut()
-        .push_entry("Agent", "```text\nfirst\nold\nlast\n```");
+        .push_entry(MessageRole::Agent, "```text\nfirst\nold\nlast\n```");
     let rows = super::renderable_transcript_lines(harness.app(), 80);
     let middle = rows
         .iter()
@@ -148,7 +149,9 @@ fn copy_and_selection_frames_do_not_hash_history() {
 #[test]
 fn streamed_frames_do_not_wrap_unchanged_committed_history() {
     let mut harness = history_harness();
-    harness.app_mut().push_entry("You", "Stream a small tail.");
+    harness
+        .app_mut()
+        .push_entry(MessageRole::User, "Stream a small tail.");
     harness
         .app_mut()
         .set_runtime_phase(RuntimePhase::ProcessingResponse, None);
@@ -173,8 +176,8 @@ fn committed_thinking_visibility_invalidates_the_layout_cache() {
         .restore_committed_turns(vec![TranscriptTurn {
             thinking_duration: None,
             entries: vec![
-                TranscriptEntry::new("Thinking", "Summary.\nPreview.\nTHOUGHT-DETAIL"),
-                TranscriptEntry::new("Agent", "Final answer."),
+                TranscriptEntry::new(MessageRole::Thinking, "Summary.\nPreview.\nTHOUGHT-DETAIL"),
+                TranscriptEntry::new(MessageRole::Agent, "Final answer."),
             ],
         }]);
     harness.app_mut().thinking_collapsed = false;
@@ -192,8 +195,12 @@ fn committed_appends_retain_prior_row_allocations() {
     let spans = first.line.spans.as_ptr();
     let before = work(&harness);
     for turn in 0..20 {
-        harness.app_mut().push_entry("You", format!("Turn {turn}"));
-        harness.app_mut().push_entry("Agent", "A short answer.");
+        harness
+            .app_mut()
+            .push_entry(MessageRole::User, format!("Turn {turn}"));
+        harness
+            .app_mut()
+            .push_entry(MessageRole::Agent, "A short answer.");
         harness.app_mut().finalize_active_turn();
         let rows = super::renderable_transcript_lines(harness.app(), 80);
         assert_eq!(rows.get(0).expect("retained row").text.as_ptr(), text);
@@ -276,7 +283,7 @@ fn active_and_committed_middle_replacements_refresh_copy_text() {
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
     let old = "```text\nfirst\nold\nlast\n```";
     let new = "```text\nfirst\nnew\nlast\n```";
-    harness.app_mut().push_entry("Agent", old);
+    harness.app_mut().push_entry(MessageRole::Agent, old);
     let rows = super::renderable_transcript_lines(harness.app(), 80);
     let middle = rows
         .iter()
@@ -346,7 +353,7 @@ fn active_and_committed_middle_replacements_refresh_copy_text() {
         .app_mut()
         .restore_committed_turns(vec![TranscriptTurn {
             thinking_duration: None,
-            entries: vec![TranscriptEntry::new("Agent", new)],
+            entries: vec![TranscriptEntry::new(MessageRole::Agent, new)],
         }]);
     let restored = super::renderable_transcript_lines(harness.app(), 80);
     assert_eq!(
@@ -378,11 +385,11 @@ fn mixed_mutations_match_fresh_wrapping_and_preserve_old_snapshots() {
                 0 => {
                     harness
                         .app_mut()
-                        .push_entry("You", format!("Question {step}"));
+                        .push_entry(MessageRole::User, format!("Question {step}"));
                     harness
                         .app_mut()
-                        .push_entry("Thinking", "Summary.\nPreview.\nDetail.");
-                    harness.app_mut().push_entry("Agent", message);
+                        .push_entry(MessageRole::Thinking, "Summary.\nPreview.\nDetail.");
+                    harness.app_mut().push_entry(MessageRole::Agent, message);
                 }
                 1 => harness.app_mut().finalize_active_turn(),
                 2 => harness
@@ -394,7 +401,7 @@ fn mixed_mutations_match_fresh_wrapping_and_preserve_old_snapshots() {
                     .app_mut()
                     .restore_committed_turns(vec![TranscriptTurn {
                         thinking_duration: None,
-                        entries: vec![TranscriptEntry::new("Agent", message)],
+                        entries: vec![TranscriptEntry::new(MessageRole::Agent, message)],
                     }]),
                 6 => harness.app_mut().reset_transcript(),
                 7 => harness

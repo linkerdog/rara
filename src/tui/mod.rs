@@ -38,6 +38,7 @@ mod markdown;
 mod markdown_render;
 mod markdown_stream;
 mod message_role;
+pub(crate) use message_role::MessageRole;
 mod model_search;
 mod pane_geometry;
 #[cfg(test)]

@@ -87,6 +87,9 @@ pub(crate) fn accept_runtime_event(
 ///
 /// Implementations own execution state and transport details. They must not
 /// require the controller to know about agents, registries, or task handles.
+/// A port retains one ordering domain for its lifetime, including subscriptions
+/// after reconnect. Replacing the domain requires a new controller; a low
+/// sequence or `Reconnected` notification cannot reset the existing event fence.
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
 #[allow(dead_code)] // Contract item ahead of its adapters
@@ -273,5 +276,36 @@ mod tests {
             Ok(Some(RuntimeProjectionEvent::Runtime(event)))
                 if event.sequence == 1
         ));
+    }
+
+    #[tokio::test]
+    async fn resubscribing_preserves_the_bus_ordering_domain() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let (port, _commands) = InProcessRuntimeClientPort::new(
+            bus.clone(),
+            Arc::new(std::sync::RwLock::new(RuntimeSnapshot::default())),
+        );
+        let provenance = RuntimeProvenance::local_tui("same-session");
+        let mut events = port.subscribe();
+        bus.send_with_provenance(AgentEvent::Status("first".into()), provenance.clone());
+        let Some(RuntimeProjectionEvent::Runtime(first)) = events.next().await else {
+            panic!("expected the first runtime event");
+        };
+        let mut last_event = None;
+        assert!(super::accept_runtime_event(&mut last_event, &first));
+        drop(events);
+
+        bus.send_with_provenance(
+            AgentEvent::Status("between subscriptions".into()),
+            provenance.clone(),
+        );
+        let mut events = port.subscribe();
+        bus.send_with_provenance(AgentEvent::Status("after reconnect".into()), provenance);
+        let Some(RuntimeProjectionEvent::Runtime(next)) = events.next().await else {
+            panic!("expected the reconnected runtime event");
+        };
+        assert_eq!(next.sequence, first.sequence + 2);
+        assert!(super::accept_runtime_event(&mut last_event, &next));
+        assert!(!super::accept_runtime_event(&mut last_event, &first));
     }
 }
