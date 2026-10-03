@@ -172,6 +172,11 @@ provider call, and a terminal turn event does not imply the interaction is done.
 Approvals take precedence over a simultaneous plain question. Late, duplicate
 or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
 pending ownership; live approvals are not advertised as surviving process exit.
+When approval pauses a tool batch, results from calls that already completed
+remain in the transcript and its enabled checkpoint exactly once, with their
+original provider call IDs. Pausing does not advance the plan, insert a normal
+tool continuation, or invoke a later call. Approving or rejecting the pending
+call preserves those earlier results in the next provider request.
 Ordered input events distinguish a requested wait, an accepted answer naming its
 original waiting turn, and discard by cancel, interrupt, shutdown or legacy
 replacement. Discarding an already waiting turn does not emit another terminal
@@ -414,6 +419,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |
 | Tool identity | delivered | Repeated same-name calls retain distinct provider call IDs. |
+| Partial tool batch | delivered | Shell approval and rejection retain preceding results in paused readback, checkpoints, and the resumed provider request without replaying completed calls. |
 | Adapters | partial | Embedded, ACP, Wire, print, exec, and ask use `RuntimeSession`; TUI command ownership remains compatible but separate. |
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
@@ -472,3 +478,4 @@ model-generated tool arguments.
 
 - `docs/journal/2026-08-22-runtime-session.md`
 - [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+- [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)

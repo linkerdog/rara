@@ -395,6 +395,13 @@ where
                 turn.last_assistant_message.clone()
             }
             LoopEnd::AwaitingApproval => {
+                let turn = self
+                    .pending_turn
+                    .as_mut()
+                    .context("approval pause without model output")?;
+                // A partial batch must survive the pause without advancing the plan.
+                self.agent
+                    .extend_history_messages(std::mem::take(&mut turn.tool_results));
                 self.agent.checkpoint_session()?;
                 return Ok(());
             }
