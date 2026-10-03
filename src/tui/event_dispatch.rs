@@ -17,7 +17,7 @@ use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceC
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
-    ProviderFamily, TuiApp,
+    ProviderFamily, QuitShortcutAction, QuitShortcutKey, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
@@ -59,12 +59,26 @@ async fn dispatch_event_inner(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
+    let event = if let AppEvent::QuitShortcut(key) = event {
+        match app.quit_shortcut.press(key, std::time::Instant::now()) {
+            QuitShortcutAction::Confirmed => return Ok(true),
+            QuitShortcutAction::Armed => match key {
+                QuitShortcutKey::CtrlC if app.is_busy() => AppEvent::CancelRunningTask,
+                QuitShortcutKey::CtrlC => AppEvent::ClearComposer,
+                QuitShortcutKey::CtrlD => AppEvent::Noop,
+            },
+        }
+    } else {
+        app.quit_shortcut.clear();
+        event
+    };
     let discarding_palette = matches!(&event, AppEvent::CloseOverlay)
         && matches!(app.overlay, Some(Overlay::CommandPalette));
     if app.composer_input_is_active() && !discarding_palette {
         app.flush_composer_paste();
     }
     match event {
+        AppEvent::QuitShortcut(_) => unreachable!("quit shortcut was resolved before dispatch"),
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {

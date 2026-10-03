@@ -1,5 +1,5 @@
 use super::selection::ScreenPosition;
-use super::state::{HelpTab, Overlay, StatusTab};
+use super::state::{HelpTab, Overlay, QuitShortcutKey, StatusTab};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -61,6 +61,7 @@ pub enum AppEvent {
     CycleResumeSort,
     ClearResumeSearch,
     CancelRunningTask,
+    QuitShortcut(QuitShortcutKey),
     ClearComposer,
     ToggleSidebar,
     ToggleThinking,

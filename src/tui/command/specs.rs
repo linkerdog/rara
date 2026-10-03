@@ -221,7 +221,9 @@ pub fn general_help_text() -> &'static str {
         "/resume  Restore a recent thread\n\n",
         "Shift+Enter or Ctrl+J: insert a newline\n",
         "Esc: close an overlay, reject shell approval, or cancel a task\n",
-        "Ctrl+C: cancel a task; otherwise clear the composer\n",
+        "Ctrl+C: close an overlay, cancel a task, or clear the composer\n",
+        "Ctrl+C again within 1s: quit; Ctrl+D twice: quit with empty input\n",
+        "Ctrl+Z: suspend on Unix; fg in the shell resumes\n",
         "Up/Down: navigate lists; type to filter search pickers\n",
         "1/2/3: switch help tabs\n",
         "/quit or /exit: leave the TUI"
