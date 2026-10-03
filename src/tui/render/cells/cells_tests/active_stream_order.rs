@@ -33,7 +33,7 @@ fn active_turn_cell_preserves_agent_before_later_live_progress() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("waiting for model response".into());
+    app.runtime_phase_detail = Some("waiting for model response".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -41,7 +41,7 @@ fn active_turn_cell_preserves_agent_before_later_live_progress() {
             TranscriptEntry { role: MessageRole::Agent, message: "I have inspected the repository structure.\nI checked the runtime boundary.\nI checked the prompt assembly path.\nNext I will inspect the persistence layer.\nThen I will verify the restore contract."
                     .into(), payload: None },
         ],
-    };
+    }.into();
     app.record_exploration_action("Read src/runtime_context.rs");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -96,7 +96,8 @@ fn active_turn_cell_preserves_exploration_agent_exploration_order() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -162,7 +163,8 @@ fn active_turn_cell_preserves_duplicate_restored_exploration_segments() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -203,7 +205,8 @@ fn active_turn_cell_preserves_agent_then_exploration_order() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -258,7 +261,8 @@ fn active_turn_cell_preserves_interleaved_agent_and_progress_output() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -299,7 +303,7 @@ fn active_turn_cell_shows_live_thinking_stream() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("thinking".into());
+    app.runtime_phase_detail = Some("thinking".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
@@ -307,7 +311,8 @@ fn active_turn_cell_shows_live_thinking_stream() {
             message: "Review this repository".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.append_agent_thinking_delta("checking runtime events\n");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -335,7 +340,8 @@ fn active_turn_cell_flattens_thinking_and_running_events_in_order() {
             message: "Run a long task".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.append_agent_thinking_delta("first reasoning block\n");
     app.finalize_agent_thinking_stream();
@@ -379,7 +385,8 @@ fn active_turn_cell_places_streaming_thinking_after_latest_progress_event() {
             message: "Run a long task".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.append_agent_thinking_delta("first reasoning block\n");
     app.finalize_agent_thinking_stream();
@@ -419,7 +426,8 @@ fn active_turn_cell_places_streaming_thinking_after_latest_exploration_event() {
             message: "Inspect before reasoning again".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.append_agent_thinking_delta("first reasoning block\n");
     app.finalize_agent_thinking_stream();
@@ -459,7 +467,8 @@ fn active_turn_cell_groups_consecutive_thinking_events_with_stream() {
             message: "Reason about a task".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.append_agent_thinking_delta("first reasoning block\n");
     app.finalize_agent_thinking_stream();
@@ -494,7 +503,8 @@ fn active_turn_cell_preserves_flushed_thinking_leading_indentation() {
             message: "Inspect thinking formatting".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.append_agent_thinking_delta("    let value = 1;\n");
     app.finalize_agent_thinking_stream();
@@ -524,7 +534,8 @@ fn active_turn_cell_preserves_repeated_progress_events_when_interleaved() {
             message: "Run checks".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.record_running_action("Run cargo check");
     app.record_planning_note("Inspect the next failure before retrying.");
@@ -562,7 +573,8 @@ fn active_turn_cell_groups_consecutive_exploration_events_only() {
             message: "Inspect and run checks".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.record_exploration_action("Read src/tui/render/cells.rs");
     app.record_exploration_action("Read src/tui/render/cells_tests/active_general.rs");
@@ -611,7 +623,8 @@ fn active_turn_cell_preserves_consecutive_duplicate_progress_events() {
             message: "Run checks".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     app.record_exploration_action("Read src/tui/render/cells.rs");
     app.record_exploration_action("Read src/tui/render/cells.rs");
@@ -646,7 +659,8 @@ fn active_turn_cell_shows_live_thinking_tail_without_cloning_full_body() {
             message: "Review this repository".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.append_agent_thinking_delta("line 1\nline 2\nline 3\nline 4\nline 5\n");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -670,7 +684,7 @@ fn active_turn_cell_hides_successful_bash_result_while_thinking() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("thinking".into());
+    app.runtime_phase_detail = Some("thinking".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -685,7 +699,8 @@ fn active_turn_cell_hides_successful_bash_result_while_thinking() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.append_agent_thinking_delta("checking the result\n");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
