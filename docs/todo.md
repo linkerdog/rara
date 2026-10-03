@@ -100,9 +100,15 @@ Active backlog only. Keep this file small and current.
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).
 - [ ] Extend [interaction quality verification](interaction/quality-verification.md)
-      with narrow/CJK/paste render cases, cancel/completion interleavings,
-      monotonic style/boundary checks, and bounded PTY acceptance. Each new gate
-      needs a concrete protected defect and RED evidence before becoming required.
+      with the remaining narrow/CJK/paste surface matrix, presentation dependency
+      checks, and physical terminal/multiplexer acceptance. Cancel/completion
+      interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
+      print/raw-color lints now have focused guards. Each new gate needs a
+      concrete protected defect and RED evidence before becoming required.
+- [ ] Complete #927 with injected event-source and frame-output seams in the
+      real asynchronous TUI loop. Verify pending frame wakeups, resize wiring,
+      maintenance and ordered runtime/input handling without a real terminal.
+      Current harness/scheduler guards do not execute that loop; see #938 review.
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.

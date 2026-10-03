@@ -837,7 +837,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         )),
         "spawn_agent" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();
@@ -846,7 +846,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         }
         "explore_agent" | "plan_agent" | "team_create" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();

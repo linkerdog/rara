@@ -1,0 +1,8 @@
+# Raw palette values belong to the theme owner and syntax conversion boundary.
+disallowed-methods = [
+    { path = "ratatui::style::Color::Rgb", reason = "Use semantic TUI theme tokens instead of renderer-local RGB values." },
+    { path = "ratatui::style::Color::Indexed", reason = "Use semantic TUI theme tokens instead of renderer-local palette indices." },
+    { path = "ratatui::style::Stylize::white", reason = "Use semantic TUI theme tokens or the default foreground." },
+    { path = "ratatui::style::Stylize::black", reason = "Use semantic TUI theme tokens or the default foreground." },
+    { path = "ratatui::style::Stylize::yellow", reason = "Use a semantic TUI theme token for the intended status." },
+]

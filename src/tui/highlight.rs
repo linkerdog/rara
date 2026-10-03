@@ -88,7 +88,10 @@ fn current_syntax_theme() -> Theme {
     }
 }
 
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "Syntax themes encode palette indices that must survive conversion."
+)]
 fn ansi_palette_color(index: u8) -> RtColor {
     match index {
         0x00 => RtColor::Black,
@@ -103,7 +106,10 @@ fn ansi_palette_color(index: u8) -> RtColor {
     }
 }
 
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "Syntax highlighting preserves the selected theme's RGB colors."
+)]
 fn convert_syntect_color(color: SyntectColor) -> Option<RtColor> {
     match color.a {
         ANSI_ALPHA_INDEX => Some(ansi_palette_color(color.r)),

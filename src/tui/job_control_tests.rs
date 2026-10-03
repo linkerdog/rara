@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "Isolated PTY fixtures exchange protocol markers and report cleanup failures."
+)]
+
 use std::io::{self, Read, Write};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
