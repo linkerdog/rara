@@ -15,6 +15,22 @@ const INITIALIZE_RESPONSE: &str = r#"{"jsonrpc":"2.0","id":1,"result":{"capabili
 const SERVER_CONFIGURATION_REQUEST: &str = r#"{"jsonrpc":"2.0","id":"workspace-config","method":"workspace/configuration","params":{"items":[{"section":"rust-analyzer"}]}}"#;
 
 #[tokio::test]
+async fn transcript_wait_does_not_accept_partial_notifications() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let path = workspace.path().join("transcript.log");
+    let marker = "textDocument/didChange";
+    fs::write(&path, marker).expect("first notification");
+
+    let waiting = wait_for_transcript(&path, |contents| contents.matches(marker).count() >= 2);
+    tokio::pin!(waiting);
+    assert!(futures::poll!(&mut waiting).is_pending());
+
+    fs::write(&path, format!("{marker}\n{marker}")).expect("second notification");
+    let transcript = waiting.await;
+    assert_eq!(transcript.matches(marker).count(), 2);
+}
+
+#[tokio::test]
 async fn concurrent_callers_share_startup_and_documents_use_open_then_change() {
     let workspace = rust_workspace();
     let transcript = workspace.path().join("lsp-transcript.log");
@@ -58,7 +74,11 @@ async fn concurrent_callers_share_startup_and_documents_use_open_then_change() {
         .diagnostics_for(Path::new("src/main.rs"))
         .await
         .expect("third diagnostics");
-    let transcript = wait_for_transcript(&transcript, "textDocument/didChange").await;
+    let transcript = wait_for_transcript(&transcript, |contents| {
+        contents.matches("textDocument/didChange").count() >= 2
+            && contents.contains(r#""result":[null]"#)
+    })
+    .await;
     assert_eq!(transcript.matches("textDocument/didOpen").count(), 1);
     assert_eq!(transcript.matches("textDocument/didChange").count(), 2);
     assert!(transcript.contains("workspace-config"));
@@ -246,16 +266,20 @@ fn cancel_then_success_server_script() -> String {
     )
 }
 
-async fn wait_for_transcript(path: &Path, marker: &str) -> String {
-    for _ in 0..40 {
-        if let Ok(contents) = fs::read_to_string(path)
-            && contents.contains(marker)
-        {
-            return contents;
+async fn wait_for_transcript(path: &Path, ready: impl Fn(&str) -> bool) -> String {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match fs::read_to_string(path) {
+                Ok(contents) if ready(&contents) => return contents,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("failed to read LSP transcript {}: {error}", path.display()),
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    fs::read_to_string(path).expect("LSP transcript")
+    })
+    .await
+    .expect("timed out waiting for the complete LSP transcript")
 }
 
 async fn wait_for_path(path: &Path) {
