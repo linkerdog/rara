@@ -77,11 +77,13 @@ impl TuiApp {
             match receiver.try_recv() {
                 Ok(files) => {
                     if *generation == cache.generation {
+                        changed = !cache.loaded
+                            || cache.error.is_some()
+                            || cache.files.as_ref() != Some(&files);
                         cache.files = Some(files);
                         cache.loaded = true;
                         cache.error = None;
                         cache.last_poll = Some(Instant::now());
-                        changed = true;
                     }
                     cache.pending = None;
                 }
@@ -196,6 +198,15 @@ mod tests {
         assert_eq!(
             app.snapshot.prompt_source_entries,
             agent.shared_runtime_context().prompt.source_entries
+        );
+        let files =
+            RuntimeContextFiles::load(&agent.workspace, agent.prompt_config(), agent.prompt_mode());
+        let (sender, receiver) = oneshot::channel();
+        app.context_files.pending = Some((app.context_files.generation, receiver));
+        assert!(sender.send(files).is_ok());
+        assert!(
+            !app.poll_context_files(),
+            "unchanged files must not rebuild the context or enqueue another checkpoint"
         );
     }
 }

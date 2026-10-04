@@ -20,6 +20,7 @@ impl WorkspaceMemoryAvailability {
 
 /// Filesystem inputs for display assembly. Model requests always load their own
 /// current inputs; this cache never changes provider prompts or persisted history.
+#[derive(PartialEq, Eq)]
 pub(crate) struct RuntimeContextFiles {
     pub cwd: String,
     pub branch: String,

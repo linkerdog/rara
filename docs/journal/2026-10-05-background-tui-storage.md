@@ -48,7 +48,8 @@ The storage owner isolates read/write panics so later accepted writes keep their
 owner; failed writes retain their operation for retry. It accepts immutable requests, batches adjacent live fragments,
 coalesces adjacent checkpoints, and serializes writes with read/flush/shutdown
 barriers. Failed operations remain at the head of the queue; later live-log
-clears cannot discard recovery data. Error projection does not recursively
+clears cannot discard recovery data. Appends preserve a newline boundary after
+an interrupted JSON fragment so a successful retry remains independently readable. Error projection does not recursively
 persist its own failure notice. Accepted writes remain lossless in memory;
 full transcript/admission memory bounds remain the separate #1008 contract.
 
@@ -74,7 +75,8 @@ The audit found an indirect read path: `apply_runtime_snapshot` previously calle
 metadata, and shared tasks. Display assembly now consumes owned filesystem inputs
 from one background refresh, with session/config/mode generation fencing. Shared
 task scans have a separate single in-flight job and binding fence. Context views
-show initial loading state; filesystem inputs refresh every two seconds and
+show initial loading state; unchanged file results do not rebuild snapshots or
+enqueue duplicate checkpoints. Filesystem inputs refresh every two seconds and
 shared tasks every 500 ms. Actual model-turn assembly stays fresh and retains
 prompt ordering, budget calculation, provider cache behavior, and history.
 
@@ -103,7 +105,7 @@ Local validation:
 - `cargo test --lib context:: -- --nocapture`: 67 passed.
 - `cargo test --lib thread_io:: -- --nocapture`: five passed, including read/write panic isolation.
 - `cargo test --lib runtime_goals -- --nocapture`: 11 passed.
-- `cargo test -p rara-persistence`: seven passed.
+- `cargo test -p rara-persistence`: nine passed, including append-boundary recovery.
 - `cargo clippy --workspace --all-targets -- -D warnings`: passed.
 - `cargo fmt --all --check` and `git diff --check`: passed.
 
