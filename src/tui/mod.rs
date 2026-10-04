@@ -75,6 +75,8 @@ pub(crate) use self::runtime_port::{
     RuntimeProjectionEvent,
 };
 mod selection;
+#[cfg(test)]
+mod selection_input_tests;
 mod session_restore;
 pub(crate) mod state;
 mod status_display;
