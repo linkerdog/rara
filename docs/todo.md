@@ -20,6 +20,8 @@ Active backlog only. Keep this file small and current.
       browser-local futures and use working browser accounting clocks, with
       real Chrome execution under [the browser effects contract](features/browser-agent-effects.md).
       This does not yet deliver a complete browser provider/session stack.
+      Workspace resolver 3 and explicit root default-member selection are in
+      place; see [the workspace checkpoint](journal/2026-10-04-workspace-resolution.md).
 
 ## Prefix Cache Cost Evaluation
 
