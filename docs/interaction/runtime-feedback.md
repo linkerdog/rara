@@ -37,7 +37,8 @@ hide a pending decision. Queued input is not rendered as a completed response.
 
 ### RUN-02: Cancellation Is A Transition
 
-Ctrl+C with no overlay requests cancellation of a running turn. Esc does the
+The first Ctrl+C with no overlay requests cancellation of a running turn and
+arms the quit shortcut in INPUT-02. Esc does the
 same unless it is handling the shell-approval rejection action in RUN-03. The
 cancel command, cancellation-requested notice, terminal runtime event, and
 task completion are separate states. Do not show successful completion merely
@@ -46,6 +47,22 @@ because a cancellation request was sent.
 The controller coordinates terminal events with query completion so trailing
 events are not lost. A task join failure must surface rather than leave the
 presentation waiting indefinitely for an event that can no longer arrive.
+Cancellation and interruption retain their typed first accepted stop kind.
+An accepted request keeps progress visible while execution drains; terminal
+feedback is published only after the task returns. Late output for a terminal
+turn, another turn, or another session is ignored before it can reopen a stream
+or mark a new query complete. A request after task return is rejected even if
+the previous cancellation notice is still visible.
+
+The first accepted stop determines terminal status, even if execution returns a
+successful result or an approval while draining. Any underlying failure remains
+visible as a diagnostic. A stop after execution has returned is rejected and
+must preserve the returned approval. After the query finishes, maintenance
+commands such as `/compact` can display their own lifecycle events.
+
+If the broadcast stream lags, retained task events recover the missing tail and
+terminal feedback in sequence without duplicating output. A task panic retains
+already-produced text, closes the live stream, and surfaces the task failure.
 
 ### RUN-03: Approval Focus And Scope
 
@@ -86,18 +103,56 @@ Resume behavior is owned by [threads](../features/threads.md) and
 [session transcript](../features/session-transcript.md). Tests must distinguish
 restored committed output, restored pending state, and newly running work.
 
+Transcript scrolling is bounded by the currently rendered visual rows. Repeated
+Up/PageUp at the top must not delay the next Down/PageDown. Manual upward
+navigation anchors the top visual row while streaming appends new rows; scrolling
+back to the bottom resumes tail-following. Clear and thread resume start at the
+tail. Long histories remain reachable without a 16-bit global-row offset; see
+[mouse text selection](../features/mouse-text-selection.md) for shared scrolling,
+rendering, and copy behavior.
+
+Presentation changes are applied in event order, while repaint requests are
+coalesced at a session-local frame deadline. A final update must become visible
+without requiring another event or waiting for the maintenance tick. Input
+updates state immediately; resize requests are retained until the next paint
+measures current terminal dimensions. Painting may wait one frame interval. See
+[streaming transcript](../features/streaming-transcript.md) for scheduling and
+the separate incremental-work contracts.
+
+Live Markdown keeps incomplete text replaceable. A table confirmed by
+newline-completed source, together with following source, is withheld until
+the response's canonical final render. Earlier prose remains visible; event
+delivery and transcript chronology are unchanged. Agent and thinking streams
+materialize changed source on presentation access and reuse unchanged rows.
+
+Assistant/thinking text is sanitized before source ingestion, with independent
+escape and CRLF state across deltas. Logical newlines end unfinished controls
+and remain visible, so malformed metadata cannot hide later transcript lines.
+Explicit Unicode bidirectional controls appear as `⟦U+XXXX⟧` labels before
+Markdown layout. Transcript selection copies those visible labels; raw runtime
+and tool payloads retain their original text.
+Tool progress keeps a bounded tail per
+invocation and stdout/stderr identity, including interleaved same-name calls.
+Every progress entry, including its label and truncation marker, is at most
+16 KiB and 16 logical lines. Complete terminal-output previews sanitize before
+line splitting and retain at most 16 KiB and six nonempty lines. Truncation does
+not replace the original runtime/tool artifact. See
+[display text boundary](../features/display-text-boundary.md).
+
 ### RUN-05: Terminal Lifetime And Restoration
 
 Terminal mode ownership begins before raw mode or input reporting is enabled.
 Non-TTY stdout is rejected before ownership or escape-sequence output begins.
 Startup failures, event-loop errors, normal exits, and unwinding must restore
-raw mode, mouse reporting, bracketed paste, and cursor visibility. Partial
+raw mode, mouse reporting, bracketed paste, focus reporting, synchronized output,
+and cursor visibility. Partial
 initialization has the same restoration obligation as a running UI.
 
 Cleanup attempts every owned mode even when one operation fails, preserving
 the first cleanup error. An existing startup or runtime error remains the
 primary error; a cleanup failure must also surface. A panic hook restores the
-terminal before invoking the previous hook when the TUI owner panics during
+terminal and reserves a clean line below the frame before invoking the previous
+hook when the TUI owner panics during
 initialization or an event-loop poll. Caught background-task panics must not
 disable a running UI's terminal modes, including tasks on the same executor
 thread between owner polls. If the owner catches a panic after restoration,
@@ -109,18 +164,70 @@ such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent
 and does not modify keyboard enhancement stacks that the TUI never enabled.
-This contract does not cover uncatchable termination such as SIGKILL or imply
-viewport, suspend/resume, or shell-prompt positioning guarantees.
+This contract does not cover uncatchable termination such as SIGKILL. Viewport
+and normal shell handoff are covered by RUN-06; Unix job control by RUN-07.
+
+### RUN-06: Viewport Ownership And Shell Handoff
+
+The primary-screen viewport includes both transcript and bottom pane. Allocate
+the terminal's available rows once; composer growth changes the internal split,
+not the size of the outer viewport. Sidebar width continues to determine the
+composer's wrapping width.
+
+Before the first frame, reserve rows below the shell cursor so existing shell
+output moves into native scrollback. Do not erase the visible screen or purge
+scrollback with ED2/ED3. Relative row reservation does not require a startup
+cursor-position query; do not send a redundant DSR probe. Reserve, invalidate,
+paint, and place the cursor inside
+one synchronized update. Resizing invalidates the owned viewport and repaints
+blank cells as well as content; ordinary composer edits do not clear it.
+
+Normal exit places the shell cursor at column zero on a clean line below the
+last frame. A terminal at the bottom edge scrolls one line to make room. Error
+cleanup attempts the same handoff without hiding the original error. Unwinding
+restores modes and hands off a clean line before the previous panic hook emits
+diagnostics. Later destructors must not reposition over those diagnostics.
+Terminal input modes are restored before asynchronous exit work.
+
+Focus reporting is enabled with the other terminal modes and disabled during
+cleanup. Focus gained/lost updates the presentation state before publishing
+the next status projection.
+
+### RUN-07: Unix Suspend And Resume
+
+Ctrl+Z yields the foreground process group with SIGTSTP. Before signalling,
+stop the input event stream, hand off the inline viewport on a clean line, and
+restore all owned terminal modes. Do not stop a job whose terminal cleanup
+failed. Signal failures surface and still attempt to reacquire terminal modes.
+
+After the shell resumes the job with `fg`, reacquire terminal modes and the
+input stream, then reserve and fully redraw the viewport relative to the
+current shell cursor and terminal size. Preserve composer, overlay, transcript,
+and running work. Shell output written during suspension stays in native
+scrollback. Repeated suspend/resume cycles use the same ownership rules;
+temporary restoration must not disable later panic or exit cleanup.
+
+A shell can restore its saved job termios after SIGCONT, including after the
+first mode reacquisition. After suspension, the existing maintenance tick checks
+the controlling terminal's native state and repairs raw-mode drift without
+trusting the input library's cached flag or relying on a fixed sleep. A late
+shell write must not leave single-key input waiting for a newline.
+
+Suspension does not issue a runtime cancellation or change goal policy.
+Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
+control are outside this keyboard-driven contract.
 
 ## Validation Matrix
 
 | Contract | Existing proving surface |
 | --- | --- |
 | RUN-01 | Busy-submit tests, queued-input tests, queue/approval render tests |
-| RUN-02 | Controller completion-barrier tests and scripted runtime cancellation |
+| RUN-02 | `controller::cancellation_tests`, typed query-control races, and `tasks::tests::query_lifecycle` scripted cancel/interrupt/task-return interleavings |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
 | RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
+| RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
+| RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
 
 ## Open Risks
 
@@ -136,4 +243,10 @@ viewport, suspend/resume, or shell-prompt positioning guarantees.
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
+- [Incremental Markdown](../journal/2026-10-03-incremental-markdown.md)
+- [Turn cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+
 - [Terminal restoration](../journal/2026-10-02-tui-terminal-restoration.md)
+- [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
+- [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
+- [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)

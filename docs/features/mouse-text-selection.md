@@ -53,18 +53,64 @@ Row counting, viewport slicing, and selection consume those materialized rows;
 the renderer must not wrap them again. Soft-wrap word separators are omitted
 from display and copied text, while explicit blank lines are retained.
 
-Snapshot rebuilding is guarded by the viewport area, scroll offset, and complete
-visual-row content. Unchanged frames reuse the previous screen-area-to-text
-mapping. Styles do not change copied text. Graphemes wider than the available
+The snapshot retains shared immutable row blocks rather than independently
+hashing/stringifying all transcript rows. Area and scroll updates only replace
+geometry and shared handles. Unchanged committed blocks retain styled rows,
+plain text, and measured widths across frames and appended turns. Width, cwd,
+thinking visibility, committed replacement, reset, and restore invalidate the
+history layout. The replaceable active block uses complete styled-line equality,
+including middle content, styles, and alignment, not an edge-only fingerprint.
+An eligible streaming response has its own source-epoch/width/view cache:
+stable body blocks are retained, and only the preview/compact summary changes.
+Selection consumes the joined history/prefix/response snapshot without copying
+its row content. Source replacement and canonical replay cannot retain a stale
+response body, including when byte length is unchanged. Selection coordinates
+remain numeric; growing a selected row does not automatically extend its endpoint.
+Styles do not change copied text. Graphemes wider than the available
 transcript row are displayed as a single replacement character rather than
 creating invisible selectable content.
+Canonical physical rows also omit standalone zero-width graphemes that the
+renderer would skip. Visible combining/ZWJ clusters remain whole across styles,
+using their first contributing span's style. Width measurement includes the
+pinned Ratatui halfwidth sound-mark adjustment. The same normalized projection
+feeds buffer output, selection coordinates, and plain-text copy.
 
 Mouse handling uses that latest snapshot to map screen coordinates back to
 wrapped transcript rows. The tick loop drives edge autoscroll while dragging.
 
+Transcript scroll state explicitly distinguishes following the tail from an
+absolute top visual-row anchor. Rendering publishes the current wrapped row
+count and transcript dimensions to the numeric state model; scroll input
+refreshes those bounds before applying its delta. State modules do not build
+styled lines or terminal layout objects. A manual anchor remains fixed when
+visual rows are appended, while tail-following uses the newly measured end.
+Layout changes clamp an anchor without implicitly enabling tail-following.
+Reaching the bottom through manual scrolling restores tail-following.
+
+Offsets, viewport slices, and selection row indices use `usize`. Only local
+terminal coordinates use `u16`; a long transcript must not be passed through
+`Paragraph::scroll`. The existing one-row breathing room at the tail remains.
+Reset and thread restoration explicitly return to tail-following. Scroll input
+before the first measured transcript frame is ignored.
+
 Clipboard output first emits OSC 52 so SSH sessions can copy to the local
 terminal clipboard when the terminal permits it. Platform clipboard commands are
 best-effort fallbacks for local sessions.
+
+Native clipboard work runs asynchronously, with a two-second deadline covering
+stdin delivery, process exit, and all fallback attempts. The UI continues to
+handle keys, rendering, runtime events, and cancellation while a helper stalls.
+Each session owns at most one active copy and one pending selection; newer
+pending selections replace older pending ones. Helpers run in order so an older
+helper cannot overwrite a newer native copy. Superseded completions do not
+replace the latest copy notice. Session shutdown cancels owned clipboard work.
+
+OSC 52 accepts at most 100,000 raw UTF-8 bytes, checked before base64 encoding
+or terminal output. Oversized selections are not truncated: local native
+helpers still receive the full selection; a terminal-only session reports the
+size limit. SSH sessions never write to the remote machine's native clipboard.
+Keep the existing direct, tmux, and screen sequence wrapping. Terminal-mediated
+copy is a request, not proof that the terminal accepted the clipboard write.
 
 ## Contracts
 
@@ -80,25 +126,50 @@ best-effort fallbacks for local sessions.
   including wrapped prose, long tokens, URLs, and explicit empty rows.
 - Edge autoscroll only starts once the cursor leaves the transcript viewport and
   uses the same transcript scroll direction as wheel and keyboard scrolling.
-- Clipboard failures must not terminate the TUI; they surface as notices.
+- Keyboard, wheel, and drag autoscroll clamp every delta to the current visual
+  rows. Overscrolling cannot accumulate invisible scroll debt.
+- Wheel acceleration history belongs to the current TUI session. Rapid input
+  in one session cannot accelerate another session's first wheel event, and
+  this input path does not require process-global mutexes.
+- An up-scrolled view stays on its top visual row during append-only streaming;
+  width changes retain that numeric anchor subject to the new bounds, not a
+  semantic text-location anchor across reflow or content replacement.
+- Rendering, highlight, and copy remain reachable beyond 65,535 visual rows.
+- Clipboard failures must not terminate the TUI; they surface as notices and
+  warning logs without including the selected content. Nonzero helper exit
+  status is a failure. Timeout/cancellation drops and terminates the owned
+  helper instead of leaving a process waiting for input indefinitely. An
+  asynchronous waiter retains ownership until the terminated helper is reaped;
+  UI dispatch does not wait for that cleanup.
 
 ## Validation Matrix
 
 | Behavior | Validation |
 | --- | --- |
 | Wrapped text range extraction | Production viewport buffers and `TranscriptSelection` across narrow/wide widths, prose, CJK, emoji, combining marks, tabs, and URLs |
+| Invisible/cross-style clusters | Standalone zero-width projection, cross-span combining/ZWJ preservation, normalization idempotence, halfwidth cell-width agreement, and drag/highlight/copy assertions |
 | Exact rows and partial scrolling | Counted rows equal materialized/rendered rows; tail and partial-window buffer assertions |
 | Autoscroll selection extension | Unit tests for non-zero scroll offset |
+| Scroll bounds and tail-following | Pure state tests for extreme deltas, empty/short content, layout changes, appends, and return to tail |
+| Stable streaming anchor | Production key dispatch followed by appended stream deltas; visible buffer rows remain unchanged |
+| Long transcript reachability | Production renderer with 70,000 rows; tail buffer, highlight, and copied text agree |
+| Shared snapshot reuse | Work counts for unchanged frames, scroll, copy, and streamed tails; retained allocations on committed append |
+| Active stream snapshot | Retained stable body allocations; current preview copy after drag extension; full/compact, suppression, thinking, and finalization transitions |
+| Snapshot refresh | Same-sized middle replacement and full styled-tail invalidation; width/cwd/visibility/reset/restore guards |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
-| Clipboard fallback safety | Manual SSH/local verification |
+| Clipboard responsiveness | Scripted stalled backend while production input dispatch continues; bounded pending requests and completion ordering |
+| Clipboard delivery | UTF-8 byte limit and exact OSC 52 wrapping; write/spawn/exit failures; stalled stdin/exit timeout and child cleanup |
+| Clipboard environment | SSH skips native helpers; local oversized text reaches the native backend intact; no real clipboard writes in automated tests |
 | Render highlight | Manual TUI verification; future snapshot if styling changes |
 
 ## Operational Notes
 
 OSC 52 depends on terminal policy. Some terminals disable remote clipboard
-writes by default, and tmux/screen may require passthrough support. RARA still
-attempts native clipboard fallback, but over SSH that fallback writes the remote
-machine clipboard rather than the user's local desktop clipboard.
+writes by default, and tmux/screen may require passthrough support. Successful
+sequence output is reported as a terminal clipboard request. Local sessions
+also attempt native clipboard helpers and distinguish their confirmed exit
+status from terminal-mediated delivery. Physical terminal acceptance remains
+dependent on terminal policy.
 
 ## Open Risks
 
@@ -111,3 +182,9 @@ machine clipboard rather than the user's local desktop clipboard.
 
 - [2026-05-13-transcript-copy-selection](../journal/2026-05-13-transcript-copy-selection.md)
 - [2026-10-02-shared-transcript-wrapping](../journal/2026-10-02-shared-transcript-wrapping.md)
+- [2026-10-02-transcript-scroll-anchors](../journal/2026-10-02-transcript-scroll-anchors.md)
+- [2026-10-03-transcript-row-reuse](../journal/2026-10-03-transcript-row-reuse.md)
+- [2026-10-03-active-stream-rows](../journal/2026-10-03-active-stream-rows.md)
+- [2026-10-03-display-text-boundary](../journal/2026-10-03-display-text-boundary.md)
+- [2026-10-03-unicode-boundaries](../journal/2026-10-03-unicode-boundaries.md)
+- [2026-10-03-ui-clipboard-safety](../journal/2026-10-03-ui-clipboard-safety.md)

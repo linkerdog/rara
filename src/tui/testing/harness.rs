@@ -73,7 +73,7 @@ impl TuiHarness {
         let mut app = TuiApp::new(ConfigManager {
             path: config_dir.path().join("config.json"),
         })?;
-        app.snapshot = snapshot.clone();
+        app.snapshot = snapshot.clone().into();
         let oauth_manager = Arc::new(OAuthManager::new_for_config_dir(
             config_dir.path().join("oauth"),
         )?);
@@ -115,8 +115,19 @@ impl TuiHarness {
     /// Exercise production key routing and dispatch, with runtime I/O captured
     /// at the same port used by the live controller.
     pub(crate) async fn press_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(UiEvent::App(event)) = translate_event(Event::Key(key), &mut self.app) else {
-            return Ok(false);
+        self.send_terminal_event(Event::Key(key)).await
+    }
+
+    pub(crate) async fn send_terminal_event(&mut self, event: Event) -> anyhow::Result<bool> {
+        let event = match translate_event(event, &mut self.app) {
+            Some(UiEvent::App(event)) => event,
+            Some(UiEvent::Paste(text)) => {
+                crate::tui::terminal_ui::handle_paste(text, &mut self.app);
+                return Ok(false);
+            }
+            Some(UiEvent::Draw | UiEvent::FocusChanged(_)) | None => return Ok(false),
+            #[cfg(unix)]
+            Some(UiEvent::Suspend) => return Ok(false),
         };
         dispatch_event_with_runtime(
             event,
@@ -168,6 +179,13 @@ impl TuiHarness {
             .cursor_position
             .map(|position| (position.x, position.y));
         (buffer, cursor)
+    }
+
+    pub(crate) async fn queue_restored_goal(
+        &mut self,
+        readiness: crate::tui::goal_resume::AgentReadiness,
+    ) {
+        crate::tui::goal_resume::queue_if_idle(&mut self.app, &self.runtime, readiness).await;
     }
 
     pub(crate) fn expect_no_commands(&self) {
@@ -279,7 +297,7 @@ impl TuiHarness {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&self.app.active_turn))
+            .chain(std::iter::once(&*self.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .any(|entry| entry.message.contains(expected));
         assert!(found, "transcript does not contain {expected:?}");
@@ -288,7 +306,7 @@ impl TuiHarness {
     pub(crate) async fn pump_one(&mut self) {
         let event = self.events.next().await.expect("fake runtime event");
         match event {
-            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
+            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = (*snapshot).into(),
             RuntimeProjectionEvent::Runtime(event) => {
                 if !accept_runtime_event(&mut self.last_runtime_event, &event) {
                     return;
@@ -430,7 +448,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting"))
             .count();
@@ -447,7 +465,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting again"))
             .count();

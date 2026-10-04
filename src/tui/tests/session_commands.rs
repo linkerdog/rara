@@ -41,7 +41,7 @@ async fn busy_submit_queues_follow_up_message() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     let mut agent_slot = None;
@@ -613,7 +613,7 @@ async fn esc_cancels_busy_query_without_overlay() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     assert!(matches!(
@@ -667,7 +667,7 @@ async fn busy_submit_allows_quit_command() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: u64::MAX,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     let mut agent_slot = None;

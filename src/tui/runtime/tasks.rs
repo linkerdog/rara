@@ -1,13 +1,13 @@
 mod builder;
-include!("tasks/completion.rs");
+mod completion;
+#[cfg(test)]
+pub(crate) use completion::finish_running_task_if_ready;
+pub(crate) use completion::{emit_query_heartbeat, finish_running_task_if_ready_from_runtime_port};
 mod oauth;
 #[cfg(test)]
 mod tests;
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
 use builder::rebuild_agent_with_progress;
@@ -23,12 +23,14 @@ use super::super::state::{
     TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
 use super::events::{apply_tui_event, format_error_chain, runtime_event_from_agent_event};
+use super::{QueryStopKind, QueryStopRequest, QueryTaskControl};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
 use crate::config::RaraConfig;
 use crate::runtime_client::RuntimeTaskServices;
 pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuation_prompt};
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::tui::message_role::MessageRole;
 
 fn local_tui_event_provenance(session_id: &str) -> RuntimeProvenance {
     RuntimeProvenance::local_tui(session_id.to_string())
@@ -79,19 +81,10 @@ fn task_result_lifecycle_event<T>(result: &anyhow::Result<T>) -> AgentEvent {
         Ok(_) => AgentEvent::AgentStop {
             reason: "turn complete".to_string(),
         },
-        Err(err) => {
-            let message = format_error_chain(err);
-            if message.contains("cancelled by user") {
-                AgentEvent::AgentStop {
-                    reason: "cancelled by user".to_string(),
-                }
-            } else {
-                AgentEvent::AgentError {
-                    message,
-                    recoverable: false,
-                }
-            }
-        }
+        Err(err) => AgentEvent::AgentError {
+            message: format_error_chain(err),
+            recoverable: false,
+        },
     }
 }
 
@@ -217,6 +210,9 @@ pub(crate) fn start_input_control_task_with_services(
 ) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
+    let query_control = QueryTaskControl::new(agent.session_id.clone());
+    let task_control = query_control.clone();
+    let task_control_for_app = query_control.clone();
     let bus = app.event_bus.clone().expect("event bus must exist");
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
@@ -239,6 +235,7 @@ pub(crate) fn start_input_control_task_with_services(
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
     sync_bash_prefixes_from_config(app, &mut agent);
     agent.set_cancellation_token(Some(cancellation_token.clone()));
+    crate::tui::goal_resume::record_turn_started(app);
     let goal_turn = match &request {
         crate::runtime_control::InputControlRequest::AnswerPlanApproval { decision, .. } => {
             match decision {
@@ -265,16 +262,13 @@ pub(crate) fn start_input_control_task_with_services(
     bus.publish_raw(AgentEvent::AgentStart);
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
-        let provenance =
-            crate::runtime_control::RuntimeProvenance::local_tui(agent.session_id.clone());
+        let task_bus = bus.clone();
         let envelope = crate::runtime_control::RuntimeControlEnvelope {
             request_id: uuid::Uuid::new_v4().to_string(),
-            provenance,
+            provenance: RuntimeProvenance::local_tui(agent.session_id.clone()),
             request: crate::runtime_control::RuntimeControlRequest::Input(request),
         };
-
-        let bus_arg = Some(bus.clone());
-        let lifecycle_bus = bus.clone();
+        let mut pending_error = None;
         let result = crate::control_plane::dispatch(
             envelope,
             &mcp_manager,
@@ -283,18 +277,13 @@ pub(crate) fn start_input_control_task_with_services(
             &memory_handler,
             &hook_registry,
             Some(&mut agent),
-            move |control_event| {
-                bus_arg
-                    .as_ref()
-                    .expect("runtime event bus must exist")
-                    .publish_resequenced_control_event(control_event.clone());
-                let _ = tx.send(TuiEvent::Runtime(Box::new(control_event)));
+            |event| {
+                query_control.publish_dispatch_event(&bus, &tx, &mut pending_error, event);
             },
         )
         .await;
-
-        let result = result.map_err(|e| anyhow::anyhow!("{e}"));
-        lifecycle_bus.publish_raw(task_result_lifecycle_event(&result));
+        let result = result.map_err(|error| anyhow::anyhow!(error));
+        let result = task_control.publish_finished(&task_bus, &sender, result);
         TaskCompletion::Query {
             agent,
             result,
@@ -309,7 +298,7 @@ pub(crate) fn start_input_control_task_with_services(
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: Some(cancellation_token),
-        cancellation_requested: false,
+        query_control: Some(task_control_for_app),
     });
 }
 
@@ -326,7 +315,7 @@ pub(crate) fn start_query_task_with_services(
     let request = crate::runtime_control::InputControlRequest::SubmitUserPrompt {
         prompt: prompt.clone(),
     };
-    app.push_entry("You", prompt);
+    app.push_entry(MessageRole::User, prompt);
     start_input_control_task_with_services(
         app,
         agent,
@@ -372,7 +361,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         RuntimePhase::ProcessingResponse,
         Some("compacting history".into()),
     );
-    app.push_entry("You", "/compact");
+    app.push_entry(MessageRole::User, "/compact");
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
@@ -403,14 +392,17 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 
 pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     use crate::agent::{AgentExecutionMode, BashApprovalMode};
     let (sender, receiver) = mpsc::unbounded_channel();
-    let bus = app.event_bus.clone();
+    let bus = app.event_bus.clone().expect("event bus must exist");
+    let query_control = QueryTaskControl::new(agent.session_id.clone());
+    let task_control = query_control.clone();
+    let task_control_for_app = query_control.clone();
     let event_provenance = local_tui_event_provenance(&agent.session_id);
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
@@ -420,28 +412,40 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         RuntimePhase::ProcessingResponse,
         Some("reviewing changes".into()),
     );
-    app.push_entry("You", prompt.clone());
+    app.push_entry(MessageRole::User, prompt.clone());
+    crate::tui::goal_resume::record_turn_started(app);
     let goal_turn = app.goal_handle.begin_turn(agent.total_input_tokens);
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
-        let lifecycle_bus = bus.clone();
-        let lifecycle_provenance = event_provenance.clone();
-        forward_optional_lifecycle_event_to_bus(
-            &lifecycle_bus,
-            AgentEvent::AgentStart,
-            &lifecycle_provenance,
+        let task_bus = bus.clone();
+        bus.publish_raw(AgentEvent::AgentStart);
+        query_control.publish_event(
+            &bus,
+            &sender,
+            crate::runtime_control::wrap_agent_event(
+                String::new(),
+                0,
+                event_provenance.clone(),
+                AgentEvent::AgentStart,
+            ),
         );
         let result = agent
             .query_with_mode_and_events(prompt, AgentOutputMode::Silent, move |event| {
-                forward_event_to_bus(&bus, &event, &event_provenance);
-                let _ = tx.send(runtime_event_from_agent_event(
-                    event,
-                    event_provenance.clone(),
-                ));
+                bus.publish_raw(event.clone());
+                query_control.publish_event(
+                    &bus,
+                    &tx,
+                    crate::runtime_control::wrap_agent_event(
+                        uuid::Uuid::new_v4().to_string(),
+                        0,
+                        event_provenance.clone(),
+                        event,
+                    ),
+                );
             })
             .await;
-        forward_optional_task_result_lifecycle(&lifecycle_bus, &lifecycle_provenance, &result);
+        let result = task_control.publish_finished(&task_bus, &sender, result);
         TaskCompletion::Query {
             agent,
             result,
@@ -456,7 +460,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: Some(task_control_for_app),
     });
 }
 
@@ -601,15 +605,15 @@ pub(super) fn start_rebuild_task(
         RuntimePhase::RebuildingBackend,
         Some(format!("preparing {provider} / {model}")),
     );
-    app.push_entry("Download", format!("Preparing {} / {}", provider, model));
+    app.push_entry(
+        MessageRole::Download,
+        format!("Preparing {} / {}", provider, model),
+    );
 
     let handle = tokio::spawn(async move {
         let tx = sender.clone();
         let progress: crate::local_backend::LocalProgressReporter = Arc::new(move |message| {
-            let _ = tx.send(TuiEvent::Transcript {
-                role: "Download",
-                message,
-            });
+            let _ = tx.send(TuiEvent::DownloadProgress(message));
         });
         let result =
             rebuild_agent_with_progress(&config, Some(progress), plugin_dirs, agent_tree_control)
@@ -624,7 +628,7 @@ pub(super) fn start_rebuild_task(
         started_at: Instant::now(),
         next_heartbeat_after_secs: u64::MAX,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 
@@ -669,7 +673,7 @@ pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogP
         started_at: Instant::now(),
         next_heartbeat_after_secs: u64::MAX,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 
@@ -693,31 +697,50 @@ fn model_catalog_connection(
     (api_key, base_url)
 }
 
-pub(super) fn request_running_task_cancellation(app: &mut TuiApp) {
+pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QueryStopKind) -> bool {
     let Some(task) = app.bottom_pane.running_task.as_mut() else {
         app.bottom_pane.notice = Some("No running task to cancel.".into());
-        return;
+        return false;
     };
     if !matches!(task.kind, TaskKind::Query) {
         app.bottom_pane.notice =
             Some("Only running model queries can be cancelled from the TUI.".into());
-        return;
+        return false;
     }
-    if task.cancellation_requested {
-        app.bottom_pane.notice =
-            Some("Cancellation already requested. Waiting for the provider stream to stop.".into());
-        return;
+    if task.handle.is_finished() {
+        app.bottom_pane.notice = Some("The query has already stopped.".into());
+        crate::tui::goal_resume::defer_for_user_stop(app);
+        return false;
     }
-    if let Some(token) = task.cancellation_token.as_ref() {
-        token.store(true, Ordering::SeqCst);
-        task.cancellation_requested = true;
+    if let Some((token, control)) = task
+        .cancellation_token
+        .as_ref()
+        .zip(task.query_control.as_ref())
+    {
+        match control.request_stop(kind, token) {
+            QueryStopRequest::AlreadyRequested => {
+                app.bottom_pane.notice =
+                    Some("Stop already requested. Waiting for the provider stream to stop.".into());
+                return false;
+            }
+            QueryStopRequest::Finished => {
+                app.bottom_pane.notice = Some("The query has already stopped.".into());
+                crate::tui::goal_resume::defer_for_user_stop(app);
+                return false;
+            }
+            QueryStopRequest::Requested => {}
+        }
         task.next_heartbeat_after_secs = 0;
-        app.bottom_pane.notice = Some("Cancellation requested.".into());
-        app.set_runtime_phase(
-            RuntimePhase::ProcessingResponse,
-            Some("cancelling query".into()),
-        );
+        let (notice, detail) = match kind {
+            QueryStopKind::Cancel => ("Cancellation requested.", "cancelling query"),
+            QueryStopKind::Interrupt => ("Interruption requested.", "interrupting query"),
+        };
+        app.bottom_pane.notice = Some(notice.into());
+        app.set_runtime_phase(RuntimePhase::ProcessingResponse, Some(detail.into()));
+        crate::tui::goal_resume::defer_for_user_stop(app);
+        true
     } else {
         app.bottom_pane.notice = Some("This running task does not expose cancellation.".into());
+        false
     }
 }

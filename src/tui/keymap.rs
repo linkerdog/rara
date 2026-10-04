@@ -1,12 +1,59 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app_event::AppEvent;
-use super::state::{HelpTab, Overlay, StatusTab, TuiApp};
+use super::state::{HelpTab, Overlay, QuitShortcutKey, StatusTab, TuiApp};
 
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
     let modifiers = key.modifiers;
+    // Control shortcuts must not fall through to an overlay's printable input.
+    if modifiers == KeyModifiers::CONTROL {
+        match code {
+            KeyCode::Char('c') => {
+                return if app.overlay.is_some() {
+                    AppEvent::CloseOverlay
+                } else {
+                    AppEvent::QuitShortcut(QuitShortcutKey::CtrlC)
+                };
+            }
+            KeyCode::Char('d') => {
+                return match app.overlay {
+                    None if app.bottom_pane.input.is_empty() => {
+                        AppEvent::QuitShortcut(QuitShortcutKey::CtrlD)
+                    }
+                    None
+                    | Some(
+                        Overlay::CommandPalette
+                        | Overlay::ModelSearch
+                        | Overlay::BaseUrlEditor
+                        | Overlay::ApiKeyEditor(_)
+                        | Overlay::ModelNameEditor
+                        | Overlay::OpenAiProfileLabelEditor,
+                    ) => AppEvent::DeleteForward,
+                    Some(Overlay::Goal)
+                        if matches!(
+                            app.goal_ui.dialog,
+                            Some(super::goal_ui::GoalDialog::Edit(_))
+                        ) =>
+                    {
+                        AppEvent::DeleteForward
+                    }
+                    Some(
+                        Overlay::Goal
+                        | Overlay::Help(_)
+                        | Overlay::Status(_)
+                        | Overlay::Context
+                        | Overlay::SkillsPicker
+                        | Overlay::ListPicker(_)
+                        | Overlay::PermissionPicker,
+                    ) => AppEvent::Noop,
+                };
+            }
+            _ => {}
+        }
+    }
     match app.overlay {
+        Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
         Some(Overlay::Help(tab)) => match key {
             KeyEvent {
                 code: KeyCode::Up, ..
@@ -189,11 +236,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
 
             match (code, modifiers) {
                 (KeyCode::Esc, _) if app.is_busy() => AppEvent::CancelRunningTask,
-                (KeyCode::Char('c'), KeyModifiers::CONTROL) if app.is_busy() => {
-                    AppEvent::CancelRunningTask
-                }
                 (KeyCode::Esc, _) => AppEvent::Noop,
-                (KeyCode::Char('c'), KeyModifiers::CONTROL) => AppEvent::ClearComposer,
                 (KeyCode::Enter, KeyModifiers::SHIFT)
                 | (KeyCode::Char('j'), KeyModifiers::CONTROL) => AppEvent::InsertNewline,
                 (KeyCode::Enter, _) => AppEvent::SubmitComposer,
@@ -258,9 +301,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                     AppEvent::SetPermissionSelection(3)
                 }
                 (KeyCode::Backspace, _) => AppEvent::Backspace,
-                (KeyCode::Delete, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
-                    AppEvent::DeleteForward
-                }
+                (KeyCode::Delete, _) => AppEvent::DeleteForward,
                 (KeyCode::Char('b'), KeyModifiers::CONTROL) => AppEvent::ToggleSidebar,
                 (KeyCode::Char('t'), KeyModifiers::ALT) => AppEvent::ToggleThinking,
                 (KeyCode::Char(c), _) => AppEvent::InputChar(c),

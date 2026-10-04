@@ -37,7 +37,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cargo test --locked -p rara-core
+          cargo test --locked -p rara-core -p rara-agent
           cargo test --locked
 
       - name: Verify app-server process lifecycle

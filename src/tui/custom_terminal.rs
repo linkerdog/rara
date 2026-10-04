@@ -3,7 +3,7 @@
 // The MIT License (MIT)
 // Copyright (c) 2016-2022 Florian Dehau
 // Copyright (c) 2023-2025 The Ratatui Developers
-//! Custom ratatui terminal wrapper with alternate-screen + resize.
+//! Custom ratatui terminal wrapper with an inline primary-screen viewport.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -35,7 +35,6 @@ use crossterm::style::SetColors;
 use crossterm::style::SetForegroundColor;
 use crossterm::terminal::Clear;
 use ratatui::backend::Backend;
-use ratatui::backend::ClearType;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::layout::Rect;
@@ -43,7 +42,8 @@ use ratatui::layout::Size;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::widgets::{StatefulWidget, Widget};
-use unicode_width::UnicodeWidthStr;
+
+mod inline;
 
 /// Returns the display width of a cell symbol, ignoring OSC escape sequences.
 ///
@@ -54,44 +54,13 @@ use unicode_width::UnicodeWidthStr;
 /// This function strips them first so that only visible characters contribute
 /// to the width.
 fn display_width(s: &str) -> usize {
-    // Fast path: no escape sequences present.
-    if !s.contains('\x1B') {
-        return s.width();
+    // Canonical cell symbols have no controls; legacy symbols share the
+    // display sanitizer instead of maintaining another escape parser here.
+    if !s.chars().any(char::is_control) {
+        return super::text_wrap::display_width(s);
     }
-
-    let mut visible = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1B' {
-            match chars.peek() {
-                Some(']') => {
-                    chars.next();
-                    while let Some(c) = chars.next() {
-                        if c == '\x07' {
-                            break;
-                        }
-                        if c == '\x1B' && chars.peek() == Some(&'\\') {
-                            chars.next();
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                Some('[') => {
-                    chars.next();
-                    for c in chars.by_ref() {
-                        if (0x40..=0x7E).contains(&(c as u32)) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-        }
-        visible.push(ch);
-    }
-    visible.width()
+    let visible = super::display_sanitize::sanitize_display_text(s);
+    super::text_wrap::display_width(&visible)
 }
 
 #[derive(Debug, Hash)]
@@ -175,6 +144,8 @@ where
     /// Last known position of the cursor. Used to find the new area when the viewport is inlined
     /// and the terminal resized.
     pub last_known_cursor_pos: Position,
+    /// Whether an inline frame has reserved rows in the primary screen.
+    inline_viewport_owned: bool,
 }
 
 impl<B> Drop for Terminal<B>
@@ -182,13 +153,12 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
-    #[allow(clippy::print_stderr)]
     fn drop(&mut self) {
         // Attempt to restore the cursor state
         if self.hidden_cursor
             && let Err(err) = self.show_cursor()
         {
-            eprintln!("Failed to show the cursor: {err}");
+            log::warn!("Failed to show the cursor: {err}");
         }
     }
 }
@@ -198,20 +168,18 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
-    /// Creates a new [`Terminal`] with the given [`Backend`] and [`TerminalOptions`].
-    pub fn new(mut backend: B) -> io::Result<Self> {
+    /// Creates an unreserved terminal without querying the cursor position.
+    pub fn new(backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;
-        let cursor_pos = backend
-            .get_cursor_position()
-            .unwrap_or(Position { x: 0, y: 0 });
         Ok(Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
             current: 0,
             hidden_cursor: false,
-            viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
+            viewport_area: Rect::ZERO,
             last_known_screen_size: screen_size,
-            last_known_cursor_pos: cursor_pos,
+            last_known_cursor_pos: Position::default(),
+            inline_viewport_owned: false,
         })
     }
 
@@ -255,10 +223,7 @@ where
         draw(&mut self.backend, updates.into_iter())
     }
 
-    /// Updates the Terminal so that internal buffers match the requested area.
-    ///
-    /// Requested area will be saved to remain consistent when rendering. This leads to a full clear
-    /// of the screen.
+    /// Record the backend dimensions after viewport reconciliation.
     pub fn resize(&mut self, screen_size: Size) -> io::Result<()> {
         self.last_known_screen_size = screen_size;
         Ok(())
@@ -415,20 +380,6 @@ where
     }
 
     // ---- helpers (pub(super)) ------------------------------------------------
-
-    /// Clear the entire visible screen (not just the viewport) and force a full redraw.
-    pub fn clear_visible_screen(&mut self) -> io::Result<()> {
-        let home = Position { x: 0, y: 0 };
-        // Some terminals (notably Terminal.app) behave more reliably if we pair ED2
-        // with an explicit cursor-home before/after, matching the common `clear`
-        // sequence (`CSI 2J` + `CSI H`).
-        self.set_cursor_position(home)?;
-        self.backend.clear_region(ClearType::All)?;
-        self.set_cursor_position(home)?;
-        std::io::Write::flush(&mut self.backend)?;
-        self.previous_buffer_mut().reset();
-        Ok(())
-    }
 
     /// Clears the inactive buffer and swaps it with the current buffer
     pub fn swap_buffers(&mut self) {
@@ -677,7 +628,7 @@ impl ModifierDiff {
 
 #[cfg(test)]
 mod tests {
-    use super::display_width;
+    use super::{DrawCommand, diff_buffers, display_width};
 
     #[test]
     fn display_width_ignores_osc_sequences() {
@@ -695,5 +646,36 @@ mod tests {
     fn display_width_ignores_csi_sequences() {
         let text = "\x1b[31mred\x1b[0m";
         assert_eq!(display_width(text), 3);
+    }
+
+    #[test]
+    fn terminal_diff_width_matches_halfwidth_sound_mark_cells() {
+        for symbol in ["\u{ff9e}", "\u{ff9f}", "\u{ff76}\u{ff9e}"] {
+            let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 8, 1));
+            let (end, _) = buffer.set_stringn(0, 0, symbol, 8, ratatui::style::Style::default());
+            assert_eq!(display_width(symbol), usize::from(end), "{symbol:?}");
+            assert_eq!(
+                display_width(&format!("\u{1b}[31m{symbol}\u{1b}[0m")),
+                usize::from(end)
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_diff_clears_after_the_complete_halfwidth_cluster() {
+        let before = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 4, 1));
+        let mut after = before.clone();
+        after.set_string(0, 0, "\u{ff76}\u{ff9e}", ratatui::style::Style::default());
+        let commands = diff_buffers(&before, &after);
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::ClearToEnd { x: 2, .. }))
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::ClearToEnd { x: 1, .. }))
+        );
     }
 }

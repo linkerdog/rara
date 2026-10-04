@@ -193,7 +193,8 @@ impl TuiApp {
             extension_agent_count: extensions.agent_count,
             extension_agent_status_lines: extensions.agent_status_lines,
             model_catalogs: self.snapshot.model_catalogs.clone(),
-        };
+        }
+        .into();
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
         self.configure_shared_task_watch(shared_task_root, &agent.task_list_id);

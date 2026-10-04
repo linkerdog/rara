@@ -329,7 +329,7 @@ impl TuiApp {
             .entries
             .iter()
             .map(|entry| PersistedTurnEntry {
-                role: entry.role.clone(),
+                role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
             .collect::<Vec<_>>();
@@ -361,7 +361,7 @@ impl TuiApp {
         let entries = entries
             .iter()
             .map(|entry| PersistedTurnEntry {
-                role: entry.role.clone(),
+                role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
             .collect::<Vec<_>>();

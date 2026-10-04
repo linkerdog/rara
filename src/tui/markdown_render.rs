@@ -1,4 +1,7 @@
 mod local_links;
+mod references;
+mod streaming;
+mod table;
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +12,9 @@ use ratatui::{
     style::Style,
     text::{Line, Span, Text},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) use references::{ReferenceBudget, ReferenceContext};
+pub(crate) use streaming::{RenderContext, render_streaming_markdown};
+use table::{TableRenderState, render_table_lines};
 
 use self::local_links::{
     is_local_path_like_link, render_local_link_target, should_render_link_destination,
@@ -121,77 +126,14 @@ pub(crate) fn render_markdown_text_with_width_and_cwd(
     width: Option<usize>,
     cwd: Option<&Path>,
 ) -> Text<'static> {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TABLES);
-    let parser = Parser::new_ext(input, options);
+    let parser = Parser::new_ext(input, markdown_options());
     let mut writer = Writer::new(parser, cwd, width);
     writer.run();
     writer.text
 }
 
-#[derive(Debug)]
-struct TableRenderState {
-    alignments: Vec<Alignment>,
-    rows: Vec<Vec<String>>,
-    current_row: Option<Vec<String>>,
-    current_cell: Option<String>,
-    header_row_count: usize,
-}
-
-impl TableRenderState {
-    fn new(alignments: Vec<Alignment>) -> Self {
-        Self {
-            alignments,
-            rows: Vec::new(),
-            current_row: None,
-            current_cell: None,
-            header_row_count: 0,
-        }
-    }
-
-    fn start_row(&mut self) {
-        self.current_row = Some(Vec::new());
-    }
-
-    fn end_row(&mut self) {
-        if let Some(row) = self.current_row.take() {
-            self.rows.push(row);
-        }
-    }
-
-    fn start_header(&mut self) {
-        if self.current_row.is_none() {
-            self.start_row();
-        }
-    }
-
-    fn end_header(&mut self) {
-        if self.current_cell.is_some() {
-            self.end_cell();
-        }
-        if self.current_row.is_some() {
-            self.end_row();
-        }
-        self.header_row_count = self.rows.len();
-    }
-
-    fn start_cell(&mut self) {
-        self.current_cell = Some(String::new());
-    }
-
-    fn end_cell(&mut self) {
-        let cell = self.current_cell.take().unwrap_or_default();
-        if let Some(row) = self.current_row.as_mut() {
-            row.push(normalize_table_cell(&cell));
-        }
-    }
-
-    fn push_text(&mut self, text: &str) {
-        if let Some(cell) = self.current_cell.as_mut() {
-            cell.push_str(text);
-        }
-    }
+fn markdown_options() -> Options {
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES
 }
 
 struct Writer<'a, I>
@@ -206,6 +148,7 @@ where
     list_indices: Vec<Option<u64>>,
     link: Option<LinkState>,
     needs_newline: bool,
+    has_prior_output: bool,
     pending_marker_line: bool,
     in_paragraph: bool,
     in_code_block: bool,
@@ -237,6 +180,7 @@ where
             list_indices: Vec::new(),
             link: None,
             needs_newline: false,
+            has_prior_output: false,
             pending_marker_line: false,
             in_paragraph: false,
             in_code_block: false,
@@ -287,7 +231,7 @@ where
             Event::HardBreak => self.hard_break(),
             Event::Rule => {
                 self.flush_current_line();
-                if !self.text.lines.is_empty() {
+                if self.has_prior_output || !self.text.lines.is_empty() {
                     self.push_blank_line();
                 }
                 self.push_line(Line::from("———"));
@@ -589,7 +533,7 @@ where
 
     fn start_codeblock(&mut self, lang: Option<String>, indent: Option<Span<'static>>) {
         self.flush_current_line();
-        if !self.text.lines.is_empty() {
+        if self.has_prior_output || !self.text.lines.is_empty() {
             self.push_blank_line();
         }
         self.in_code_block = true;
@@ -649,7 +593,7 @@ where
 
     fn start_table(&mut self, alignments: Vec<Alignment>) {
         self.flush_current_line();
-        if self.needs_newline && !self.text.lines.is_empty() {
+        if self.needs_newline && (self.has_prior_output || !self.text.lines.is_empty()) {
             self.push_blank_line();
         }
         self.table = Some(TableRenderState::new(alignments));
@@ -846,340 +790,6 @@ where
     }
 }
 
-fn normalize_table_cell(cell: &str) -> String {
-    cell.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn render_table_lines(table: &TableRenderState, width: Option<usize>) -> Vec<String> {
-    if table.rows.is_empty() {
-        return Vec::new();
-    }
-
-    let column_count = table.rows.iter().map(Vec::len).max().unwrap_or(0);
-    if column_count == 0 {
-        return Vec::new();
-    }
-
-    let mut column_widths = vec![1usize; column_count];
-    for row in &table.rows {
-        for (idx, cell) in row.iter().enumerate() {
-            column_widths[idx] = column_widths[idx].max(UnicodeWidthStr::width(cell.as_str()));
-        }
-    }
-    fit_table_width(&mut column_widths, width);
-
-    let mut lines = Vec::new();
-    for (row_idx, row) in table.rows.iter().enumerate() {
-        lines.push(render_table_row(row, &column_widths, &table.alignments));
-        if row_idx + 1 == table.header_row_count {
-            lines.push(render_table_separator(&column_widths, &table.alignments));
-        }
-    }
-    lines
-}
-
-fn fit_table_width(column_widths: &mut [usize], width: Option<usize>) {
-    let Some(max_width) = width else {
-        return;
-    };
-    if column_widths.is_empty() {
-        return;
-    }
-
-    let separator_width = column_widths.len().saturating_sub(1) * 3;
-    let total_width = column_widths.iter().sum::<usize>() + separator_width;
-    if total_width <= max_width {
-        return;
-    }
-
-    let available_cells = max_width
-        .saturating_sub(separator_width)
-        .max(column_widths.len());
-    let max_column_width = (available_cells / column_widths.len()).max(1);
-    for width in column_widths {
-        *width = (*width).min(max_column_width).max(1);
-    }
-}
-
-fn render_table_row(row: &[String], column_widths: &[usize], alignments: &[Alignment]) -> String {
-    column_widths
-        .iter()
-        .enumerate()
-        .map(|(idx, width)| {
-            let cell = row.get(idx).map(String::as_str).unwrap_or("");
-            pad_table_cell(
-                truncate_to_width(cell, *width).as_str(),
-                *width,
-                alignment_for_column(alignments, idx),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
-fn render_table_separator(column_widths: &[usize], alignments: &[Alignment]) -> String {
-    column_widths
-        .iter()
-        .enumerate()
-        .map(|(idx, width)| {
-            let dashes = "-".repeat(*width);
-            match alignment_for_column(alignments, idx) {
-                Alignment::Left | Alignment::Center | Alignment::Right | Alignment::None => dashes,
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
-fn alignment_for_column(alignments: &[Alignment], idx: usize) -> Alignment {
-    alignments.get(idx).copied().unwrap_or(Alignment::None)
-}
-
-fn pad_table_cell(cell: &str, width: usize, alignment: Alignment) -> String {
-    let cell_width = UnicodeWidthStr::width(cell);
-    let padding = width.saturating_sub(cell_width);
-    match alignment {
-        Alignment::Right => format!("{}{cell}", " ".repeat(padding)),
-        Alignment::Center => {
-            let left = padding / 2;
-            let right = padding - left;
-            format!("{}{cell}{}", " ".repeat(left), " ".repeat(right))
-        }
-        Alignment::Left | Alignment::None => format!("{cell}{}", " ".repeat(padding)),
-    }
-}
-
-fn truncate_to_width(value: &str, max_width: usize) -> String {
-    if UnicodeWidthStr::width(value) <= max_width {
-        return value.to_string();
-    }
-    if max_width <= 1 {
-        return "…".to_string();
-    }
-
-    let mut out = String::new();
-    let mut used = 0usize;
-    let ellipsis_width = 1usize;
-    for ch in value.chars() {
-        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + ch_width + ellipsis_width > max_width {
-            break;
-        }
-        out.push(ch);
-        used += ch_width;
-    }
-    out.push('…');
-    out
-}
-
 #[cfg(test)]
-mod tests {
-    use insta::assert_snapshot;
-    use ratatui::style::{Modifier, Style};
-
-    use super::*;
-
-    /// Helper that includes style information (modifiers + foreground color) so
-    /// snapshots capture visual rendering intent, not just text structure.
-    fn render_to_string(md: &str) -> String {
-        render_markdown_text(md)
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|span| {
-                        let content = &span.content;
-                        let style = span.style;
-                        let tags = style_modifier_tags(style);
-                        if tags.is_empty() {
-                            content.to_string()
-                        } else {
-                            format!("{}({})", tags, content)
-                        }
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    fn render_to_string_width(md: &str, width: usize) -> String {
-        render_markdown_text_with_width(md, Some(width))
-            .lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|span| {
-                        let content = &span.content;
-                        let style = span.style;
-                        let tags = style_modifier_tags(style);
-                        if tags.is_empty() {
-                            content.to_string()
-                        } else {
-                            format!("{}({})", tags, content)
-                        }
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    fn style_modifier_tags(style: Style) -> String {
-        let mut tags = String::new();
-        if style.add_modifier.contains(Modifier::BOLD) {
-            tags.push_str("B+");
-        }
-        if style.add_modifier.contains(Modifier::ITALIC) {
-            tags.push_str("I+");
-        }
-        if style.add_modifier.contains(Modifier::UNDERLINED) {
-            tags.push_str("U+");
-        }
-        if style.add_modifier.contains(Modifier::DIM) {
-            tags.push_str("dim+");
-        }
-        if style.add_modifier.contains(Modifier::CROSSED_OUT) {
-            tags.push_str("S+");
-        }
-        // Strip trailing '+'
-        tags.trim_end_matches('+').to_string()
-    }
-
-    #[test]
-    fn markdown_headings() {
-        let md = "# H1\n## H2\n### H3\n\n#### Not bold (h4+)";
-        assert_snapshot!("markdown_headings", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_bold_italic() {
-        let md = "**bold** and *italic* and ***both***";
-        assert_snapshot!("markdown_bold_italic", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_inline_code() {
-        let md = "Use `unwrap_or_default()` for safety.";
-        assert_snapshot!("markdown_inline_code", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_code_block_with_lang() {
-        let md = "```rust\nfn main() {\n    println!(\"hi\");\n}\n```";
-        assert_snapshot!("markdown_code_block_with_lang", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_code_block_no_lang() {
-        let md = "```\necho hello world\n```";
-        assert_snapshot!("markdown_code_block_no_lang", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_ordered_list() {
-        let md = "1. First\n2. Second\n3. Third\n";
-        assert_snapshot!("markdown_ordered_list", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_unordered_list() {
-        let md = "- item one\n- item two\n- item three\n";
-        assert_snapshot!("markdown_unordered_list", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_task_list() {
-        let md = "- [ ] todo\n- [x] done\n- [ ] another todo\n";
-        assert_snapshot!("markdown_task_list", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_blockquote() {
-        let md = "> This is a blockquote.\n> It spans multiple lines.\n";
-        assert_snapshot!("markdown_blockquote", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_nested_blockquote() {
-        let md = "> level one\n>> level two\n> back to one\n";
-        assert_snapshot!("markdown_nested_blockquote", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_table() {
-        let md = concat!(
-            "| Name  | Value | Notes     |\n",
-            "|-------|-------|-----------|\n",
-            "| alpha | 1     | first     |\n",
-            "| beta  | 22    | second    |\n"
-        );
-        assert_snapshot!("markdown_table", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_table_narrow_truncation() {
-        let md = concat!(
-            "| Column A | Column B | Column C |\n",
-            "|----------|----------|----------|\n",
-            "| long long long value | short | also quite long here |\n",
-        );
-        assert_snapshot!(
-            "markdown_table_narrow_truncation",
-            render_to_string_width(md, 40)
-        );
-    }
-
-    #[test]
-    fn markdown_links() {
-        let md =
-            "See [the docs](https://example.com) and also [Copilot](https://copilot.github.com).";
-        assert_snapshot!("markdown_links", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_thematic_break() {
-        let md = "above\n\n---\n\nbelow";
-        assert_snapshot!("markdown_thematic_break", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_comprehensive() {
-        let md = concat!(
-            "# Overview\n\n",
-            "This is a **bold** statement with *emphasis*.\n\n",
-            "## Steps\n\n",
-            "1. Install with `cargo install rara`\n",
-            "2. Run `rara init`\n\n",
-            "```rust\n",
-            "// example code\n",
-            "fn main() {\n",
-            "    println!(\"ready\");\n",
-            "}\n",
-            "```\n\n",
-            "> Note: this is important.\n\n",
-            "- [x] done task\n",
-            "- [ ] pending\n",
-        );
-        assert_snapshot!("markdown_comprehensive", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_nested_list() {
-        let md = "- top\n  - nested 1\n    - nested 2\n  - back to 1\n- top again\n";
-        assert_snapshot!("markdown_nested_list", render_to_string(md));
-    }
-
-    #[test]
-    fn markdown_gfm_extensions() {
-        let md = concat!(
-            "~~struck~~ normal.\n\n",
-            "Auto-link: https://example.com/page\n\n",
-            "Footnote ref[^1].\n\n",
-            "[^1]: This is the footnote.\n",
-        );
-        assert_snapshot!("markdown_gfm_extensions", render_to_string(md));
-    }
-}
+#[path = "markdown_render_tests.rs"]
+mod tests;

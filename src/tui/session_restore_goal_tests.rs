@@ -15,7 +15,7 @@ use crate::tui::state::TuiApp;
 use crate::workspace::WorkspaceMemory;
 
 #[test]
-fn thread_restore_round_trips_every_goal_status_and_does_not_revive_clear() {
+fn thread_restore_preserves_statuses_counter_limits_and_clear() {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().join("workspace");
     let data = dir.path().join("state");
@@ -34,6 +34,11 @@ fn thread_restore_round_trips_every_goal_status_and_does_not_revive_clear() {
         expected.tokens_used = 456;
         expected.turns_completed = 9;
         expected.created_at_epoch_seconds = 1_234_567_890;
+        if status == GoalStatus::Paused {
+            expected.token_budget = Some(u32::MAX);
+            expected.tokens_used = u32::MAX;
+            expected.turns_completed = u32::MAX;
+        }
         db.save_goal(
             "stored-thread",
             &serde_json::to_value(&expected).expect("serialize"),
@@ -160,6 +165,11 @@ fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
         ("status", json!("unknown")),
         ("objective", json!("")),
         ("token_budget", json!(0)),
+        ("token_budget", json!(u64::from(u32::MAX) + 1)),
+        ("tokens_used", json!(u64::from(u32::MAX) + 1)),
+        ("turns_completed", json!(u64::from(u32::MAX) + 1)),
+        ("tokens_used", json!(-1)),
+        ("turns_completed", json!(-1)),
     ] {
         for latest in [false, true] {
             let dir = tempfile::tempdir().expect("tempdir");

@@ -17,7 +17,7 @@ use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceC
 use super::session_restore::restore_thread_by_id;
 use super::state::{
     ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
-    ProviderFamily, TuiApp,
+    ProviderFamily, QuitShortcutAction, QuitShortcutKey, TuiApp,
 };
 use super::submit::{apply_openai_model_picker_action, handle_submit, handle_submit_with_port};
 use super::terminal_ui::is_ssh_session;
@@ -59,12 +59,29 @@ async fn dispatch_event_inner(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
+    let event = if let AppEvent::QuitShortcut(key) = event {
+        match app.quit_shortcut.press(key, std::time::Instant::now()) {
+            QuitShortcutAction::Confirmed => return Ok(true),
+            QuitShortcutAction::Armed => match key {
+                QuitShortcutKey::CtrlC if app.is_busy() => AppEvent::CancelRunningTask,
+                QuitShortcutKey::CtrlC => AppEvent::ClearComposer,
+                QuitShortcutKey::CtrlD => AppEvent::Noop,
+            },
+        }
+    } else {
+        app.quit_shortcut.clear();
+        event
+    };
     let discarding_palette = matches!(&event, AppEvent::CloseOverlay)
         && matches!(app.overlay, Some(Overlay::CommandPalette));
     if app.composer_input_is_active() && !discarding_palette {
         app.flush_composer_paste();
     }
     match event {
+        AppEvent::QuitShortcut(_) => unreachable!("quit shortcut was resolved before dispatch"),
+        AppEvent::Goal(action) => {
+            super::runtime::apply_goal_dialog_action(action, app, agent_slot, runtime_port).await;
+        }
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
@@ -123,7 +140,7 @@ async fn dispatch_event_inner(
                 return Ok(false);
             }
             if app.composer_input_is_active() && app.bottom_pane.input.is_empty() {
-                app.transcript_scroll = 0;
+                app.transcript_scroll.follow_tail();
             }
             app.insert_active_input_char(c);
         }
@@ -161,7 +178,7 @@ async fn dispatch_event_inner(
         AppEvent::NavigateInputHistory(delta) => {
             app.navigate_input_history(delta);
         }
-        AppEvent::ScrollTranscript(delta) => app.scroll_transcript(delta),
+        AppEvent::ScrollTranscript(delta) => super::render::scroll_transcript(app, delta),
         AppEvent::StartTranscriptSelection(position) => {
             app.transcript_selection.start(position);
         }
@@ -170,12 +187,11 @@ async fn dispatch_event_inner(
         }
         AppEvent::FinishTranscriptSelection(position) => {
             if let Some(text) = app.transcript_selection.finish(position) {
-                match crate::tui::clipboard::copy_text(text.as_str()) {
-                    Ok(()) => app.push_notice("Copied transcript selection to clipboard."),
-                    Err(err) => {
-                        app.push_notice(format!("Failed to copy transcript selection: {err}"))
-                    }
-                }
+                let notice = app
+                    .clipboard
+                    .get_or_insert_with(super::clipboard::Clipboard::from_environment)
+                    .request(text);
+                app.push_notice(notice);
             }
         }
         AppEvent::ScrollContext(delta) => app.scroll_context(delta),

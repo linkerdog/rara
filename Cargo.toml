@@ -22,8 +22,10 @@ members = [
     "crates/rara-app-server",
     "crates/rara-background-tasks",
     "crates/rara-core",
+    "crates/rara-agent",
 ]
-resolver = "2"
+default-members = ["."]
+resolver = "3"
 
 [workspace.lints.clippy]
 expect_used = "deny"
@@ -70,6 +72,7 @@ rara-plugins = { path = "crates/rara-plugins" }
 rara-app-server = { path = "crates/rara-app-server" }
 rara-state = { path = "crates/rara-state" }
 rara-core = { path = "crates/rara-core" }
+rara-agent = { path = "crates/rara-agent" }
 rara-background-tasks = { path = "crates/rara-background-tasks" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -90,7 +93,7 @@ tiktoken-rs = "0.12"
 open = "5.0"
 rand = "0.10"
 libc = "0.2"
-nix = { version = "0.31.2", default-features = false, features = ["process", "signal"] }
+nix = { version = "0.31.2", default-features = false, features = ["process", "signal", "term"] }
 fs2 = "0.4"
 base64 = "0.22"
 sha2 = "0.11"
@@ -117,6 +120,7 @@ futures = "0.3"
 eventsource-stream = "0.2.3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 pulldown-cmark = "0.13"
+unicase = "2.9"
 textwrap = "0.16.2"
 unicode-width = "0.2"
 unicode-segmentation = "1.13"
@@ -137,8 +141,10 @@ backon = "1.6.0"
 ethnum = "1.5.3"
 
 [dev-dependencies]
+tokio = { version = "1.0", features = ["test-util"] }
 tempfile = "3.17"
 insta = "1.43"
+vt100 = "0.16.2"
 
 [target.'cfg(all(target_os = "linux", any(target_arch = "aarch64", target_env = "musl")))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

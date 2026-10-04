@@ -1,3 +1,10 @@
+mod active_prefix;
+#[cfg(test)]
+mod active_prefix_invalidation_tests;
+#[cfg(test)]
+mod active_prefix_tests;
+#[cfg(test)]
+mod active_stream_tests;
 mod bottom_pane;
 pub(crate) mod cells;
 pub(crate) mod diff;
@@ -6,8 +13,23 @@ mod layout;
 mod overlay;
 mod sidebar;
 mod spinner;
+mod stream_rows;
+#[cfg(test)]
+mod stream_rows_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod thinking_layout_tests;
+#[cfg(test)]
+mod thinking_stream_tests;
+mod transcript_cache;
+#[cfg(test)]
+mod transcript_cache_tests;
+#[cfg(test)]
+mod transcript_scroll_tests;
+#[cfg(test)]
+#[path = "render/transcript_theme_tests.rs"]
+mod transcript_theme_tests;
 mod viewport;
 
 use std::path::Path;
@@ -22,18 +44,21 @@ use ratatui::{
 
 #[cfg(test)]
 use self::bottom_pane::desired_bottom_pane_height;
-pub(crate) use self::bottom_pane::desired_viewport_height;
-pub(crate) use self::cells::{ActiveCell, HistoryCell};
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
+pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;
 pub(crate) use self::overlay::popup_block;
+pub(crate) use self::stream_rows::{ResponseView, StreamRowCache};
+pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;
 use super::custom_terminal::Frame;
 use super::line_utils::prefix_lines;
-use super::state::{TranscriptEntry, TuiApp};
+use super::state::{TranscriptEntry, TranscriptScrollLayout, TuiApp};
 use super::tool_text::{
     bash_rg_exploration_action_label, compact_delegate_rest, compact_instruction,
 };
+use super::transcript_rows::TranscriptRows;
+use crate::tui::message_role::MessageRole;
 use crate::tui::sub_agent_display::SubAgentKind;
 use crate::tui::theme::*;
 
@@ -92,84 +117,43 @@ fn render_transcript(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         return;
     }
 
-    app.transcript_selection.update_snapshot(
-        viewport.lines.as_slice(),
-        area,
-        viewport.scroll_offset,
-    );
+    app.transcript_selection
+        .update_snapshot(&viewport.lines, area, viewport.scroll_offset);
     viewport.render(f, area);
     app.transcript_selection
         .highlight_visible_range(f.buffer_mut());
 }
 
 pub(crate) fn transcript_viewport(
-    app: &TuiApp,
+    app: &mut TuiApp,
     width: u16,
     viewport_height: u16,
 ) -> TranscriptViewport {
     let lines = renderable_transcript_lines(app, width);
-    let mut viewport = TranscriptViewport::new(lines, 0, width);
-    let effective_height = viewport_height.saturating_sub(1).max(1);
-    viewport.scroll_offset = transcript_scroll_offset(app, effective_height, viewport.lines.len());
-    viewport
+    let scroll_offset = app.transcript_scroll.update_layout(TranscriptScrollLayout {
+        width,
+        height: viewport_height,
+        content_rows: lines.len(),
+    });
+    TranscriptViewport {
+        lines,
+        scroll_offset,
+        #[cfg(test)]
+        work: app.committed_render_cache.borrow().work.clone(),
+    }
 }
 
-fn renderable_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
-    let mut lines = committed_transcript_lines(app, width);
-
-    let mut active_lines = active_turn_cell(app).display_lines(width);
-    if !active_lines.is_empty() {
-        if !lines.is_empty() {
-            lines.push(turn_divider_line(width));
-        }
-        lines.append(&mut active_lines);
-    }
-
-    lines
+pub(crate) fn scroll_transcript(app: &mut TuiApp, delta: i32) {
+    let Some(layout) = app.transcript_scroll.layout() else {
+        return;
+    };
+    // Content may have changed since the last frame; never navigate stale bounds.
+    transcript_viewport(app, layout.width, layout.height);
+    app.transcript_scroll.scroll(delta);
 }
 
-fn committed_transcript_lines(app: &TuiApp, width: u16) -> Vec<Line<'static>> {
-    {
-        let cache = app.committed_render_cache.borrow();
-        if cache.generation == app.committed_render_generation && cache.width == width {
-            return cache.lines.clone();
-        }
-    }
-
-    let cwd = (!app.snapshot.cwd.is_empty()).then(|| Path::new(app.snapshot.cwd.as_str()));
-    let mut lines = Vec::new();
-    for turn in &app.committed_turns {
-        let mut turn_lines = committed_turn_lines(
-            turn.entries.as_slice(),
-            cwd,
-            width,
-            app.thinking_collapsed,
-            turn.thinking_duration,
-        );
-        if turn_lines.is_empty() {
-            continue;
-        }
-        if !lines.is_empty() {
-            lines.push(turn_divider_line(width));
-        }
-        lines.append(&mut turn_lines);
-    }
-
-    let mut cache = app.committed_render_cache.borrow_mut();
-    cache.generation = app.committed_render_generation;
-    cache.width = width;
-    cache.lines = lines.clone();
-    lines
-}
-
-fn transcript_scroll_offset(
-    app: &TuiApp,
-    viewport_height: u16,
-    transcript_line_count: usize,
-) -> u16 {
-    let max_offset = transcript_line_count.saturating_sub(viewport_height as usize);
-    let top_offset = max_offset.saturating_sub(app.transcript_scroll);
-    top_offset.min(u16::MAX as usize) as u16
+fn renderable_transcript_lines(app: &TuiApp, width: u16) -> TranscriptRows {
+    transcript_cache::materialize(app, width)
 }
 
 fn turn_divider_line(width: u16) -> Line<'static> {
@@ -222,8 +206,7 @@ pub(crate) fn current_turn_exploration_summary_from_entries(
 ) -> Option<String> {
     let mut actions = Vec::new();
     for entry in current_turn {
-        use crate::tui::message_role::MessageRole;
-        if MessageRole::try_from_str(&entry.role) != Some(MessageRole::Tool) {
+        if entry.role != MessageRole::Tool {
             continue;
         }
         if let Some(action) = exploration_action_label(&entry.message)
@@ -285,9 +268,8 @@ pub(crate) fn current_turn_tool_summary(
             continue;
         }
 
-        use crate::tui::message_role::MessageRole;
-        match MessageRole::try_from_str(&entry.role) {
-            Some(MessageRole::Tool) => {
+        match &entry.role {
+            MessageRole::Tool => {
                 if let Some(action) = tool_action_label(&entry.message) {
                     lines.push(format!("└ {action}"));
                     pending_legacy_tool = true;
@@ -295,7 +277,10 @@ pub(crate) fn current_turn_tool_summary(
                     pending_legacy_tool = false;
                 }
             }
-            Some(MessageRole::ToolResult) | Some(MessageRole::ToolError) if pending_legacy_tool => {
+            MessageRole::ToolResult | MessageRole::ToolError => {
+                if !pending_legacy_tool {
+                    continue;
+                }
                 lines.extend(
                     tool_result_summary_lines(&entry.message, RESULT_LINE_LIMIT)
                         .into_iter()
@@ -303,7 +288,27 @@ pub(crate) fn current_turn_tool_summary(
                 );
                 pending_legacy_tool = false;
             }
-            _ => {}
+            MessageRole::User
+            | MessageRole::Agent
+            | MessageRole::System
+            | MessageRole::Runtime
+            | MessageRole::Responding
+            | MessageRole::ToolProgress
+            | MessageRole::Exploring
+            | MessageRole::Planning
+            | MessageRole::Running
+            | MessageRole::Thinking
+            | MessageRole::Todo
+            | MessageRole::Download
+            | MessageRole::TerminalEvent
+            | MessageRole::Compaction
+            | MessageRole::ShellApprovalCompleted
+            | MessageRole::QuestionAnswered
+            | MessageRole::PlanningQuestionAnswered
+            | MessageRole::ExplorationQuestionAnswered
+            | MessageRole::SubAgentQuestionAnswered
+            | MessageRole::PlanDecision
+            | MessageRole::Legacy(_) => {}
         }
     }
 
@@ -460,45 +465,54 @@ fn head_tail_line_window<T>(items: &[T], max_lines: usize) -> (&[T], &[T]) {
     (&items[..1], &items[items.len() - tail_len..])
 }
 
-fn role_prefix_icon(role: &str) -> (&'static str, Color) {
-    use crate::tui::message_role::MessageRole;
-    match MessageRole::try_from_str(role) {
-        Some(MessageRole::User) => ("You", ROLE_USER),
-        Some(MessageRole::Agent) => ("Agent", ROLE_AGENT),
-        Some(MessageRole::System) => ("System", ROLE_SYSTEM),
-        Some(MessageRole::ToolResult) => ("✓", STATUS_SUCCESS),
-        Some(MessageRole::ToolError) => ("✕", STATUS_ERROR),
-        Some(MessageRole::ToolProgress) => ("…", STATUS_WARNING),
-        Some(MessageRole::Tool) => ("⚙", TEXT_SECONDARY),
-        Some(MessageRole::Exploring) => ("🔍", PHASE_EXPLORING),
-        Some(MessageRole::Planning) => ("📋", PHASE_PLANNING),
-        Some(MessageRole::Running) => ("▶", PHASE_RUNNING),
-        Some(MessageRole::Todo) => ("☑", PHASE_PLANNING),
-        _ => ("", TEXT_SECONDARY),
+fn role_prefix_icon(role: &MessageRole) -> (&'static str, Color) {
+    match role {
+        MessageRole::User => ("You", ROLE_USER),
+        MessageRole::Agent => ("Agent", ROLE_AGENT),
+        MessageRole::System => ("System", ROLE_SYSTEM),
+        MessageRole::ToolResult => ("✓", STATUS_SUCCESS),
+        MessageRole::ToolError => ("✕", STATUS_ERROR),
+        MessageRole::ToolProgress => ("…", STATUS_WARNING),
+        MessageRole::Tool => ("⚙", TEXT_SECONDARY),
+        MessageRole::Exploring => ("🔍", PHASE_EXPLORING),
+        MessageRole::Planning => ("📋", PHASE_PLANNING),
+        MessageRole::Running => ("▶", PHASE_RUNNING),
+        MessageRole::Todo => ("☑", PHASE_PLANNING),
+        MessageRole::Runtime
+        | MessageRole::Responding
+        | MessageRole::Thinking
+        | MessageRole::Download
+        | MessageRole::TerminalEvent
+        | MessageRole::Compaction
+        | MessageRole::ShellApprovalCompleted
+        | MessageRole::QuestionAnswered
+        | MessageRole::PlanningQuestionAnswered
+        | MessageRole::ExplorationQuestionAnswered
+        | MessageRole::SubAgentQuestionAnswered
+        | MessageRole::PlanDecision
+        | MessageRole::Legacy(_) => ("", TEXT_SECONDARY),
     }
 }
 
 pub(crate) fn prefixed_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
-    use crate::tui::message_role::MessageRole;
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
-    let role_kind = MessageRole::try_from_str(role);
-    if role_kind == Some(MessageRole::User) {
+    if *role == MessageRole::User {
         return user_message_lines(message, usize::MAX);
     }
-    if role_kind == Some(MessageRole::Agent) {
+    if *role == MessageRole::Agent {
         return agent_message_lines(message, usize::MAX);
     }
-    if role_kind == Some(MessageRole::System) {
+    if *role == MessageRole::System {
         return system_message_lines(message, usize::MAX);
     }
     let (icon, color) = role_prefix_icon(role);
     let label = if icon.is_empty() {
-        format!("{}:", role)
+        format!("{}:", role.as_str())
     } else {
         icon.to_string()
     };
@@ -529,7 +543,7 @@ pub(crate) fn prefixed_message_lines(
 }
 
 pub(crate) fn prefixed_tail_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Vec<Line<'static>> {
@@ -537,7 +551,7 @@ pub(crate) fn prefixed_tail_message_lines(
     let message = message.as_str();
     let (icon, color) = role_prefix_icon(role);
     let label = if icon.is_empty() {
-        format!("{}:", role)
+        format!("{}:", role.as_str())
     } else {
         icon.to_string()
     };
@@ -668,16 +682,14 @@ fn system_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> {
     lines
 }
 pub(crate) fn formatted_message_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
     cwd: Option<&Path>,
 ) -> Vec<Line<'static>> {
-    use crate::tui::message_role::MessageRole;
     let message = crate::tui::display_sanitize::sanitize_display_text(message);
     let message = message.as_str();
-    let role_kind = MessageRole::try_from_str(role);
-    if role_kind == Some(MessageRole::Agent) {
+    if *role == MessageRole::Agent {
         let mut lines = vec![Line::from(vec![Span::styled(
             "# Agent",
             Style::default().fg(ROLE_AGENT),
@@ -686,7 +698,7 @@ pub(crate) fn formatted_message_lines(
         lines.extend(body);
         return lines;
     }
-    if role_kind == Some(MessageRole::System) {
+    if *role == MessageRole::System {
         let mut lines = vec![Line::from(vec![Span::styled(
             "# System",
             Style::default().fg(ROLE_SYSTEM),
@@ -755,36 +767,11 @@ fn bulleted_markdown_message_lines(
     lines
 }
 
-pub(crate) fn rendered_markdown_lines(
-    role: &str,
-    rendered: &[Line<'static>],
-    max_lines: usize,
-) -> Vec<Line<'static>> {
-    if rendered.is_empty() {
-        return vec![Line::from(role.to_string())];
-    }
-
-    let rendered_len = rendered.len();
-    let capped = if max_lines == usize::MAX {
-        rendered_len
-    } else {
-        max_lines.min(rendered_len)
-    };
-
-    let mut lines = vec![Line::from(role.to_string())];
-    let prefixed = prefix_lines(
-        rendered.iter().take(capped).cloned().collect(),
-        Span::raw("  "),
-        Span::raw("  "),
-    );
-    lines.extend(prefixed);
-    if capped < rendered_len {
-        lines.push(Line::from(Span::styled(
-            format!("  ... {} more line(s)", rendered_len - capped),
-            Style::default().fg(Color::DarkGray),
-        )));
-    }
-    lines
+fn markdown_truncation_line(remaining: usize) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("  ... {remaining} more line(s)"),
+        Style::default().fg(Color::DarkGray),
+    ))
 }
 
 fn is_exploration_tool(name: &str) -> bool {
@@ -888,7 +875,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         )),
         "spawn_agent" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();
@@ -897,7 +884,7 @@ fn tool_action_label(message: &str) -> Option<String> {
         }
         "explore_agent" | "plan_agent" | "team_create" => {
             let kind = SubAgentKind::from_tool_name(name).unwrap_or_else(|| {
-                eprintln!("Warning: unknown sub-agent tool name in render: {name}");
+                log::warn!("Unknown sub-agent tool name in render: {name}");
                 SubAgentKind::General
             });
             let (icon, _) = kind.action_icon();

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, atomic::AtomicBool};
@@ -16,6 +16,7 @@ use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
 use super::bottom_pane_model::BottomPaneModel;
 use super::planning_lifecycle::PlanningLifecycleSnapshot;
+use super::transcript_scroll::TranscriptScroll;
 use crate::agent::{Agent, AgentExecutionMode, BashApprovalMode};
 use crate::codex_model_catalog::CodexModelOption;
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
@@ -23,7 +24,7 @@ use crate::context::{
     CompactionSourceContextEntry, ContextAssemblyEntry, PromptSourceContextEntry,
     RetrievalSourceContextEntry,
 };
-use crate::control_tokens::{has_pending_internal_control_context, scrub_internal_control_tokens};
+use crate::control_tokens::{ControlTokenReplay, scrub_internal_control_tokens};
 #[cfg(test)]
 use crate::hook_registry::HookRegistry;
 use crate::lsp_manager::LspManager;
@@ -36,7 +37,9 @@ use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::thread_store::ThreadSummary;
 use crate::tools::bash::BashCommandInput;
-use crate::tui::display_sanitize::sanitize_display_text;
+use crate::tui::display_sanitize::{StreamSanitizer, sanitize_display_text};
+use crate::tui::message_role::MessageRole;
+use crate::tui::presentation_revision::{PresentationInput, PresentationRevision};
 use crate::tui::selection::TranscriptSelection;
 use crate::tui::terminal_event::TerminalEvent;
 
@@ -81,6 +84,7 @@ impl ApiKeyTarget {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
+    Goal,
     Help(HelpTab),
     CommandPalette,
     Status(StatusTab),
@@ -432,12 +436,11 @@ pub enum TuiEvent {
     /// Structured runtime event. Runtime semantics must be consumed from this
     /// variant instead of inferred from transcript role or message text.
     Runtime(Box<crate::runtime_control::RuntimeControlEvent>),
-    Transcript {
-        role: &'static str,
-        message: String,
-    },
+    DownloadProgress(String),
+    OAuthProgress(String),
     Terminal(TerminalEvent),
     ToolProgress {
+        call_id: Option<String>,
         name: String,
         stream: ToolOutputStream,
         chunk: String,
@@ -451,7 +454,7 @@ pub struct RunningTask {
     pub started_at: Instant,
     pub next_heartbeat_after_secs: u64,
     pub cancellation_token: Option<Arc<AtomicBool>>,
-    pub cancellation_requested: bool,
+    pub(crate) query_control: Option<crate::tui::runtime::QueryTaskControl>,
 }
 
 impl std::fmt::Debug for RunningTask {
@@ -459,7 +462,7 @@ impl std::fmt::Debug for RunningTask {
         f.debug_struct("RunningTask")
             .field("kind", &self.kind)
             .field("started_at", &self.started_at)
-            .field("cancellation_requested", &self.cancellation_requested)
+            .field("query_control", &self.query_control)
             .finish()
     }
 }
@@ -514,7 +517,7 @@ pub const PROVIDER_FAMILIES: [(ProviderFamily, &str, &str); 9] = [
 
 #[derive(Clone, Default)]
 pub struct TranscriptEntry {
-    pub role: String,
+    pub role: MessageRole,
     pub message: String,
     pub payload: Option<TranscriptEntryPayload>,
 }
@@ -522,6 +525,7 @@ pub struct TranscriptEntry {
 #[derive(Clone, Debug)]
 pub enum TranscriptEntryPayload {
     Terminal(TerminalEvent),
+    ToolProgress(crate::tui::tool_progress::ToolProgressTranscriptPayload),
     Tool(ToolTranscriptPayload),
     Compaction(CompactionTranscriptPayload),
     /// Reserved for semantic transcript filtering and future per-kind system
@@ -566,18 +570,19 @@ pub enum SystemMessageKind {
 }
 
 impl TranscriptEntry {
-    pub fn new(role: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(role: MessageRole, message: impl Into<String>) -> Self {
         Self {
-            role: role.into(),
-            message: message.into(),
+            role,
+            message: sanitize_display_text(&message.into()),
             payload: None,
         }
     }
 
     pub fn terminal_event(event: TerminalEvent) -> Self {
+        let event = event.sanitized_for_display();
         Self {
-            role: "Terminal Event".to_string(),
-            message: event.to_transcript_message(),
+            role: MessageRole::TerminalEvent,
+            message: sanitize_display_text(&event.to_transcript_message()),
             payload: Some(TranscriptEntryPayload::Terminal(event)),
         }
     }
@@ -589,16 +594,16 @@ impl TranscriptEntry {
         message: impl Into<String>,
     ) -> Self {
         let role = match status {
-            ToolTranscriptStatus::Running => "Tool",
-            ToolTranscriptStatus::Completed => "Tool Result",
-            ToolTranscriptStatus::Error => "Tool Error",
+            ToolTranscriptStatus::Running => MessageRole::Tool,
+            ToolTranscriptStatus::Completed => MessageRole::ToolResult,
+            ToolTranscriptStatus::Error => MessageRole::ToolError,
         };
         Self {
-            role: role.to_string(),
-            message: message.into(),
+            role,
+            message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::Tool(ToolTranscriptPayload {
                 call_id: call_id.map(ToString::to_string),
-                name: name.into(),
+                name: crate::tui::display_sanitize::sanitize_display_line(&name.into()),
                 status,
             })),
         }
@@ -606,8 +611,8 @@ impl TranscriptEntry {
 
     pub fn system(message: impl Into<String>, kind: SystemMessageKind) -> Self {
         Self {
-            role: "System".to_string(),
-            message: message.into(),
+            role: MessageRole::System,
+            message: sanitize_display_text(&message.into()),
             payload: Some(TranscriptEntryPayload::System(kind)),
         }
     }
@@ -620,14 +625,17 @@ impl TranscriptEntry {
         recent_files: Vec<String>,
     ) -> Self {
         Self {
-            role: "Compaction".to_string(),
-            message: summary.into(),
+            role: MessageRole::Compaction,
+            message: sanitize_display_text(&summary.into()),
             payload: Some(TranscriptEntryPayload::Compaction(
                 CompactionTranscriptPayload {
                     count,
                     before_tokens,
                     after_tokens,
-                    recent_files,
+                    recent_files: recent_files
+                        .into_iter()
+                        .map(|path| crate::tui::display_sanitize::sanitize_display_line(&path))
+                        .collect(),
                 },
             )),
         }
@@ -640,87 +648,116 @@ pub struct TranscriptTurn {
     pub thinking_duration: Option<std::time::Duration>,
 }
 
-#[derive(Default)]
-pub(crate) struct CommittedTranscriptRenderCache {
-    pub generation: u64,
-    pub width: u16,
-    pub lines: Vec<Line<'static>>,
-}
+pub(crate) use crate::tui::render::CommittedTranscriptRenderCache;
 
 pub struct AgentMarkdownStreamState {
+    #[cfg(test)]
+    control_scrubbed_bytes: usize,
+    presentation_revision: PresentationRevision,
     pub(crate) raw_text: String,
+    sanitizer: StreamSanitizer,
     last_visible_text: String,
-    incremental_passthrough: bool,
-    cwd: PathBuf,
-    collector: MarkdownStreamCollector,
-    committed_lines: Vec<Line<'static>>,
-    pub(crate) display_lines: Vec<Line<'static>>,
+    control_replay: ControlTokenReplay,
+    collector: RefCell<MarkdownStreamCollector>,
+    response_layout: RefCell<crate::tui::render::StreamRowCache>,
 }
 
 impl AgentMarkdownStreamState {
     pub(crate) fn new(cwd: PathBuf) -> Self {
         Self {
+            #[cfg(test)]
+            control_scrubbed_bytes: 0,
+            presentation_revision: Default::default(),
             raw_text: String::new(),
+            sanitizer: StreamSanitizer::default(),
             last_visible_text: String::new(),
-            incremental_passthrough: true,
-            cwd: cwd.clone(),
-            collector: MarkdownStreamCollector::new(None, &cwd),
-            committed_lines: Vec::new(),
-            display_lines: Vec::new(),
+            control_replay: ControlTokenReplay::default(),
+            collector: RefCell::new(MarkdownStreamCollector::new(None, &cwd)),
+            response_layout: RefCell::default(),
         }
     }
 
     pub(crate) fn push_delta(&mut self, delta: &str) {
-        if self.incremental_passthrough && !delta.contains('<') {
+        self.presentation_revision = Default::default();
+        let delta = self.sanitizer.push_delta(delta);
+        let delta = delta.as_str();
+        if !self.control_replay.requires_replay(delta) {
             self.raw_text.push_str(delta);
-            let visible_delta = sanitize_display_text(delta);
-            self.last_visible_text.push_str(&visible_delta);
-            if !visible_delta.is_empty() {
-                self.collector.push_delta(&visible_delta);
-                self.refresh_display_lines();
+            self.last_visible_text.push_str(delta);
+            if !delta.is_empty() {
+                self.collector.get_mut().push_delta(delta);
             }
             return;
         }
 
         self.raw_text.push_str(delta);
-        let visible_text = sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text));
+        #[cfg(test)]
+        {
+            self.control_scrubbed_bytes += self.raw_text.len();
+        }
+        let visible_text = scrub_internal_control_tokens(&self.raw_text);
         if let Some(new_visible_delta) = visible_text.strip_prefix(&self.last_visible_text) {
             if !new_visible_delta.is_empty() {
-                self.collector.push_delta(new_visible_delta);
-                self.refresh_display_lines();
+                self.collector.get_mut().push_delta(new_visible_delta);
             }
         } else {
-            self.replace_display_text(&visible_text);
+            self.collector.get_mut().replace_source(&visible_text);
         }
         self.last_visible_text = visible_text;
-        self.incremental_passthrough = !has_pending_internal_control_context(&self.raw_text);
     }
 
     pub(crate) fn sanitized_raw_text(&self) -> String {
-        sanitize_display_text(&scrub_internal_control_tokens(&self.raw_text))
+        scrub_internal_control_tokens(&self.raw_text)
     }
 
-    fn replace_display_text(&mut self, text: &str) {
-        self.collector = MarkdownStreamCollector::new(None, &self.cwd);
-        self.committed_lines.clear();
-        self.display_lines.clear();
-        self.collector.push_delta(text);
-        self.refresh_display_lines();
+    pub(crate) fn presentation_revision(&self) -> PresentationRevision {
+        self.presentation_revision.clone()
     }
 
-    fn refresh_display_lines(&mut self) {
-        self.committed_lines
-            .extend(self.collector.commit_complete_lines());
-        self.display_lines = self.committed_lines.clone();
-        self.display_lines.extend(self.collector.preview_lines());
+    fn rendered_collector(&self) -> Ref<'_, MarkdownStreamCollector> {
+        if self.collector.borrow().needs_render() {
+            self.collector.borrow_mut().lines();
+        }
+        self.collector.borrow()
     }
 
+    pub(crate) fn display_lines(&self) -> Ref<'_, [Line<'static>]> {
+        Ref::map(self.rendered_collector(), |collector| {
+            collector.cached_lines()
+        })
+    }
+
+    pub(crate) fn response_rows(
+        &self,
+        width: u16,
+        view: crate::tui::render::ResponseView,
+    ) -> crate::tui::transcript_rows::TranscriptRows {
+        let collector = self.rendered_collector();
+        self.response_layout
+            .borrow_mut()
+            .materialize(collector.rendered_stream(), width, view)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn markdown_work(&self) -> crate::tui::markdown_stream::MarkdownWork {
+        self.collector.borrow().work()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout_work(&self) -> crate::tui::transcript_work::WorkMeter {
+        self.response_layout.borrow().work.clone()
+    }
+
+    #[cfg(test)]
     pub(crate) fn finalize_display_lines(&mut self) {
-        self.committed_lines
-            .extend(self.collector.finalize_and_drain());
-        self.display_lines = self.committed_lines.clone();
+        self.presentation_revision = Default::default();
+        self.collector.get_mut().finalize();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/control_stream.rs"]
+mod control_stream_tests;
 
 #[derive(Default)]
 pub struct ActiveLiveSections {
@@ -735,12 +772,14 @@ pub struct ActiveLiveSections {
 }
 
 pub struct TuiApp {
+    #[cfg(test)]
+    pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
     pub input_history: Vec<String>,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
     pub committed_turns: Vec<TranscriptTurn>,
-    pub active_turn: TranscriptTurn,
+    pub active_turn: PresentationInput<TranscriptTurn>,
     pub overlay: Option<Overlay>,
     /// Dialog stack for back-navigation. The last element is always the
     /// current overlay.  When empty, no overlay is shown.
@@ -755,8 +794,8 @@ pub struct TuiApp {
     pub config_manager: ConfigManager,
     pub setup_status: Option<String>,
     pub runtime_phase: RuntimePhase,
-    pub runtime_phase_detail: Option<String>,
-    pub snapshot: RuntimeSnapshot,
+    pub runtime_phase_detail: PresentationInput<Option<String>>,
+    pub snapshot: PresentationInput<RuntimeSnapshot>,
     pub agent_execution_mode: AgentExecutionMode,
     pub bash_approval_mode: BashApprovalMode,
     pub provider_picker_idx: usize,
@@ -796,15 +835,19 @@ pub struct TuiApp {
     pub resume_search_query: String,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
-    pub transcript_scroll: usize,
+    pub(crate) transcript_scroll: TranscriptScroll,
     pub(crate) transcript_selection: TranscriptSelection,
+    pub(crate) clipboard: Option<crate::tui::clipboard::Clipboard>,
+    pub(crate) scroll_acceleration: super::ScrollAcceleration,
     pub context_scroll: u16,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
-    pub active_live: ActiveLiveSections,
+    pub active_live: PresentationInput<ActiveLiveSections>,
+    pub(crate) tool_progress: crate::tui::tool_progress::ToolProgressState,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,
+    pub(crate) quit_shortcut: super::QuitShortcutState,
     pub state_db: Option<Arc<StateDb>>,
     pub state_db_status: Option<String>,
     pub shared_task_root: Option<PathBuf>,
@@ -833,8 +876,10 @@ pub struct TuiApp {
     pub(crate) pending_permission_mode: Option<PermissionMode>,
     /// Currently active ralph loop goal, if any.
     pub goal: Option<RalphGoal>,
+    pub(in crate::tui) goal_ui: crate::tui::goal_ui::GoalUiState,
     /// Shared handle that model-facing goal tools write to.
     pub goal_handle: GoalHandle,
+    pub(in crate::tui) pending_goal_resume: Option<crate::tui::goal_resume::PendingGoalResume>,
     /// Optional runtime event bus that mirrors AgentEvent to ACP/Wire
     /// subscribers. Set during TUI startup; None only in test contexts.
     pub event_bus: Option<Arc<RuntimeEventBus>>,

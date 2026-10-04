@@ -12,20 +12,22 @@ use super::viewport::TranscriptViewport;
 use super::{
     committed_turn_cell, compact_progress_summary_lines, compact_recent_first_summary_lines,
     compact_summary_text, current_turn_exploration_summary_from_entries, current_turn_tool_summary,
-    desired_bottom_pane_height, desired_viewport_height, display_directory_for_startup,
-    formatted_message_lines, prefixed_message_lines, renderable_transcript_lines,
-    tool_action_label, transcript_scroll_offset, transcript_viewport,
+    desired_bottom_pane_height, display_directory_for_startup, formatted_message_lines,
+    prefixed_message_lines, renderable_transcript_lines, scroll_transcript, tool_action_label,
+    transcript_viewport,
 };
 use crate::config::{ConfigManager, OpenAiEndpointKind, RaraConfig};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::custom_terminal::Frame;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::SkillPickerEntry;
 use crate::tui::state::{
     ApiKeyTarget, InteractionKind, ListPickerKind, Overlay, PendingApprovalSnapshot,
     PendingInteractionSnapshot, PlanningApprovalStatus, PlanningLifecycleSnapshot, ProviderFamily,
     RuntimeSnapshot, StatusTab, ToolTranscriptPayload, ToolTranscriptStatus, TranscriptEntry,
-    TranscriptEntryPayload, TranscriptTurn, TuiApp,
+    TranscriptEntryPayload, TranscriptScroll, TranscriptScrollLayout, TranscriptTurn, TuiApp,
 };
+use crate::tui::testing::terminal_emulator::render_app_viewport;
 
 fn provider_family_idx(family: ProviderFamily) -> usize {
     crate::tui::state::PROVIDER_FAMILIES
@@ -399,7 +401,7 @@ fn render_screen_buffer(app: &mut TuiApp, width: u16, height: u16) -> Buffer {
 #[test]
 fn prefixed_message_lines_keep_first_and_latest_lines() {
     let rendered = prefixed_message_lines(
-        "Tool",
+        &MessageRole::Tool,
         &["intro", "middle 1", "middle 2", "latest 1", "latest 2"].join("\n"),
         3,
     )
@@ -414,19 +416,21 @@ fn prefixed_message_lines_keep_first_and_latest_lines() {
 
 #[test]
 fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
-    let tool_rendered = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
+    let tool_rendered =
+        prefixed_message_lines(&MessageRole::Tool, &["intro", "latest 1"].join("\n"), 1)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
     assert_eq!(tool_rendered[0], "⚙ intro");
     assert!(tool_rendered[1].contains("more line"));
     assert_eq!(tool_rendered.len(), 2);
 
     // Second call with same arguments — should be identical.
-    let tool_rendered2 = prefixed_message_lines("Tool", &["intro", "latest 1"].join("\n"), 1)
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
+    let tool_rendered2 =
+        prefixed_message_lines(&MessageRole::Tool, &["intro", "latest 1"].join("\n"), 1)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
     assert_eq!(tool_rendered2[0], "⚙ intro");
     assert!(tool_rendered2[1].contains("more line"));
     assert_eq!(tool_rendered2.len(), 2);
@@ -435,7 +439,7 @@ fn prefixed_message_lines_show_truncation_when_max_lines_is_one() {
 #[test]
 fn formatted_agent_markdown_keeps_first_and_latest_lines() {
     let rendered = formatted_message_lines(
-        "Agent",
+        &MessageRole::Agent,
         &["first line", "middle 1", "middle 2", "latest 1", "latest 2"].join("\n"),
         3,
         Some(Path::new(".")),
@@ -458,7 +462,7 @@ fn formatted_agent_markdown_keeps_first_and_latest_lines() {
 #[test]
 fn formatted_agent_markdown_sanitizes_terminal_controls() {
     let rendered = formatted_message_lines(
-        "Agent",
+        &MessageRole::Agent,
         "Again\rcommit-to-main\u{1b}[31m red\u{1b}[0m\u{8}!",
         10,
         Some(Path::new(".")),
@@ -538,7 +542,8 @@ fn context_overlay_snapshot_with_typical_budget() {
             },
         ],
         ..Default::default()
-    };
+    }
+    .into();
     app.config
         .set_model(Some("anthropic/claude-sonnet-4".to_string()));
 

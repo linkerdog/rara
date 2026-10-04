@@ -14,10 +14,14 @@ Active backlog only. Keep this file small and current.
 ## Portable Provider Boundary
 
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
-      core contract extraction: provider crates, browser HTTP/SSE transport,
-      host-compatible accounting clocks and future bounds, and browser runtime
-      tests. The [contract](features/portable-llm-contracts.md) currently proves
-      browser-target compilation only.
+      LLM/tool contracts and the [shared loop machine](features/portable-agent-loop.md):
+      provider crates, portable context/policy assembly, browser HTTP/SSE transport,
+      and browser session scheduling. Shared model/tool/loop effects now accept
+      browser-local futures and use working browser accounting clocks, with
+      real Chrome execution under [the browser effects contract](features/browser-agent-effects.md).
+      This does not yet deliver a complete browser provider/session stack.
+      Workspace resolver 3 and explicit root default-member selection are in
+      place; see [the workspace checkpoint](journal/2026-10-04-workspace-resolution.md).
 
 ## Prefix Cache Cost Evaluation
 
@@ -46,17 +50,87 @@ Active backlog only. Keep this file small and current.
 - [ ] Complete [#921](https://github.com/linkerdog/rara/issues/921) transcript
       layout caching and bounded redraw work. Shared materialized visual rows
       fix the correctness boundary, not per-delta rendering complexity; see
-      [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md).
+      [the wrapping checkpoint](journal/2026-10-02-shared-transcript-wrapping.md)
+      and [the scroll-anchor checkpoint](journal/2026-10-02-transcript-scroll-anchors.md).
+      Frame scheduling and stable/mutable Markdown source caching are implemented
+      checkpoints. Indexed shared committed blocks now remove complete-history
+      clone/wrap/hash work from frames, scroll, and selection, with focused work
+      counts and retained-allocation guards. Eligible active response bodies now
+      retain stable visual blocks with a mutable preview and explicit replay
+      epochs. Persistent balanced indexes bound retained root-handle copies
+      logarithmically. Unchanged active-prefix assembly and comparison are now
+      bypassed using mutation identities. Live thinking content and clock updates
+      replace only their visible row block, preserving both surrounding sections.
+      Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
+      mutable blocks, definition changes, and reference-expansion fallback still
+      need work bounds. Ordinary blocks after reference definitions now reuse
+      their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
+      ordinary angle brackets now avoid control-cleanup replay, while completed
+      legacy markers and complex control contexts retain explicit replay costs.
+      See [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md);
+      exact-head CI/review/merge and terminal acceptance remain separate gates.
+      Live thinking now copies only its selected four-row tail; its source
+      parsing and long-row wrapping costs remain separate. See
+      [the thinking checkpoint](journal/2026-10-03-bounded-thinking-window.md).
+      See [the prefix checkpoint](journal/2026-10-03-active-prefix-cache.md).
+      See [the thinking layout checkpoint](journal/2026-10-03-live-thinking-row-slot.md).
+      See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
+      See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
+      Tables interrupting mutable paragraphs have a canonical-renderer check at
+      every Unicode-safe two-chunk split, including CRLF and reference contexts.
+      See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
+      [the streaming contract](features/streaming-transcript.md) and
+      [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
+- [ ] Finish [#922](https://github.com/linkerdog/rara/issues/922) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Typed stop admission, execution-return terminal publication, matching-turn
+      completion barriers, and stale-event fencing have focused automated proof.
+      See [the cancellation checkpoint](journal/2026-10-03-turn-cancellation-barrier.md).
+- [ ] Finish [#923](https://github.com/linkerdog/rara/issues/923) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Stateful display ingestion, invocation/stream-isolated bounded progress,
+      safe paste/terminal previews, and same-length middle-edit selection have
+      focused automated coverage. Legacy identity-free events cannot separate
+      concurrent same-name calls. Assistant control-token cleanup now agrees
+      across chunk boundaries, including delayed separators and DSML evidence;
+      see [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md).
+      Explicit bidi controls now use visible code-point labels, while paste and
+      submission retain source text and editing maps labels to source offsets.
+      Joiners and emoji retain the existing visible-cluster policy; this does
+      not detect general Unicode confusables or invisible payloads. See
+      [the bidi checkpoint](journal/2026-10-04-bidi-display-annotations.md) and
+      [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
+- [ ] Finish [#924](https://github.com/linkerdog/rara/issues/924) delivery gates:
+      exact-head remote CI/review/merge and bounded real-terminal acceptance.
+      Diagnostic/startup/path/title column clipping, whole-grapheme shared
+      editing, normalized visual-row selection, and checked non-destructive
+      goal restoration have focused automated coverage. See
+      [the Unicode checkpoint](journal/2026-10-03-unicode-boundaries.md).
+- [ ] Finish [#925](https://github.com/linkerdog/rara/issues/925): bounded
+      interactive terminal acceptance, including tmux and macOS native resize
+      reflow and stale frame fragments in scrollback. The vt100 backend does
+      not model terminal-native reflow. Viewport
+      ownership, shell handoff, and focus mode are covered by
+      [the viewport checkpoint](journal/2026-10-03-inline-terminal-viewport.md).
+      Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by
+      [the job-control checkpoint](journal/2026-10-03-tui-interrupt-suspend.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
-      Help General/Runtime scrolling, grapheme-cluster editing, and an explicit
-      opt-in Vim mode. See [input risks](interaction/composer-and-overlays.md#open-risks).
+      Help General/Runtime scrolling, atomic large-paste placeholder editing,
+      and an explicit opt-in Vim mode. Cache editor grapheme boundaries for
+      repeated cursor reads on long drafts. See
+      [input risks](interaction/composer-and-overlays.md#open-risks).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).
 - [ ] Extend [interaction quality verification](interaction/quality-verification.md)
-      with narrow/CJK/paste render cases, cancel/completion interleavings,
-      monotonic style/boundary checks, and bounded PTY acceptance. Each new gate
-      needs a concrete protected defect and RED evidence before becoming required.
+      with the remaining narrow/CJK/paste surface matrix, presentation dependency
+      checks, and physical terminal/multiplexer acceptance. Cancel/completion
+      interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
+      print/raw-color lints now have focused guards. Each new gate needs a
+      concrete protected defect and RED evidence before becoming required.
+      Item-level lint ownership, actual-loop quit/cancel, full-session shell
+      handoff, and the real suspend input adapter are covered by
+      [the review follow-up checkpoint](journal/2026-10-04-tui-review-followups.md).
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.
@@ -96,9 +170,14 @@ Active backlog only. Keep this file small and current.
 
 ## Thread Goals
 
-- [ ] Complete [#931](https://github.com/linkerdog/rara/issues/931): resume a
-      restored pursuing goal only when the runtime is idle, ready, and free of
-      pending interactions. Keep richer goal controls in that follow-up.
+- [x] Implement [#931](https://github.com/linkerdog/rara/issues/931): explicit
+      restore continues an eligible goal once idle; durable user-stop deferral,
+      revision-checked admission, paused choice, summary, edit, replacement
+      confirmation, and compact elapsed/budget status. See
+      [thread goals](features/thread-goals.md) and the
+      [implementation journal](journal/2026-10-03-goal-resume.md).
+      Successful-turn usage remains charged; cancelled/error turns retain the
+      existing non-ledger accounting policy.
 
 ## Memory Lifecycle
 
@@ -231,7 +310,12 @@ Active backlog only. Keep this file small and current.
 - [ ] Move the TUI rebuild, approval, goal, and maintenance pipeline from its
       compatibility `RuntimeClient` owner into `RuntimeSession` commands.
 - [ ] Extract the minimal runtime dependency graph so external Rust hosts do
-      not pull TUI, local-model, ACP, or OAuth implementations.
+      not pull TUI, local-model, ACP, or OAuth implementations
+      ([#860](https://github.com/linkerdog/rara/issues/860)). The Git fixture
+      validates portable contracts and the shared asynchronous executor; extend
+      it to portable context/policy assembly and the
+      real `RuntimeSession` with cancellation and transcript readback before
+      closing the issue. Follow the [extraction sequence](features/portable-tool-contracts.md#runtime-extraction-sequence).
 - [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,
       transcript, usage, cancellation, and MCP parity before replacing Rig in
       production lanes.

@@ -4,6 +4,7 @@ use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
 
 use crate::tools::bash::BashCommandInput;
+use crate::tui::message_role::MessageRole;
 use crate::tui::tool_text::compact_instruction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,27 +106,6 @@ impl TerminalEvent {
         }
     }
 
-    pub(crate) fn from_tool_progress(
-        name: &str,
-        stream: ToolOutputStream,
-        chunk: &str,
-    ) -> Option<Self> {
-        let target = match name {
-            "pty_start" | "pty_read" | "pty_status" | "pty_write" | "pty_kill" => {
-                TerminalTarget::Pty
-            }
-            "bash" | "background_task_status" => TerminalTarget::BackgroundTask,
-            _ => return None,
-        };
-        let chunk = output_tail_preview(chunk).map(|lines| lines.join("\n"))?;
-        Some(Self::OutputDelta(TerminalOutputDeltaEvent {
-            target,
-            id: None,
-            stream: stream.into(),
-            chunk,
-        }))
-    }
-
     pub(crate) fn from_tool_result(name: &str, content: &str, is_error: bool) -> Option<Self> {
         let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
         match name {
@@ -158,16 +138,16 @@ impl TerminalEvent {
         }
     }
 
-    pub(crate) fn transcript_role(&self) -> &'static str {
+    pub(crate) fn transcript_role(&self) -> MessageRole {
         match self {
-            Self::Begin(_) | Self::OutputDelta(_) => "Tool",
-            Self::End(event) if event.is_error => "Tool Error",
+            Self::Begin(_) | Self::OutputDelta(_) => MessageRole::Tool,
+            Self::End(event) if event.is_error => MessageRole::ToolError,
             Self::List(event) | Self::Stop(event)
                 if event.items.iter().any(|item| item.is_error) =>
             {
-                "Tool Error"
+                MessageRole::ToolError
             }
-            Self::End(_) | Self::List(_) | Self::Stop(_) => "Tool Result",
+            Self::End(_) | Self::List(_) | Self::Stop(_) => MessageRole::ToolResult,
         }
     }
 
@@ -197,9 +177,36 @@ impl TerminalEvent {
             Self::Stop(event) => event.to_collection_message("stop"),
         }
     }
+
+    pub(crate) fn sanitized_for_display(mut self) -> Self {
+        match &mut self {
+            Self::Begin(event) | Self::End(event) => event.sanitize_display_fields(),
+            Self::OutputDelta(event) => {
+                event.id = event.id.as_deref().map(sanitize_terminal_output_line);
+                event.chunk = crate::tui::display_sanitize::sanitize_display_text(&event.chunk);
+            }
+            Self::List(event) | Self::Stop(event) => {
+                for item in &mut event.items {
+                    item.sanitize_display_fields();
+                }
+            }
+        }
+        self
+    }
 }
 
 impl TerminalCommandEvent {
+    fn sanitize_display_fields(&mut self) {
+        self.id = self.id.as_deref().map(sanitize_terminal_output_line);
+        self.status = sanitize_terminal_output_line(&self.status);
+        self.command = self.command.as_deref().map(sanitize_terminal_output_line);
+        self.output_path = self
+            .output_path
+            .as_deref()
+            .map(sanitize_terminal_output_line);
+        self.output = output_tail_preview(&self.output.join("\n")).unwrap_or_default();
+    }
+
     fn new(
         target: TerminalTarget,
         id: Option<String>,
@@ -419,8 +426,15 @@ fn collection_item_event(
 pub(crate) fn output_tail_preview(output: &str) -> Option<Vec<String>> {
     const TAIL_LIMIT: usize = 6;
 
+    let mut tail =
+        crate::tui::display_tail::DisplayTail::new(crate::tui::display_tail::TailLimits {
+            bytes: 16 * 1024,
+            lines: usize::MAX,
+        });
+    tail.push_delta(output);
+    let text = tail.text();
     let mut lines = VecDeque::with_capacity(TAIL_LIMIT);
-    for line in output.lines() {
+    for line in text.lines() {
         let sanitized = sanitize_terminal_output_line(line);
         if sanitized.trim().is_empty() {
             continue;
@@ -449,6 +463,7 @@ mod tests {
     use super::{
         TerminalEvent, TerminalTarget, output_tail_preview, sanitize_terminal_output_line,
     };
+    use crate::tui::message_role::MessageRole;
 
     #[test]
     fn builds_background_start_event_from_bash_result() {
@@ -464,7 +479,7 @@ mod tests {
         )
         .expect("terminal event");
 
-        assert_eq!(event.transcript_role(), "Tool Result");
+        assert_eq!(event.transcript_role(), MessageRole::ToolResult);
         assert_eq!(
             event.to_transcript_message(),
             "background task task-1 running\noutput: /tmp/rara.log"
@@ -503,14 +518,47 @@ mod tests {
     }
 
     #[test]
-    fn skips_progress_event_when_sanitized_chunk_is_empty() {
-        let event = TerminalEvent::from_tool_progress(
-            "bash",
-            rara_tools::tool::ToolOutputStream::Stderr,
-            "\u{1b}]0;title\u{7}\u{7}\r\n",
-        );
+    fn skips_preview_when_sanitized_text_is_empty() {
+        let preview = output_tail_preview("\u{1b}]0;title\u{7}\u{7}\r\n");
 
-        assert!(event.is_none());
+        assert!(preview.is_none());
+    }
+
+    #[test]
+    fn complete_output_preview_sanitizes_before_splitting_lines() {
+        assert_eq!(
+            output_tail_preview("before\u{1b}]payload\nsecret\u{1b}\\after\r\nend"),
+            Some(vec!["before".into(), "secretafter".into(), "end".into()])
+        );
+        let preview = output_tail_preview(&format!("{}END", "x".repeat(10 * 1024 * 1024)))
+            .expect("visible preview");
+        assert!(preview.iter().map(String::len).sum::<usize>() <= 16 * 1024);
+        assert!(preview.last().unwrap().ends_with("END"));
+    }
+
+    #[test]
+    fn terminal_transcript_payload_is_a_sanitized_display_projection() {
+        let event = TerminalEvent::End(super::TerminalCommandEvent {
+            target: TerminalTarget::Pty,
+            id: Some("pty\u{7}".into()),
+            status: "completed\u{1b}[0m".into(),
+            command: Some("echo\u{8} ok".into()),
+            exit_code: Some(0),
+            output: vec!["before\u{1b}]secret".into(), "more\u{1b}\\after".into()],
+            output_path: Some("file\u{1b}[31m".into()),
+            is_error: false,
+        });
+        let entry = crate::tui::state::TranscriptEntry::terminal_event(event);
+        let Some(crate::tui::state::TranscriptEntryPayload::Terminal(TerminalEvent::End(event))) =
+            entry.payload
+        else {
+            panic!("terminal payload");
+        };
+        assert_eq!(event.id.as_deref(), Some("pty"));
+        assert_eq!(event.status, "completed");
+        assert_eq!(event.command.as_deref(), Some("echo ok"));
+        assert_eq!(event.output, ["before", "moreafter"]);
+        assert_eq!(event.output_path.as_deref(), Some("file"));
     }
 
     #[test]

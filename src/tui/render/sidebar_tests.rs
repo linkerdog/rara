@@ -18,6 +18,50 @@ use crate::tui::status_display::format_token_count;
 // ── format_token_count ──────────────────────────────────────────────
 
 #[test]
+fn session_title_obeys_unicode_boundaries() {
+    let temp = tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("app");
+    let joined = "\u{1f469}\u{200d}\u{1f4bb}";
+    for (session_id, expected) in [
+        ("0123456789abcdef".to_string(), "01234567…cdef".to_string()),
+        (
+            "\u{754c}".repeat(8),
+            format!("{}…{}", "\u{754c}".repeat(4), "\u{754c}".repeat(2)),
+        ),
+        (
+            joined.repeat(8),
+            format!("{}…{}", joined.repeat(4), joined.repeat(2)),
+        ),
+        (
+            "a\u{301}".repeat(16),
+            format!("{}…{}", "a\u{301}".repeat(8), "a\u{301}".repeat(4)),
+        ),
+        ("ab\u{200b}cd".to_string(), "abcd".to_string()),
+        (
+            "\u{ff76}\u{ff9e}".repeat(10),
+            format!(
+                "{}…{}",
+                "\u{ff76}\u{ff9e}".repeat(4),
+                "\u{ff76}\u{ff9e}".repeat(2)
+            ),
+        ),
+    ] {
+        app.snapshot.session_id = session_id;
+        let mut lines = Vec::new();
+        push_session_info(&mut lines, &app);
+        let title = lines[0].to_string();
+        assert!(
+            crate::tui::text_wrap::display_width(&title) <= 14,
+            "{title:?}"
+        );
+        assert_eq!(title, expected);
+    }
+}
+
+#[test]
 fn format_token_count_small() {
     assert_eq!(format_token_count(0), "0");
     assert_eq!(format_token_count(42), "42");
@@ -52,7 +96,8 @@ fn push_session_info_shows_id_and_location() {
         cwd: "/home/user/project".into(),
         branch: "main".into(),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
@@ -82,7 +127,8 @@ fn push_session_info_empty_session_shows_rara() {
     app.snapshot = RuntimeSnapshot {
         session_id: String::new(),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
@@ -106,7 +152,8 @@ fn push_session_info_no_branch_shows_cwd_only() {
         cwd: "/home/user/project".into(),
         branch: String::new(),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
@@ -132,7 +179,8 @@ fn push_session_info_short_session_id_not_truncated() {
     app.snapshot = RuntimeSnapshot {
         session_id: "abc".into(),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_session_info(&mut lines, &app);
@@ -182,7 +230,8 @@ fn push_plan_section_falls_back_to_shared_tasks_when_local_todo_is_empty() {
             error: None,
         },
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     assert!(push_plan_section(&mut lines, &app));
@@ -308,7 +357,8 @@ fn push_context_summary_shows_tokens_turns_compaction() {
         history_len: 42,
         compaction_count: 3,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
@@ -346,7 +396,8 @@ fn push_context_summary_no_compaction() {
         history_len: 1,
         compaction_count: 0,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
@@ -370,7 +421,8 @@ fn push_context_summary_no_context_window() {
         stable_instructions_budget: 600,
         history_len: 5,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_context_summary(&mut lines, &app);
@@ -519,7 +571,8 @@ fn push_child_sessions_shows_runtime_agent_activity() {
             ..Default::default()
         }],
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let mut lines = Vec::new();
     push_child_sessions(&mut lines, &app);
@@ -583,7 +636,8 @@ fn section_header_appears_in_sidebar() {
         session_id: "sess1".into(),
         cwd: "/tmp".into(),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
     app.config.provider = "test".into();
     app.config.model = Some("m".into());
 

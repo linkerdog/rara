@@ -1,5 +1,6 @@
 use super::TerminalCellData;
 use super::interaction_cells::TerminalCell;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{TranscriptEntry, TranscriptEntryPayload};
 use crate::tui::terminal_event::{
     TerminalCollectionEvent, TerminalCommandEvent, TerminalEvent, TerminalStream, TerminalTarget,
@@ -38,7 +39,10 @@ pub(super) fn terminal_cell_data_from_entry(entry: &TranscriptEntry) -> Option<T
         return terminal_cell_data_from_event(event);
     }
 
-    if matches!(entry.role.as_str(), "Tool Result" | "Tool Error") {
+    if matches!(
+        &entry.role,
+        MessageRole::ToolResult | MessageRole::ToolError
+    ) {
         return parse_terminal_tool_result(&entry.message);
     }
 

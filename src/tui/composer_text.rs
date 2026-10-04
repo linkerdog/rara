@@ -1,8 +1,10 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::display_sanitize::{annotate_bidi_text, bidi_annotation};
 pub(crate) use super::text_wrap::expand_tabs;
 use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
 
@@ -63,9 +65,9 @@ impl WrappedText {
         }
         self.positions
             .iter()
-            .filter(|(_, position)| position.row == target.row)
             .min_by_key(|(offset, position)| {
                 (
+                    position.row.abs_diff(target.row),
                     position.column.abs_diff(target.column),
                     std::cmp::Reverse(*offset),
                 )
@@ -108,6 +110,30 @@ pub(crate) fn wrapped_text(input: &str, config: WrapConfig<'_>) -> Arc<WrappedTe
 }
 
 fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
+    let projected = annotate_bidi_text(input);
+    let mut layout = build_display_layout(&projected, config);
+    if matches!(projected, Cow::Borrowed(_)) {
+        return layout;
+    }
+
+    // Only source grapheme boundaries are editable. Intermediate columns/rows
+    // inside an expanded label must never become fictitious source offsets.
+    let mut source_offset = 0;
+    let mut display_offset = 0;
+    let mut positions = vec![(0, layout.position_for_offset(0))];
+    for grapheme in input.graphemes(true) {
+        for ch in grapheme.chars() {
+            source_offset += 1;
+            display_offset += bidi_annotation(ch).map_or(1, |label| label.chars().count());
+        }
+        positions.push((source_offset, layout.position_for_offset(display_offset)));
+    }
+    layout.positions = positions;
+    layout
+}
+
+/// Wraps already projected text; offsets here belong to that display string.
+fn build_display_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
     let width = usize::from(config.width.max(1));
     let mut rows = Vec::new();
     let ranges = wrap_ranges(
@@ -156,17 +182,26 @@ fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
 
 /// Measures the displayed prefix of a clipped, single-line editor.
 pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> usize {
+    let offset = super::input_text::floor_grapheme_offset(input, offset);
     let prefix = input
         .chars()
         .take(offset)
         .take_while(|ch| *ch != '\n')
         .collect::<String>();
-    display_width(&prefix).min(usize::from(width.max(1) - 1))
+    display_width(&annotate_bidi_text(&prefix)).min(usize::from(width.max(1) - 1))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipped_cursor_never_measures_an_interior_emoji_prefix() {
+        let input = "\u{1f469}\u{200d}\u{1f4bb}z";
+        assert_eq!(clipped_cursor_column(input, 1, 8), 0);
+        assert_eq!(clipped_cursor_column(input, 2, 8), 0);
+        assert_eq!(clipped_cursor_column(input, 3, 8), 2);
+    }
 
     #[test]
     fn soft_wrap_boundary_belongs_to_the_following_character_row() {

@@ -17,6 +17,41 @@ use crate::tui::testing::FakeRuntimeClient;
 use crate::workspace::WorkspaceMemory;
 
 #[tokio::test]
+async fn goal_follow_up_rejects_missing_or_inactive_state_without_panicking() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let missing = super::start_goal_follow_up(&mut app, &mut None, None)
+        .await
+        .expect_err("missing goal");
+    assert!(missing.to_string().contains("active goal"));
+    for status in [
+        GoalStatus::Paused,
+        GoalStatus::Blocked,
+        GoalStatus::Complete,
+    ] {
+        let mut goal = RalphGoal::new("guard follow-up".into(), None);
+        goal.status = status;
+        app.goal = Some(goal);
+        let error = super::start_goal_follow_up(&mut app, &mut None, None)
+            .await
+            .expect_err("inactive goal");
+        assert!(error.to_string().contains("inactive goals"));
+    }
+    app.goal = Some(RalphGoal::new("guard follow-up".into(), None));
+    let missing = super::start_goal_follow_up(&mut app, &mut None, None)
+        .await
+        .expect_err("missing agent");
+    assert!(missing.to_string().contains("ready runtime agent"));
+    assert_eq!(
+        app.goal.as_ref().expect("goal retained").status,
+        GoalStatus::Pursuing
+    );
+}
+
+#[tokio::test]
 async fn goal_commands_persist_create_pause_and_clear_into_a_fresh_app() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).expect("state db"));
@@ -165,7 +200,7 @@ async fn resumed_goal_respects_persisted_budget_before_starting_a_turn() {
                 .replace(Some(goal.clone()))
                 .expect("seed goal");
             let mut slot = Some(ready_agent(&dir));
-            let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+            let runtime = FakeRuntimeClient::new(app.snapshot.clone().into_inner());
             execute_local_command_with_runtime(
                 LocalCommand {
                     kind: LocalCommandKind::Goal,
@@ -185,23 +220,15 @@ async fn resumed_goal_respects_persisted_budget_before_starting_a_turn() {
             assert_eq!(app.goal, Some(goal.clone()));
             assert_eq!(app.goal_handle.snapshot(), Some(goal.clone()));
             let commands = runtime.commands();
-            let [RuntimeCommand::ContinueGoal { prompt }] = commands.as_slice() else {
+            let [RuntimeCommand::ContinueGoal { ticket, mode }] = commands.as_slice() else {
                 panic!("expected one goal query: {commands:?}")
             };
-            let expected_prompt = if tokens_used >= 10 {
-                crate::runtime_client::goal_budget_limit_prompt(&goal)
-            } else {
-                crate::runtime_client::goal_continuation_prompt(&goal)
-            };
-            // Elapsed seconds may advance between command dispatch and this assertion.
-            let without_elapsed = |value: &str| {
-                value
-                    .lines()
-                    .filter(|line| !line.starts_with("- Time spent pursuing goal:"))
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(without_elapsed(prompt), without_elapsed(&expected_prompt));
+            assert_eq!(*mode, crate::runtime_goals::GoalContinuationMode::Requested);
+            assert!(app.goal_handle.matches_resume_ticket(ticket));
+            assert_eq!(
+                app.goal_handle.claim_continuation(ticket, *mode).unwrap(),
+                Some(goal.clone())
+            );
             let stored: RalphGoal = serde_json::from_value(
                 db.try_load_goal("command-thread")
                     .expect("load goal")
@@ -231,7 +258,7 @@ async fn failed_exhausted_resume_write_sends_no_wrap_up() {
         .expect("seed goal");
     rusqlite::Connection::open(db.path()).expect("connection").execute_batch("CREATE TRIGGER reject_goal_write BEFORE INSERT ON goals BEGIN SELECT RAISE(FAIL, 'injected budget status failure'); END;").expect("trigger");
     let mut slot = Some(ready_agent(&dir));
-    let runtime = FakeRuntimeClient::new(app.snapshot.clone());
+    let runtime = FakeRuntimeClient::new(app.snapshot.clone().into_inner());
     execute_local_command_with_runtime(
         LocalCommand {
             kind: LocalCommandKind::Goal,

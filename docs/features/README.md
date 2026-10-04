@@ -48,6 +48,10 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
+- `portable-agent-loop.md`: serializable shared loop decisions, asynchronous
+  execution, host effect boundaries, and external dependency validation.
+- `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation
+  context, compatibility exports, and standalone Git dependency verification.
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
 - `support-acp-integration.md`: ACP client integration guidance boundary,
@@ -82,10 +86,18 @@ future appserver integrations can use.
   Claude-compatible read tools for future subagent/team coordination.
 - `hooks-plugin-lifecycle.md`: hook/plugin lifecycle phases, MemoryQuery
   dispatch, and hook output context injection boundaries.
+- `tui-transcript.md`: typed presentation roles/events, stable persisted labels,
+  and internal transcript module boundaries.
 - `tui-theme-tokens.md`: configurable semantic TUI theme tokens, renderer
   integration, and embedded syntax theme selection.
+- `streaming-transcript.md`: coalesced frames and incremental markdown/visual-row
+  work boundaries, including the remaining implementation gates.
+- `display-text-boundary.md`: chunk-independent control removal, sanitized
+  paste/transcript ingestion, bounded tool display tails, and selection identity.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
+- `browser-agent-effects.md`: browser-local shared model/tool/loop effects,
+  accounting clocks, native thread-safety compatibility, and browser execution tests.
 
 ## App Server Architecture
 

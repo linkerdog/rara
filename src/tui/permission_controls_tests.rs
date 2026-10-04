@@ -27,7 +27,7 @@ fn mark_busy(tui: &mut TuiHarness) {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
     tui.app_mut()
         .set_runtime_phase(RuntimePhase::SendingPrompt, Some("sending prompt".into()));
@@ -265,7 +265,7 @@ async fn busy_argument_mutations_and_aliases_share_availability() {
     for command in [
         "/tasks other",
         "/task-list other",
-        "/goal pause",
+        "/goal clear",
         "/threads",
         "/approval",
     ] {

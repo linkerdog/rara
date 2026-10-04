@@ -541,178 +541,38 @@ impl Agent {
             input_tokens: 0,
         });
 
-        let request_started_at = std::time::Instant::now();
-        let mut streamed_any_text_delta = false;
-        let mut streamed_any_reasoning_delta = false;
-        let response = self
-            .llm_backend
-            .ask_streaming_with_context(
-                &messages,
-                tool_schemas,
-                turn_metadata.clone(),
-                &mut |event| match event {
-                    LlmStreamEvent::TextDelta(delta) => {
-                        streamed_any_text_delta = true;
-                        report(AgentEvent::AssistantDelta(delta));
-                    }
-                    LlmStreamEvent::ReasoningDelta(delta) => {
-                        streamed_any_reasoning_delta = true;
-                        report(AgentEvent::AssistantThinkingDelta(delta));
-                    }
-                },
-            )
-            .await;
-        if let Some(call) = inference_call {
-            call.finish(&response);
-        }
-        let response = response?;
-        self.capture_summary_prefix(&messages, tool_schemas, &turn_metadata);
-        let duration_ms = request_started_at
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
-
-        let output_tokens = response
-            .usage
-            .as_ref()
-            .map(|usage| usage.output_tokens)
-            .unwrap_or(0);
-        report(AgentEvent::ModelResponse {
-            model: model_label.clone(),
-            output_tokens,
-            finish_reason: response.stop_reason.clone(),
-        });
-
-        self.last_query_report.model_turns.push(ModelTurnReport {
-            model: model_label,
-            duration_ms,
-            finish_reason: response.stop_reason.clone(),
-            usage: response
-                .usage
-                .as_ref()
-                .map(ModelTokenUsage::from_provider_usage),
+        let backend = self.llm_backend.clone();
+        let request = rara_agent::ModelRequest {
+            messages: &messages,
+            tools: tool_schemas,
+            metadata: turn_metadata,
+        };
+        let mut policy = super::model_policy::NativeModelPolicy {
+            agent: self,
+            report,
+            output_mode,
+            request: &request,
+            model_label,
             request_fingerprint,
-        });
-
-        if let Some(usage) = &response.usage {
-            self.total_input_tokens += usage.input_tokens;
-            self.total_output_tokens += usage.output_tokens;
-            self.total_cache_hit_tokens += usage.cache_hit_tokens;
-            self.total_cache_miss_tokens += usage.cache_miss_tokens;
-            // Re-anchor the compaction estimate to this request's real,
-            // provider-reported prompt size before anything from this turn's
-            // own response gets appended to history below — see
-            // `record_actual_prompt_tokens`'s doc for why the local
-            // per-message estimate alone can't be trusted at this scale.
-            self.record_actual_prompt_tokens(usage);
-        }
-
-        let mut tool_calls = Vec::new();
-        let mut plan_updated = false;
-        let mut malformed_proposed_plan = false;
-        let mut continue_inspection = false;
-        let mut had_text_response = false;
-        let mut had_reasoning_response = streamed_any_reasoning_delta;
-        let mut sanitized_content = Vec::new();
-        for block in &response.content {
-            match block {
-                ContentBlock::Text { text } => {
-                    let (clean_text, block_requests_continue) =
-                        planning::strip_continue_inspection_control(text);
-                    continue_inspection |= block_requests_continue;
-                    let clean_text = scrub_internal_control_tokens(&clean_text);
-                    if !clean_text.trim().is_empty() {
-                        had_text_response = true;
-                        sanitized_content.push(ContentBlock::Text {
-                            text: clean_text.clone(),
-                        });
-                        if !streamed_any_text_delta {
-                            report(AgentEvent::AssistantText(clean_text.clone()));
-                        }
-                        if matches!(self.execution_mode, AgentExecutionMode::Plan) {
-                            malformed_proposed_plan |=
-                                planning::has_unclosed_proposed_plan_block(&clean_text);
-                            if self.capture_plan_from_text(&clean_text)? {
-                                plan_updated = true;
-                                report(AgentEvent::PlanUpdated {
-                                    steps: self.current_plan.clone(),
-                                    explanation: self.plan_explanation.clone(),
-                                });
-                            }
-                        }
-                        if matches!(output_mode, AgentOutputMode::Terminal) {
-                            println!("Agent: {}", clean_text);
-                        }
-                    }
-                }
-                ContentBlock::ToolUse { id, name, input } => {
-                    if matches!(self.execution_mode, AgentExecutionMode::Plan)
-                        && name == EXIT_PLAN_MODE_TOOL_NAME
-                        && !plan_updated
-                        && let Some((steps, explanation)) =
-                            planning::parse_exit_plan_tool_input(input)
-                    {
-                        self.current_plan = steps;
-                        self.plan_explanation = explanation;
-                        plan_updated = true;
-                        report(AgentEvent::PlanUpdated {
-                            steps: self.current_plan.clone(),
-                            explanation: self.plan_explanation.clone(),
-                        });
-                    }
-                    sanitized_content.push(ContentBlock::ToolUse {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    });
-                    let modified_input = match self.hook_runtime.as_ref() {
-                        Some(runtime) => runtime.modify_tool_input(name.as_str(), input.clone()),
-                        None => input.clone(),
-                    };
-                    report(AgentEvent::ToolUse {
-                        call_id: id.clone(),
-                        name: name.clone(),
-                        input: modified_input.clone(),
-                    });
-                    tool_calls.push(ToolCall {
-                        id: id.clone(),
-                        name: name.clone(),
-                        input: modified_input,
-                    });
-                }
-                ContentBlock::ProviderMetadata {
-                    provider,
-                    key,
-                    value,
-                } => {
-                    sanitized_content.push(ContentBlock::ProviderMetadata {
-                        provider: provider.clone(),
-                        key: key.clone(),
-                        value: value.clone(),
-                    });
-                    if key == "reasoning_content"
-                        && value.as_str().is_some_and(|text| !text.trim().is_empty())
-                    {
-                        had_reasoning_response = true;
-                    }
-                }
-            }
-        }
-        if matches!(self.execution_mode, AgentExecutionMode::Plan) && plan_updated {
-            self.save_current_plan_file()?;
-        }
-
+            request_started_at: std::time::Instant::now(),
+            inference_call,
+            plan_updated: false,
+            malformed_proposed_plan: false,
+            continue_inspection: false,
+        };
+        let output =
+            rara_agent::execute_model_turn(backend.as_ref(), &request, &mut policy).await?;
         Ok(TurnOutput {
-            assistant_message: assistant_turn_history_message(sanitized_content)?,
-            tool_calls,
-            plan_updated,
-            malformed_proposed_plan,
-            continue_inspection,
-            had_text_response,
-            had_reasoning_response,
-            streamed_text_delta: streamed_any_text_delta,
-            streamed_reasoning_delta: streamed_any_reasoning_delta,
-            model_stop_reason: response.stop_reason,
+            assistant_message: output.assistant_message,
+            tool_calls: output.tool_calls,
+            plan_updated: policy.plan_updated,
+            malformed_proposed_plan: policy.malformed_proposed_plan,
+            continue_inspection: policy.continue_inspection,
+            had_text_response: output.response.had_text_response,
+            had_reasoning_response: output.response.had_reasoning_response,
+            streamed_text_delta: output.stream.text_delta,
+            streamed_reasoning_delta: output.stream.reasoning_delta,
+            model_stop_reason: output.stop_reason,
         })
     }
 

@@ -1,16 +1,15 @@
+mod delegated_result;
 mod helpers;
 #[cfg(test)]
 mod tests;
 
 use rara_persistence::redaction::redact_secrets;
 
+use self::delegated_result::delegated_result;
 use self::helpers::{
-    append_tool_progress, exploration_action_label, exploration_action_label_for,
-    exploration_note_lines, exploration_result_note, format_tool_result, format_tool_use,
-    is_exploration_tool_name, is_oauth_prompt_message, planning_action_label,
-    planning_action_label_for, planning_note_lines, planning_result_note,
-    scrub_internal_control_tokens, subagent_request_input, tool_action_label,
-    tool_action_label_for,
+    exploration_action_label_for, exploration_note_lines, format_tool_result, format_tool_use,
+    is_exploration_tool_name, is_oauth_prompt_message, planning_action_label_for,
+    planning_note_lines, scrub_internal_control_tokens, tool_action_label, tool_action_label_for,
 };
 use super::super::state::{
     RuntimePhase, SystemMessageKind, TuiApp, TuiEvent, contains_structured_planning_output,
@@ -24,161 +23,92 @@ use crate::session_promotion::{
     SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionSkipReason,
 };
 use crate::tui::display_sanitize::sanitize_display_text;
+use crate::tui::message_role::MessageRole;
 use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+use crate::tui::tool_progress::{ProgressCompletion, ProgressSource, append_tool_progress};
 
-const TOOL_PROGRESS_LINE_LIMIT: usize = 16;
 const MEMORY_QUERY_PREVIEW_LIMIT: usize = 120;
 
 pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
     match event {
         TuiEvent::Runtime(event) => apply_runtime_control_event(app, *event),
-        TuiEvent::Transcript { role, message } => {
-            if role == "Status" {
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some(message.lines().next().unwrap_or(role).trim().to_string()),
-                );
-                return;
-            } else if role == "Agent Delta" {
-                app.set_runtime_phase(
-                    RuntimePhase::ProcessingResponse,
-                    Some("streaming model output".into()),
-                );
-                app.append_agent_delta(&message);
-                return;
-            } else if role == "Agent Thinking Delta" {
-                app.set_runtime_phase(RuntimePhase::ProcessingResponse, Some("thinking".into()));
-                app.append_agent_thinking_delta(&message);
-                return;
-            } else if role == "Tool" || role == "Tool Result" || role == "Tool Error" {
-                app.finalize_agent_stream(None);
-                if role == "Tool" {
-                    if let Some(action) = exploration_action_label(&message) {
-                        app.cache_exploration_action(action);
-                    } else if let Some(action) = planning_action_label(&message) {
-                        app.cache_planning_action(action);
-                    } else if let Some(action) = tool_action_label(&message) {
-                        app.cache_running_action(action);
-                    }
-                } else if let Some(request) = subagent_request_input(&message) {
-                    app.advance_running_tool_boundary();
-                    let source = if message.starts_with("explore_agent ") {
-                        if let Some(note) = exploration_result_note(&message) {
-                            app.record_exploration_note(note);
-                        }
-                        "explore_agent"
-                    } else if message.starts_with("plan_agent ") {
-                        if let Some(note) = planning_result_note(&message) {
-                            app.record_planning_note(note);
-                        }
-                        "plan_agent"
-                    } else {
-                        "spawn_agent"
-                    };
-                    app.record_local_request_input(
-                        source,
-                        request.question,
-                        request.options,
-                        request.note,
-                    );
-                    app.set_runtime_phase(
-                        RuntimePhase::RunningTool,
-                        Some(message.lines().next().unwrap_or(role).trim().to_string()),
-                    );
-                    return;
-                } else if let Some(note) = exploration_result_note(&message) {
-                    app.advance_running_tool_boundary();
-                    app.record_exploration_note(note);
-                    app.set_runtime_phase(
-                        RuntimePhase::RunningTool,
-                        Some(message.lines().next().unwrap_or(role).trim().to_string()),
-                    );
-                    return;
-                } else if let Some(note) = planning_result_note(&message) {
-                    app.advance_running_tool_boundary();
-                    app.record_planning_note(note);
-                    app.set_runtime_phase(
-                        RuntimePhase::RunningTool,
-                        Some(message.lines().next().unwrap_or(role).trim().to_string()),
-                    );
-                    return;
-                }
-                if matches!(role, "Tool Result" | "Tool Error") {
-                    app.advance_running_tool_boundary();
-                }
-                app.set_runtime_phase(
-                    RuntimePhase::RunningTool,
-                    Some(message.lines().next().unwrap_or(role).trim().to_string()),
-                );
-            } else if role == "Agent" {
-                apply_assistant_text(app, message);
-                return;
-            } else if role == "Download" {
-                let detail = message.lines().next().unwrap_or(role).trim().to_string();
-                if detail.starts_with("Ready ·") {
-                    app.set_runtime_phase(RuntimePhase::BackendReady, Some(detail));
-                } else {
-                    app.set_runtime_phase(RuntimePhase::RebuildingBackend, Some(detail));
-                }
-            } else if role == "Runtime" {
-                let detail = message.lines().next().unwrap_or(role).trim().to_string();
-                let lower = detail.to_ascii_lowercase();
-                if lower.contains("waiting for device-code confirmation")
-                    || lower.contains("polling device code")
-                {
-                    app.set_runtime_phase(RuntimePhase::OAuthPollingDeviceCode, Some(detail));
-                } else if is_oauth_prompt_message(&message) {
-                    let is_device_code = message.to_ascii_lowercase().contains("one-time code");
-                    app.push_system(message, SystemMessageKind::OAuthPrompt);
-                    if is_device_code {
-                        app.set_runtime_phase(
-                            RuntimePhase::OAuthDeviceCodePrompt,
-                            Some("device code ready".into()),
-                        );
-                    } else {
-                        app.set_runtime_phase(
-                            RuntimePhase::OAuthWaitingCallback,
-                            Some("browser login url ready".into()),
-                        );
-                    }
-                    return;
-                } else if lower.contains("device-code login")
-                    || lower.contains("one-time code")
-                    || lower.contains("open this url in a browser")
-                    || lower.starts_with("code:")
-                {
-                    app.set_runtime_phase(RuntimePhase::OAuthDeviceCodePrompt, Some(detail));
-                } else if lower.contains("waiting for browser callback") {
-                    app.set_runtime_phase(RuntimePhase::OAuthWaitingCallback, Some(detail));
-                } else if lower.contains("exchanging token") {
-                    app.set_runtime_phase(RuntimePhase::OAuthExchangingToken, Some(detail));
-                } else if lower.contains("starting codex browser login")
-                    || lower.contains("starting codex browser")
-                {
-                    app.set_runtime_phase(RuntimePhase::OAuthWaitingCallback, Some(detail));
-                } else if lower.contains("starting codex device-code login") {
-                    app.set_runtime_phase(RuntimePhase::OAuthDeviceCodePrompt, Some(detail));
-                } else {
-                    app.set_runtime_phase(RuntimePhase::RebuildingBackend, Some(detail));
-                }
-            }
-            if role == "System" {
-                let kind = if message.starts_with("Memory ·") {
-                    SystemMessageKind::Memory
-                } else {
-                    SystemMessageKind::Other
-                };
-                app.push_system(message, kind)
+        TuiEvent::DownloadProgress(message) => {
+            let detail = message
+                .lines()
+                .next()
+                .unwrap_or("Download")
+                .trim()
+                .to_string();
+            let phase = if detail.starts_with("Ready ·") {
+                RuntimePhase::BackendReady
             } else {
-                app.push_entry(role, message)
+                RuntimePhase::RebuildingBackend
+            };
+            app.set_runtime_phase(phase, Some(detail));
+            app.push_entry(MessageRole::Download, message);
+        }
+        TuiEvent::OAuthProgress(message) => {
+            let detail = message
+                .lines()
+                .next()
+                .unwrap_or("Runtime")
+                .trim()
+                .to_string();
+            let lower = detail.to_ascii_lowercase();
+            if lower.contains("waiting for device-code confirmation")
+                || lower.contains("polling device code")
+            {
+                app.set_runtime_phase(RuntimePhase::OAuthPollingDeviceCode, Some(detail));
+            } else if is_oauth_prompt_message(&message) {
+                let is_device_code = message.to_ascii_lowercase().contains("one-time code");
+                app.push_system(message, SystemMessageKind::OAuthPrompt);
+                if is_device_code {
+                    app.set_runtime_phase(
+                        RuntimePhase::OAuthDeviceCodePrompt,
+                        Some("device code ready".into()),
+                    );
+                } else {
+                    app.set_runtime_phase(
+                        RuntimePhase::OAuthWaitingCallback,
+                        Some("browser login url ready".into()),
+                    );
+                }
+                return;
+            } else if lower.contains("device-code login")
+                || lower.contains("one-time code")
+                || lower.contains("open this url in a browser")
+                || lower.starts_with("code:")
+            {
+                app.set_runtime_phase(RuntimePhase::OAuthDeviceCodePrompt, Some(detail));
+            } else if lower.contains("waiting for browser callback") {
+                app.set_runtime_phase(RuntimePhase::OAuthWaitingCallback, Some(detail));
+            } else if lower.contains("exchanging token") {
+                app.set_runtime_phase(RuntimePhase::OAuthExchangingToken, Some(detail));
+            } else if lower.contains("starting codex browser login")
+                || lower.contains("starting codex browser")
+            {
+                app.set_runtime_phase(RuntimePhase::OAuthWaitingCallback, Some(detail));
+            } else if lower.contains("starting codex device-code login") {
+                app.set_runtime_phase(RuntimePhase::OAuthDeviceCodePrompt, Some(detail));
+            } else {
+                app.set_runtime_phase(RuntimePhase::RebuildingBackend, Some(detail));
             }
+            app.push_entry(MessageRole::Runtime, message);
         }
         TuiEvent::Terminal(TerminalEvent::OutputDelta(event)) => {
             let name = match event.target {
                 TerminalTarget::Pty => "pty",
                 TerminalTarget::BackgroundTask => "background task",
             };
-            if !append_tool_progress(app, name, event.stream.into(), &event.chunk) {
+            if !append_tool_progress(
+                app,
+                ProgressSource {
+                    call_id: event.id,
+                    name: name.into(),
+                    stream: event.stream.into(),
+                },
+                &event.chunk,
+            ) {
                 return;
             }
             app.set_runtime_phase(
@@ -187,30 +117,69 @@ pub(crate) fn apply_tui_event(app: &mut TuiApp, event: TuiEvent) {
             );
         }
         TuiEvent::Terminal(event) => {
+            match &event {
+                TerminalEvent::End(command) => {
+                    let name = match command.target {
+                        TerminalTarget::Pty => "pty",
+                        TerminalTarget::BackgroundTask => "background task",
+                    };
+                    let completion = match command.id.as_deref() {
+                        Some(id) => ProgressCompletion::CallId(id),
+                        None => ProgressCompletion::LegacyName(name),
+                    };
+                    app.tool_progress.finish(completion);
+                }
+                TerminalEvent::Stop(collection) => {
+                    for item in &collection.items {
+                        if let Some(id) = &item.id {
+                            app.tool_progress.finish(ProgressCompletion::CallId(id));
+                        }
+                    }
+                }
+                TerminalEvent::Begin(_)
+                | TerminalEvent::OutputDelta(_)
+                | TerminalEvent::List(_) => {}
+            }
             app.finalize_agent_stream(None);
             let role = event.transcript_role();
             let message = event.to_transcript_message();
-            if role == "Tool"
+            if role == MessageRole::Tool
                 && let Some(action) = tool_action_label(&message)
             {
                 app.cache_running_action(action);
             }
-            if matches!(role, "Tool Result" | "Tool Error") {
+            if matches!(role, MessageRole::ToolResult | MessageRole::ToolError) {
                 app.advance_running_tool_boundary();
             }
             app.set_runtime_phase(
                 RuntimePhase::RunningTool,
-                Some(message.lines().next().unwrap_or(role).trim().to_string()),
+                Some(
+                    message
+                        .lines()
+                        .next()
+                        .unwrap_or(role.as_str())
+                        .trim()
+                        .to_string(),
+                ),
             );
             app.push_terminal_event(event);
         }
         TuiEvent::ToolProgress {
+            call_id,
             name,
             stream,
             chunk,
         } => {
             app.finalize_agent_thinking_stream();
-            if !append_tool_progress(app, &name, stream, &chunk) {
+            if !append_tool_progress(
+                app,
+                ProgressSource {
+                    call_id,
+                    name: name.clone(),
+                    stream,
+                },
+                &chunk,
+            ) {
                 return;
             }
             app.set_runtime_phase(
@@ -314,6 +283,11 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
             content,
             is_error,
         }) => {
+            let completion = match call_id.as_deref() {
+                Some(id) => ProgressCompletion::CallId(id),
+                None => ProgressCompletion::LegacyName(&name),
+            };
+            app.tool_progress.finish(completion);
             if name == crate::tools::todo::TODO_WRITE_TOOL_NAME || is_exploration_tool_name(&name) {
                 return;
             }
@@ -322,23 +296,31 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
                 return;
             }
             app.finalize_agent_stream(None);
-            if let Some(request) = subagent_request_input(&content) {
-                app.advance_running_tool_boundary();
-                let source = name.as_str();
-                app.record_local_request_input(
-                    source,
-                    request.question,
-                    request.options,
-                    request.note,
-                );
-            } else if let Some(note) = exploration_result_note(&content) {
-                app.advance_running_tool_boundary();
-                app.record_exploration_note(note);
-            } else if let Some(note) = planning_result_note(&content) {
-                app.advance_running_tool_boundary();
-                app.record_planning_note(note);
-            } else {
-                app.advance_running_tool_boundary();
+            app.advance_running_tool_boundary();
+            if !is_error && let Some(result) = delegated_result(&name, &content) {
+                if let Some(summary) = result
+                    .summary
+                    .as_deref()
+                    .and_then(|summary| summary.lines().find(|line| !line.trim().is_empty()))
+                {
+                    match name.as_str() {
+                        "explore_agent" => app.record_exploration_note(format!(
+                            "Sub-agent summary: {}",
+                            summary.trim()
+                        )),
+                        "plan_agent" => app
+                            .record_planning_note(format!("Sub-agent summary: {}", summary.trim())),
+                        _ => {}
+                    }
+                }
+                if let Some(request) = result.request_user_input {
+                    app.record_local_request_input(
+                        &name,
+                        request.question,
+                        request.options,
+                        request.note,
+                    );
+                }
             }
             app.set_runtime_phase(RuntimePhase::RunningTool, Some(name.clone()));
             app.push_tool_entry(
@@ -353,23 +335,20 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
             );
         }
         RuntimeEvent::Tool(ToolEvent::Progress {
-            call_id: _,
+            call_id,
             name,
             stream,
             chunk,
         }) => {
-            if let Some(event) = TerminalEvent::from_tool_progress(&name, stream.into(), &chunk) {
-                apply_tui_event(app, TuiEvent::Terminal(event));
-            } else {
-                apply_tui_event(
-                    app,
-                    TuiEvent::ToolProgress {
-                        name,
-                        stream: stream.into(),
-                        chunk,
-                    },
-                );
-            }
+            apply_tui_event(
+                app,
+                TuiEvent::ToolProgress {
+                    call_id,
+                    name,
+                    stream: stream.into(),
+                    chunk,
+                },
+            );
         }
         RuntimeEvent::Memory(event) => {
             app.push_system(

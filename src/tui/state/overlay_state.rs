@@ -153,6 +153,11 @@ impl TuiApp {
     }
 
     pub fn dismiss_overlay(&mut self) {
+        if self.overlay == Some(Overlay::Goal) {
+            self.goal_ui.dialog = None;
+            self.goal_ui.input.clear();
+            self.goal_ui.cursor = None;
+        }
         if matches!(
             self.overlay,
             Some(Overlay::BaseUrlEditor | Overlay::ApiKeyEditor(_) | Overlay::ModelNameEditor)

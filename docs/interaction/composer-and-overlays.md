@@ -46,7 +46,22 @@ not inherit the plain-list j/k shortcuts.
 ### INPUT-02: Composer Submission And Editing
 
 - Enter submits; Shift+Enter and Ctrl+J insert a newline.
-- Ctrl+C clears an idle composer, or requests cancellation while running.
+- Ctrl+C closes the top overlay without cancelling underlying work or arming
+  quit. Without an overlay, the first press clears an idle composer or requests
+  cancellation while running, preserving the running draft. It also shows
+  `Press Ctrl-C again to quit` for one second. A second Ctrl+C within that
+  window exits, including while cancellation is still draining.
+- Ctrl+D participates in the same one-second confirmation only with an empty
+  composer and no overlay. Otherwise it deletes forward in an editable field
+  or does nothing in a read-only surface; it never inserts a literal `d`.
+- Quit confirmation requires the same shortcut twice. Another key, paste,
+  mouse button/drag/wheel interaction, or suspension clears the confirmation.
+  Passive pointer motion preserves the armed shortcut. Expiry restores
+  the ordinary footer without requiring another input event. Reported key
+  repeats cannot confirm quit; terminals without repeat metadata remain
+  subject to their own key encoding. `/quit` remains an explicit direct exit.
+- Unix Ctrl+Z suspends the foreground process group through RUN-07. It never
+  edits the active input field; platforms without job control ignore it.
 - With no overlay, Esc requests cancellation while running and is otherwise a
   no-op, except for the explicit shell-approval rejection action in RUN-03.
 - Up/Down first follow the existing input-history boundary rules, otherwise
@@ -67,6 +82,16 @@ not inherit the plain-list j/k shortcuts.
   behavior and preserves the draft. Palette dismissal discards its draft as
   specified in INPUT-03; no paste may appear later in a cleared or submitted
   composer.
+- Paste removes escape/control sequences before active-surface routing and
+  burst buffering, preserving tabs and normalizing CR/CRLF to one newline.
+  Editable overlays receive sanitized text with line breaks converted to
+  spaces; read-only ownership remains unchanged. See
+  [display text boundary](../features/display-text-boundary.md).
+- Unicode bidirectional controls remain in pasted and submitted source, but
+  appear as code-point labels such as `⟦U+202E⟧` while editing. Cursor motion and
+  deletion treat each label as its original single character, including when a
+  label wraps. Joiners, variation selectors, and emoji retain their normal form.
+  Credential editors remain masked.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
@@ -84,7 +109,10 @@ The shared grapheme wrapping profile keeps combining sequences and joined emoji
 on one row and maps vertical navigation to their character-offset boundaries.
 Transcript uses the same range/width primitives with word wrapping; see
 [mouse selection](../features/mouse-text-selection.md). This layout guarantee
-does not add grapheme-aware Backspace/Delete or change stored draft offsets.
+preserves character-offset storage while horizontal movement and Backspace/Delete
+operate on whole graphemes in every shared editable surface. Stale offsets inside
+a grapheme snap to its start; insertion and paste snap forward after newly joined
+clusters, while deletion snaps back if neighboring clusters join.
 Navigation compares untruncated insertion-boundary columns; hardware cursor
 clipping must not make the last character indistinguishable from a newline or
 end of input. Setup editors retain their single-line clipped rendering and
@@ -102,7 +130,7 @@ are clipped rather than wrapped a second time at degenerate widths.
 - Explicit palette dismissal clears its slash input so it does not reopen
   immediately, using the same complete draft/paste cleanup boundary. Selecting
   a command dismisses the palette before dispatch.
-- Palette Esc and direct close preserve their pre-paste dismissal intent:
+- Palette Esc, Ctrl+C, and direct close preserve their pre-paste dismissal intent:
   discard the pending draft without a preliminary flush that could hide the
   palette. Other keys still route against the complete flushed draft.
 - Esc affects the top overlay. Setup cancellation follows the owning setup
@@ -156,6 +184,8 @@ fake does not prove that a live provider accepted the new model.
 | --- | --- |
 | INPUT-01 | Dispatch j/k and arrow keys in search; verify the query and rendered results; exercise Help Commands scrolling |
 | INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
+| Quit shortcuts | Overlay ownership, busy cancellation, same-key confirmation, expiry, input disarming, reported repeats, and footer rendering through production key dispatch |
+| Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -166,8 +196,13 @@ fake does not prove that a live provider accepted the new model.
   acceptance needs clipping tests and an explicit scrolling design.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
-- Grapheme-cluster editing and a configurable Vim mode are outside the current
-character-offset editor contract.
+- A configurable Vim mode remains outside the current editor contract.
+- Large-paste placeholders are not atomic editing elements yet; editing their
+  label can prevent expansion on submit. Grapheme-safe editing does not imply
+  placeholder-safe editing.
+- Snapping a stale explicit cursor offset scans grapheme boundaries up to that
+  offset. Repeated reads can be linear in draft length; a shared editor index
+  remains separate performance work.
 
 ## Source Journals
 
@@ -175,3 +210,7 @@ character-offset editor contract.
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)
 - [Composer wrap geometry](../journal/2026-10-02-composer-wrap-geometry.md)
+- [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
+- [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
+- [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
+- [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)

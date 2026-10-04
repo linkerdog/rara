@@ -2,9 +2,11 @@ use std::io;
 
 use super::{RestoreAction, restore_all};
 
-const RESTORE_ACTIONS: [RestoreAction; 4] = [
+const RESTORE_ACTIONS: [RestoreAction; 6] = [
+    RestoreAction::SynchronizedOutput,
     RestoreAction::Mouse,
     RestoreAction::BracketedPaste,
+    RestoreAction::Focus,
     RestoreAction::RawMode,
     RestoreAction::Cursor,
 ];
@@ -36,12 +38,16 @@ fn cleanup_returns_first_error_when_multiple_modes_fail() {
     })
     .expect_err("restoration failures must surface");
     assert_eq!(actions, RESTORE_ACTIONS);
-    assert_eq!(error.to_string(), "Mouse");
+    assert_eq!(error.to_string(), "SynchronizedOutput");
 }
 
 #[test]
 fn failed_guard_restoration_is_not_retried() {
-    let mut guard = super::TerminalModeGuard { active: true };
+    let mut guard = super::TerminalModeGuard {
+        active: true,
+        #[cfg(unix)]
+        resumed_tty: None,
+    };
     let calls = std::cell::Cell::new(0);
     guard
         .restore_with(|| {
@@ -123,7 +129,20 @@ mod pty {
             assert!(status.success(), "{scenario}: {output}");
             assert_eq!(after, before, "{scenario}: kernel terminal modes");
             assert!(output.contains("raw_after=false"), "{scenario}: {output}");
-            for reset in ["\x1b[?1000l", "\x1b[?1006l", "\x1b[?2004l", "\x1b[?25h"] {
+            if scenario == "normal" {
+                assert!(
+                    output.contains("\x1b[?1004h"),
+                    "focus reporting was not enabled: {output}"
+                );
+            }
+            for reset in [
+                "\x1b[?2026l",
+                "\x1b[?1000l",
+                "\x1b[?1006l",
+                "\x1b[?2004l",
+                "\x1b[?1004l",
+                "\x1b[?25h",
+            ] {
                 assert!(
                     scenario == "pipe" || output.contains(reset),
                     "missing {reset:?}: {scenario}: {output}"
@@ -134,6 +153,18 @@ mod pty {
                     output.contains("previous_hook_raw=false"),
                     "{scenario}: {output}"
                 );
+            }
+            if scenario == "panic" {
+                let before_hook = output.split("previous_hook_raw=").next().unwrap();
+                let size = PtySize::default();
+                let mut parser = vt100::Parser::new(size.rows, size.cols, 100);
+                parser.process(before_hook.as_bytes());
+                assert_eq!(
+                    parser.screen().cursor_position(),
+                    (size.rows - 1, 0),
+                    "panic diagnostics must start below the frame"
+                );
+                assert!(parser.screen().contents().contains("FRAME-BOTTOM"));
             }
             if scenario == "worker" {
                 assert!(
@@ -147,6 +178,10 @@ mod pty {
     // Runs only in a subprocess; never changes the parent test runner's modes or hook.
     #[test]
     #[ignore = "terminal subprocess fixture"]
+    #[expect(
+        clippy::print_stdout,
+        reason = "Isolated PTY children emit mode and readiness markers to their parent."
+    )]
     fn terminal_modes_child() {
         let scenario = std::env::var(SCENARIO_ENV).expect("PTY scenario");
         std::panic::set_hook(Box::new(|_| {
@@ -220,14 +255,21 @@ mod pty {
                 assert!(
                     std::panic::catch_unwind(|| {
                         runtime.block_on(async {
-                            let guard = TerminalModeGuard::start().expect("start terminal modes");
-                            guard
-                                .run_owner(async {
-                                    tokio::task::yield_now().await;
-                                    panic!("injected loop panic");
-                                })
-                                .await
-                                .expect("owner panics before returning");
+                            let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                            TerminalModeGuard::run_owner(async {
+                                tokio::task::yield_now().await;
+                                let (_, rows) = crossterm::terminal::size().expect("TTY size");
+                                execute!(
+                                    std::io::stdout(),
+                                    crossterm::cursor::MoveTo(0, rows - 1),
+                                    crossterm::style::Print("FRAME-BOTTOM"),
+                                    crossterm::cursor::MoveTo(4, 1)
+                                )
+                                .expect("place frame and composer cursor");
+                                panic!("injected loop panic");
+                            })
+                            .await
+                            .expect("owner panics before returning");
                         });
                     })
                     .is_err()
@@ -245,8 +287,8 @@ mod pty {
                 );
             }
             "caught" => {
-                let guard = TerminalModeGuard::start().expect("start terminal modes");
-                let error = futures::executor::block_on(guard.run_owner(async {
+                let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                let error = futures::executor::block_on(TerminalModeGuard::run_owner(async {
                     assert!(std::panic::catch_unwind(|| panic!("caught owner panic")).is_err());
                     std::future::pending::<()>().await;
                 }))
@@ -259,15 +301,14 @@ mod pty {
                     .build()
                     .expect("current-thread runtime");
                 runtime.block_on(async {
-                    let guard = TerminalModeGuard::start().expect("start terminal modes");
-                    guard
-                        .run_owner(async {
-                            let worker = tokio::spawn(async { panic!("injected worker panic") });
-                            assert!(worker.await.expect_err("worker panic").is_panic());
-                            assert!(is_raw_mode_enabled().expect("worker must preserve raw mode"));
-                        })
-                        .await
-                        .expect("worker panic must not terminate the owner");
+                    let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                    TerminalModeGuard::run_owner(async {
+                        let worker = tokio::spawn(async { panic!("injected worker panic") });
+                        assert!(worker.await.expect_err("worker panic").is_panic());
+                        assert!(is_raw_mode_enabled().expect("worker must preserve raw mode"));
+                    })
+                    .await
+                    .expect("worker panic must not terminate the owner");
                 });
             }
             "repeat" => {

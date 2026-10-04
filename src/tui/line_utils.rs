@@ -41,12 +41,3 @@ pub fn prefix_lines(
         })
         .collect()
 }
-
-pub fn is_blank_line_spaces_only(line: &Line<'_>) -> bool {
-    if line.spans.is_empty() {
-        return true;
-    }
-    line.spans
-        .iter()
-        .all(|span| span.content.is_empty() || span.content.chars().all(|ch| ch == ' '))
-}

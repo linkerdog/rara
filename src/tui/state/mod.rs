@@ -4,12 +4,17 @@ mod overlay_state;
 mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
+mod quit_shortcut;
+pub(crate) use quit_shortcut::{QuitShortcutAction, QuitShortcutKey, QuitShortcutState};
 mod runtime_snapshot;
+mod scroll_acceleration;
+pub(crate) use scroll_acceleration::ScrollAcceleration;
 mod shared_tasks;
 mod state_presets;
 #[cfg(test)]
 mod tests;
 mod transcript;
+mod transcript_scroll;
 mod types;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -27,6 +32,7 @@ pub use self::state_presets::{
     current_model_presets, openai_compatible_preset_kind, selected_preset_idx_for_config,
     selected_provider_family_idx_for_config,
 };
+pub(crate) use self::transcript_scroll::{TranscriptScroll, TranscriptScrollLayout};
 use self::types::CommittedTranscriptRenderCache;
 #[cfg(test)]
 pub use self::types::current_unix_timestamp_secs;

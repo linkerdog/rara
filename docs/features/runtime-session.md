@@ -172,6 +172,11 @@ provider call, and a terminal turn event does not imply the interaction is done.
 Approvals take precedence over a simultaneous plain question. Late, duplicate
 or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
 pending ownership; live approvals are not advertised as surviving process exit.
+When approval pauses a tool batch, results from calls that already completed
+remain in the transcript and its enabled checkpoint exactly once, with their
+original provider call IDs. Pausing does not advance the plan, insert a normal
+tool continuation, or invoke a later call. Approving or rejecting the pending
+call preserves those earlier results in the next provider request.
 Ordered input events distinguish a requested wait, an accepted answer naming its
 original waiting turn, and discard by cancel, interrupt, shutdown or legacy
 replacement. Discarding an already waiting turn does not emit another terminal
@@ -231,6 +236,42 @@ Both kinds propagate cooperative cancellation immediately and use the
 not completion evidence. The actor publishes `TurnCancelled` or `TurnInterrupted`
 only after execution returns, and the corresponding typed error retains the
 partial `RuntimeTurnOutcome`.
+
+The TUI compatibility task bridge preserves the same stop boundary. A stop
+request records a typed cancel/interrupt kind, signals cooperative cancellation,
+and leaves the turn running while its execution drains. Task return, not request
+acceptance or notice text, owns the terminal publication. Query events carry one
+session/turn identity, including the terminal event. A stop racing with task
+return is serialized; a finished task rejects the request and the first accepted
+stop kind cannot be relabelled.
+
+Only an admitted typed stop selects the cancelled/interrupted completion path.
+Provider or maintenance errors remain failures even if their text mentions a
+user cancellation. Maintenance without stop admission must not translate an
+error string into a successful terminal event.
+
+The accepted stop wins over a later successful execution return, including a
+newly raised approval; pending interactions are discarded and automatic goal
+continuation is not entered. An execution error remains available as a diagnostic
+and in the returned error chain even when the stop determines terminal status.
+
+The TUI completion barrier requires both task return and the matching ordered
+terminal event. Each local task also retains ordered event receipts in its
+existing task channel, with the same bus-assigned identity and sequence. A receipt
+is enqueued before its broadcast becomes visible. Before applying a broadcast
+event, the controller applies query receipts up to that sequence; later receipts
+remain pending. After joining the producer it drains the remaining receipts
+through the same fence before completing the task. A lagged or dropped broadcast
+terminal event cannot strand completion or discard its preceding tail; a replayed event cannot
+be applied twice. This recovery does not accept an unscoped completion as proof
+that an identified query ended. Foreign-session, mismatched-turn, duplicate, and
+post-terminal turn events cannot mutate presentation or satisfy the barrier. Unscoped runtime
+catalog/status events remain compatible; unscoped turn output is not valid while
+a scoped query owns the presentation. After its terminal boundary and task
+completion, unscoped maintenance events may be presented again; closed query IDs
+remain fenced. A task join failure closes live output while preserving its
+partial transcript and surfaces an explicit error rather than waiting for a
+producer that no longer exists.
 
 ### Shutdown Receipts
 
@@ -324,8 +365,21 @@ usage events are not yet public; they remain required Nowledge Mem parity work.
 The public tool contract carries trusted session, turn, call, workspace, and
 cancellation context. Host tool implementations can own approval, budgeting,
 safety filtering, audit behavior, and authority rather than accepting those
-values from model arguments. A distinct injectable middleware stack remains
-target work.
+values from model arguments. Its canonical types now live in the
+[portable core tool contract](portable-tool-contracts.md), with compatibility
+re-exports through the existing tool path. A distinct injectable middleware
+stack and lightweight runtime package remain target work.
+
+The application uses the [shared loop executor](portable-agent-loop.md) for
+effect scheduling and the pure machine for continuation, bounded repair,
+tool/approval, and finalization decisions. Its `LoopEffects` adapter retains
+native model/tool execution, persistence, hooks, and cancellation cleanup.
+Model dispatch and response collection use the shared `execute_model_turn`
+effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
+Serial tool batches and trusted-context invocation use shared tool effects;
+native admission, result policy, and batch budgets remain explicit adapters.
+Only machine control state is serializable. Portable context/policy assembly and
+session ownership remain necessary for a lightweight host runtime.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
@@ -364,16 +418,18 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Concurrency | delivered | Two sessions can block at the provider boundary and make progress independently. |
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
 | Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
+| TUI stop bridge | delivered | Task-return/terminal-event interleavings retain trailing output; typed stop admission rejects finished tasks; session/turn fencing rejects stale output and terminal events before the completion barrier. |
 | Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |
 | Tool identity | delivered | Repeated same-name calls retain distinct provider call IDs. |
+| Partial tool batch | delivered | Shell approval and rejection retain preceding results in paused readback, checkpoints, and the resumed provider request without replaying completed calls. |
 | Adapters | partial | Embedded, ACP, Wire, print, exec, and ask use `RuntimeSession`; TUI command ownership remains compatible but separate. |
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
 | Dependency boundary | target | The future minimal runtime dependency graph excludes Ratatui, Candle, ACP, and OAuth. |
-| Build | partial | Cargo formatting, checks, Clippy, and tests pass; the default Bazel configuration is blocked before analysis by an unsupported local startup option. |
+| Build | partial | Root Cargo library tests, strict all-target Clippy, formatting, and the default `//:rara_unit_tests` Bazel gate pass; exact-head remote CI/review/merge remain separate gates. |
 
 ## Host Integration Example
 
@@ -426,3 +482,5 @@ model-generated tool arguments.
 ## Source Journals
 
 - `docs/journal/2026-08-22-runtime-session.md`
+- [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+- [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)

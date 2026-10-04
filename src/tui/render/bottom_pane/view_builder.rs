@@ -49,7 +49,7 @@ fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
         label_color,
         spinner,
         spinner_elapsed,
-        detail,
+        detail: crate::tui::display_sanitize::sanitize_display_line(&detail),
         plan_badge,
         perm_badge,
         perm_label,
@@ -59,13 +59,12 @@ fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
 }
 
 fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
-    match status {
-        GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
-        GoalStatus::Paused => ("paused", STATUS_WARNING),
-        GoalStatus::Blocked => ("blocked", STATUS_WARNING),
-        GoalStatus::Complete => ("done", STATUS_SUCCESS),
-        GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
-    }
+    let color = match status {
+        GoalStatus::Pursuing => STATUS_INFO,
+        GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited => STATUS_WARNING,
+        GoalStatus::Complete => STATUS_SUCCESS,
+    };
+    (crate::tui::goal_ui::status_label(status), color)
 }
 
 fn goal_detail_text(goal: &RalphGoal) -> String {
@@ -78,7 +77,11 @@ fn goal_detail_text(goal: &RalphGoal) -> String {
             goal.remaining_tokens().unwrap_or(0)
         )
     } else {
-        format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
+        format!(
+            "{}s · {} tokens",
+            goal.time_used_seconds(),
+            goal.tokens_used
+        )
     }
 }
 
@@ -207,6 +210,13 @@ fn build_footer_view(app: &TuiApp) -> FooterView {
 }
 
 pub(super) fn footer_summary_text(app: &TuiApp) -> String {
+    if let Some(key) = app.quit_shortcut.key() {
+        let key = match key {
+            crate::tui::state::QuitShortcutKey::CtrlC => "Ctrl-C",
+            crate::tui::state::QuitShortcutKey::CtrlD => "Ctrl-D",
+        };
+        return format!("Press {key} again to quit");
+    }
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(hint) = app.repo_context_hint() {

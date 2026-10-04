@@ -65,7 +65,7 @@ fn render_overview_status(app: &TuiApp, lines: &mut Vec<Line<'static>>) {
         Color::LightBlue,
     );
     kv(lines, "phase", app.runtime_phase_label(), Color::DarkGray);
-    if let Some(detail) = &app.runtime_phase_detail {
+    if let Some(detail) = app.runtime_phase_detail.as_ref() {
         kv(lines, "detail", detail, Color::Gray);
     }
     kv(
@@ -556,7 +556,8 @@ mod tests {
                 "  code-reviewer  .rara/agents/code-reviewer.md  ok  (disabled)".to_string(),
             ],
             ..RuntimeSnapshot::default()
-        };
+        }
+        .into();
 
         let rendered = render_status_lines(&app, StatusTab::Overview)
             .into_iter()
@@ -591,7 +592,8 @@ mod tests {
                 ..AgentActivitySnapshot::default()
             }],
             ..RuntimeSnapshot::default()
-        };
+        }
+        .into();
 
         let rendered = render_status_lines(&app, StatusTab::Overview)
             .into_iter()
@@ -725,7 +727,8 @@ mod tests {
                 ..PlanningLifecycleSnapshot::default()
             },
             ..RuntimeSnapshot::default()
-        };
+        }
+        .into();
 
         let rendered = render_status_lines(&app, StatusTab::Overview)
             .into_iter()

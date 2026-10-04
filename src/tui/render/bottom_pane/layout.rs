@@ -6,26 +6,8 @@ use ratatui::{
 
 use super::{activity, composer, footer, interaction, view_builder};
 use crate::tui::custom_terminal::Frame;
-use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::state::TuiApp;
 use crate::tui::theme::SURFACE_BOTTOM_PANE_BG;
-
-pub(crate) fn desired_viewport_height(app: &TuiApp, terminal_width: u16, rows: u16) -> u16 {
-    if app.overlay.is_some() || app.active_pending_interaction().is_some() {
-        return rows.max(1);
-    }
-    let columns = PaneColumns {
-        terminal_width,
-        sidebar_visible: app.sidebar_visible,
-    };
-    let bottom_pane_height = desired_bottom_pane_height(app, columns.main_width(), rows);
-    let has_active_content =
-        !app.active_turn.entries.is_empty() || app.bottom_pane.has_pending_planning_suggestion();
-    if !app.has_any_transcript() && !has_active_content {
-        return rows.max(1);
-    }
-    rows.saturating_sub(bottom_pane_height).max(1)
-}
 
 pub(crate) fn desired_bottom_pane_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
     let panel = view_builder::build_interaction_panel(app);

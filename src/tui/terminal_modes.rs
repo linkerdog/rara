@@ -8,9 +8,12 @@ use std::task::Poll;
 
 use crossterm::{
     cursor::Show,
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{EndSynchronizedUpdate, disable_raw_mode, enable_raw_mode},
 };
 
 // These own the single process terminal, never session runtime handles. The
@@ -54,6 +57,8 @@ impl Drop for TerminalOwnerScope {
 
 pub(super) struct TerminalModeGuard {
     active: bool,
+    #[cfg(unix)]
+    resumed_tty: Option<std::fs::File>,
 }
 
 impl TerminalModeGuard {
@@ -63,7 +68,12 @@ impl TerminalModeGuard {
         }
         Self::acquire_with(|| {
             enable_raw_mode()?;
-            execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)
+            execute!(
+                io::stdout(),
+                EnableBracketedPaste,
+                EnableMouseCapture,
+                EnableFocusChange
+            )
         })
     }
 
@@ -82,7 +92,7 @@ impl TerminalModeGuard {
                 });
                 if TERMINAL_ACTIVE.load(Ordering::Acquire)
                     && owner_panicked
-                    && let Err(error) = restore_terminal_modes()
+                    && let Err(error) = restore_before_panic()
                 {
                     log::warn!("Failed to restore terminal before panic: {error}");
                 }
@@ -92,7 +102,11 @@ impl TerminalModeGuard {
         TERMINAL_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| io::Error::other("the process terminal already has an active TUI"))?;
-        let guard = Self { active: true };
+        let guard = Self {
+            active: true,
+            #[cfg(unix)]
+            resumed_tty: None,
+        };
         let scope = TerminalOwnerScope::enter();
         initialize()?;
         if scope.panicked() {
@@ -101,7 +115,7 @@ impl TerminalModeGuard {
         Ok(guard)
     }
 
-    pub(super) async fn run_owner<F: Future>(&self, future: F) -> io::Result<F::Output> {
+    pub(super) async fn run_owner<F: Future>(future: F) -> io::Result<F::Output> {
         let mut future = pin!(future);
         poll_fn(|cx| {
             // Workers may run on this same thread while the owner yields Pending.
@@ -119,6 +133,33 @@ impl TerminalModeGuard {
 
     pub(super) fn restore(&mut self) -> io::Result<()> {
         self.restore_with(restore_terminal_modes)
+    }
+
+    #[cfg(unix)]
+    pub(super) fn monitor_resumed_tty(&mut self) -> io::Result<()> {
+        self.resumed_tty = Some(std::fs::File::open("/dev/tty")?);
+        self.maintain_raw_mode()
+    }
+
+    /// A shell may restore saved termios after SIGCONT and our initial setup.
+    /// Keep checking on maintenance ticks: crossterm's cached flag cannot
+    /// observe that late write, and no fixed delay establishes a safe boundary.
+    pub(super) fn maintain_raw_mode(&self) -> io::Result<()> {
+        #[cfg(unix)]
+        if self.active
+            && let Some(tty) = &self.resumed_tty
+        {
+            use nix::sys::termios::{cfmakeraw, tcgetattr};
+
+            let observed = tcgetattr(tty)?;
+            let mut raw = observed.clone();
+            cfmakeraw(&mut raw);
+            if observed != raw {
+                disable_raw_mode()?;
+                enable_raw_mode()?;
+            }
+        }
+        Ok(())
     }
 
     // Isolates the ownership-consumption boundary for failure injection.
@@ -143,27 +184,57 @@ impl Drop for TerminalModeGuard {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoreAction {
+    SynchronizedOutput,
     Mouse,
     BracketedPaste,
+    Focus,
     RawMode,
     Cursor,
 }
 
 fn restore_terminal_modes() -> io::Result<()> {
     restore_all(|action| match action {
+        RestoreAction::SynchronizedOutput => execute!(io::stdout(), EndSynchronizedUpdate),
         RestoreAction::Mouse => execute!(io::stdout(), DisableMouseCapture),
         RestoreAction::BracketedPaste => execute!(io::stdout(), DisableBracketedPaste),
+        RestoreAction::Focus => execute!(io::stdout(), DisableFocusChange),
         RestoreAction::RawMode => disable_raw_mode(),
         RestoreAction::Cursor => execute!(io::stdout(), Show),
     })
+}
+
+fn restore_before_panic() -> io::Result<()> {
+    let modes = restore_terminal_modes();
+    // Do this before delegating to the previous hook. Unwinding destructors
+    // cannot safely move the cursor after panic diagnostics have been printed.
+    let handoff = (|| {
+        let (_, rows) = crossterm::terminal::size()?;
+        execute!(
+            io::stdout(),
+            crossterm::cursor::MoveTo(0, rows.saturating_sub(1)),
+            crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
+            crossterm::style::ResetColor,
+            crossterm::style::Print("\r\n")
+        )
+    })();
+    match (modes, handoff) {
+        (Err(error), Err(handoff)) => {
+            log::warn!("Failed to hand off terminal before panic: {handoff}");
+            Err(error)
+        }
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
 }
 
 // A failed output write must never prevent restoring the kernel's raw-mode state.
 fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Result<()> {
     let mut first_error = None;
     for action in [
+        RestoreAction::SynchronizedOutput,
         RestoreAction::Mouse,
         RestoreAction::BracketedPaste,
+        RestoreAction::Focus,
         RestoreAction::RawMode,
         RestoreAction::Cursor,
     ] {

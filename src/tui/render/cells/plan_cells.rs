@@ -18,8 +18,8 @@ use crate::tui::queued_input::{
 };
 use crate::tui::render::diff::render_patch_preview;
 use crate::tui::render::{
-    display_width, formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    section_label, startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    display_width, formatted_message_lines, prefixed_message_lines, section_label,
+    startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;

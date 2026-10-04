@@ -23,6 +23,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
 use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
 use crate::tools::tasklist::TaskListTool;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{
     ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask,
     TaskCompletion, TaskKind, TuiApp,
@@ -43,7 +44,7 @@ fn mark_app_busy(app: &mut TuiApp) {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 
@@ -123,6 +124,7 @@ fn parses_goal_budget_tokens_like_codex_goal_command() {
     assert_eq!(parse_goal_token_budget("98.5K"), Some(98_500));
     assert_eq!(parse_goal_token_budget("2m"), Some(2_000_000));
     assert_eq!(parse_goal_token_budget("0"), None);
+    assert_eq!(parse_goal_token_budget("0.1"), None);
     assert_eq!(parse_goal_token_budget("-1"), None);
 }
 
@@ -327,7 +329,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
 }
 
 #[tokio::test]
-async fn goal_command_refuses_to_replace_unfinished_goal_without_clear() {
+async fn goal_command_requires_confirmation_to_replace_unfinished_goal() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -360,9 +362,9 @@ async fn goal_command_refuses_to_replace_unfinished_goal_without_clear() {
         app.goal.as_ref().map(|goal| goal.objective.as_str()),
         Some("existing goal")
     );
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("An unfinished goal already exists. Use /goal clear before setting a new goal.")
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(
+        matches!(app.goal_ui.dialog, Some(crate::tui::goal_ui::GoalDialog::Replace { ref objective, .. }) if objective == "new goal")
     );
 }
 
@@ -459,7 +461,7 @@ async fn goal_command_resumes_blocked_goal() {
         app.active_turn
             .entries
             .iter()
-            .all(|entry| entry.role != "You")
+            .all(|entry| entry.role != MessageRole::User)
     );
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
@@ -506,7 +508,7 @@ async fn goal_command_starts_an_active_goal_continuation_when_idle() {
         app.active_turn
             .entries
             .iter()
-            .all(|entry| entry.role != "You")
+            .all(|entry| entry.role != MessageRole::User)
     );
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
@@ -631,7 +633,7 @@ async fn goal_command_accepts_tokens_option() {
 }
 
 #[tokio::test]
-async fn goal_command_status_notice_stays_compact() {
+async fn goal_command_opens_summary() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -661,14 +663,16 @@ async fn goal_command_status_notice_stays_compact() {
     .await
     .expect("goal command should be handled");
 
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Goal: finish goal polish [active] · 125 / 500 tokens")
-    );
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(matches!(
+        app.goal_ui.dialog,
+        Some(crate::tui::goal_ui::GoalDialog::Summary)
+    ));
+    assert_eq!(app.goal.as_ref().unwrap().tokens_used, 125);
 }
 
 #[tokio::test]
-async fn goal_command_empty_state_points_to_help() {
+async fn goal_command_empty_state_opens_summary() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -691,10 +695,11 @@ async fn goal_command_empty_state_points_to_help() {
     .await
     .expect("goal command should be handled");
 
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("No active goal. Use /help for /goal details.")
-    );
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(matches!(
+        app.goal_ui.dialog,
+        Some(crate::tui::goal_ui::GoalDialog::Summary)
+    ));
 }
 
 #[tokio::test]

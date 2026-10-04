@@ -15,9 +15,7 @@ use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
 use crate::tui::render::diff::render_patch_preview;
-use crate::tui::render::{
-    formatted_message_lines, prefixed_message_lines, rendered_markdown_lines, section_label,
-};
+use crate::tui::render::{formatted_message_lines, prefixed_message_lines, section_label};
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
 use crate::tui::terminal_event::TerminalStream;

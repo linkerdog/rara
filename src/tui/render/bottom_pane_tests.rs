@@ -8,6 +8,7 @@ use super::super::view_builder::{
     activity_status_line, build_bottom_pane_view, footer_summary_text, should_show_spinner,
 };
 use crate::config::ConfigManager;
+use crate::tui::message_role::MessageRole;
 use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, desired_composer_height, wrapped_text_cursor_position,
     wrapped_text_rows,
@@ -29,7 +30,8 @@ fn footer_summary_text_reports_permission_and_approval_when_idle() {
         estimated_history_tokens: 1234,
         context_window_tokens: Some(32768),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert_eq!(rendered, "perm=custom approval=suggestion");
@@ -51,7 +53,8 @@ fn footer_summary_text_shows_tokens_while_busy() {
         total_input_tokens: 111,
         total_output_tokens: 22,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert_eq!(rendered, "perm=custom approval=suggestion  tokens=2.0k");
@@ -76,7 +79,8 @@ fn footer_summary_text_shows_cache_hit_rate_when_usage_has_cache_tokens() {
         total_cache_hit_tokens: 80,
         total_cache_miss_tokens: 20,
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = footer_summary_text(&app);
     assert!(rendered.contains("cache_hit=80.0%"));
@@ -186,7 +190,7 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     assert_eq!(
@@ -215,7 +219,7 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 
     assert_eq!(composer_hint(&app).to_string(), "Enter queue");
@@ -315,12 +319,29 @@ fn composer_height_counts_the_same_indented_rows_as_rendering() {
 }
 
 #[test]
-fn viewport_reserves_composer_height_at_the_rendered_main_width() {
-    use crate::tui::render::bottom_pane::desired_viewport_height;
+fn review_regression_terminal_viewport_includes_bottom_pane_once() {
+    let mut tui =
+        crate::tui::testing::TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+    tui.app_mut()
+        .push_entry(MessageRole::User, "Earlier prompt");
+    for input in ["short", "first\nsecond\nthird\nfourth"] {
+        tui.app_mut().bottom_pane.input = input.into();
+        assert_eq!(
+            crate::tui::testing::terminal_emulator::render_app_viewport(tui.app_mut(), 80, 24)
+                .height,
+            24
+        );
+    }
+}
+
+#[test]
+fn composer_height_uses_the_rendered_main_width() {
+    use crate::tui::render::bottom_pane::desired_bottom_pane_height;
     use crate::tui::testing::TuiHarness;
 
     let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
-    tui.app_mut().push_entry("You", "Earlier prompt");
+    tui.app_mut()
+        .push_entry(MessageRole::User, "Earlier prompt");
     tui.app_mut().bottom_pane.input = "x".repeat(720);
     for (terminal_width, sidebar_visible, main_width) in [
         (80, true, 80_u16),
@@ -330,10 +351,16 @@ fn viewport_reserves_composer_height_at_the_rendered_main_width() {
         (160, false, 160),
     ] {
         tui.app_mut().sidebar_visible = sidebar_visible;
+        let rendered_width = crate::tui::pane_geometry::PaneColumns {
+            terminal_width,
+            sidebar_visible,
+        }
+        .main_width();
+        assert_eq!(rendered_width, main_width);
         let expected_bottom = 720_usize.div_ceil(usize::from(main_width - 2)).max(3) as u16 + 2;
         assert_eq!(
-            desired_viewport_height(tui.app(), terminal_width, 40),
-            40 - expected_bottom,
+            desired_bottom_pane_height(tui.app(), rendered_width, 40),
+            expected_bottom,
             "width={terminal_width}, sidebar={sidebar_visible}"
         );
     }
@@ -585,7 +612,7 @@ async fn activity_status_line_hides_busy_progress_from_composer_bar() {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
     app.queue_follow_up_message("first follow-up");
     app.queue_follow_up_message("second follow-up");
@@ -671,7 +698,7 @@ fn blocked_goal_uses_compact_warning_badge() {
 
     let view = build_bottom_pane_view(&app, 80, 24);
 
-    assert_eq!(view.activity.goal_label, Some(("blocked", STATUS_WARNING)));
+    assert_eq!(view.activity.goal_label, Some(("Blocked", STATUS_WARNING)));
 }
 
 #[test]

@@ -6,20 +6,10 @@ use ratatui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::text_wrap::{
-    WrapMode, WrapOptions, display_width, expand_tabs, grapheme_width, wrap_ranges,
-};
+use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
 
 pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
-    let line = Line {
-        spans: line
-            .spans
-            .iter()
-            .map(|span| Span::styled(expand_tabs(&span.content), span.style))
-            .collect(),
-        style: line.style,
-        alignment: line.alignment,
-    };
+    let line = super::display_sanitize::sanitize_display_line_segments(line);
     let text = line.to_string();
     let width = usize::from(width.max(1));
     let ranges = wrap_ranges(

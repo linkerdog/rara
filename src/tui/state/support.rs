@@ -62,12 +62,14 @@ pub(super) enum TextInputTarget {
     ApiKey,
     ModelName,
     OpenAiProfileLabel,
+    GoalObjective,
 }
 
 pub(super) fn effective_cursor_offset(text: &str, cursor_offset: Option<usize>) -> usize {
-    cursor_offset
-        .unwrap_or_else(|| text.chars().count())
-        .min(text.chars().count())
+    cursor_offset.map_or_else(
+        || text.chars().count(),
+        |offset| crate::tui::input_text::floor_grapheme_offset(text, offset),
+    )
 }
 
 pub(crate) fn char_offset_to_byte_index(text: &str, char_offset: usize) -> usize {

@@ -6,7 +6,10 @@
 // the default Nord-compatible palette and as fallback values for renderers that
 // have not been migrated yet.
 use std::collections::BTreeMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{
+    OnceLock, RwLock,
+    atomic::{AtomicU64, Ordering},
+};
 
 use ratatui::style::Color;
 
@@ -243,7 +246,7 @@ impl ThemeToken {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedTuiTheme {
     tokens: BTreeMap<ThemeToken, Color>,
 }
@@ -274,6 +277,20 @@ impl ResolvedTuiTheme {
 }
 
 static ACTIVE_THEME: OnceLock<RwLock<ResolvedTuiTheme>> = OnceLock::new();
+static THEME_REVISION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ThemeRevision {
+    semantic: u64,
+    syntax: u64,
+}
+
+pub(crate) fn revision() -> ThemeRevision {
+    ThemeRevision {
+        semantic: THEME_REVISION.load(Ordering::Acquire),
+        syntax: crate::tui::highlight::syntax_theme_revision(),
+    }
+}
 
 fn theme_lock() -> &'static RwLock<ResolvedTuiTheme> {
     ACTIVE_THEME.get_or_init(|| RwLock::new(ResolvedTuiTheme::default()))
@@ -281,9 +298,15 @@ fn theme_lock() -> &'static RwLock<ResolvedTuiTheme> {
 
 pub(crate) fn install_config(config: &TuiThemeConfig) {
     let theme = ResolvedTuiTheme::from_config(config);
-    match theme_lock().write() {
-        Ok(mut active) => *active = theme,
-        Err(poisoned) => *poisoned.into_inner() = theme,
+    {
+        let mut active = match theme_lock().write() {
+            Ok(active) => active,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *active != theme {
+            *active = theme;
+            THEME_REVISION.fetch_add(1, Ordering::Release);
+        }
     }
     crate::tui::highlight::install_syntax_theme(config.syntax_theme.as_deref());
 }
@@ -303,6 +326,10 @@ pub(crate) fn token_bg(token: ThemeToken) -> ratatui::style::Style {
     ratatui::style::Style::default().bg(theme_color(token))
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner resolves configured palette indices."
+)]
 pub(crate) fn parse_color_value(value: &str) -> Option<Color> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("reset") {
@@ -317,6 +344,10 @@ pub(crate) fn parse_color_value(value: &str) -> Option<Color> {
     color_name(value)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner resolves configured RGB values."
+)]
 fn parse_hex_color(hex: &str) -> Option<Color> {
     if hex.len() != 6 || !hex.is_ascii() {
         return None;
@@ -358,20 +389,80 @@ fn token_from_key(key: &str) -> Option<ThemeToken> {
 }
 
 // See https://www.nordtheme.com/docs/colors-and-palettes
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD0: Color = Color::Rgb(0x2E, 0x34, 0x40); // Polar Night (darkest bg)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD1: Color = Color::Rgb(0x3B, 0x42, 0x52); // Polar Night
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD2: Color = Color::Rgb(0x43, 0x4C, 0x5E); // Polar Night
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD3: Color = Color::Rgb(0x4C, 0x56, 0x6A); // Polar Night (lightest bg)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD4: Color = Color::Rgb(0xD8, 0xDE, 0xE9); // Snow Storm (darkest fg)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD6: Color = Color::Rgb(0xEC, 0xEF, 0xF4); // Snow Storm (brightest fg)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD7: Color = Color::Rgb(0x8F, 0xBC, 0xBB); // Frost (green-cyan)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD8: Color = Color::Rgb(0x88, 0xC0, 0xD0); // Frost (cyan)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD9: Color = Color::Rgb(0x81, 0xA1, 0xC1); // Frost (blue-gray)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD10: Color = Color::Rgb(0x5E, 0x81, 0xAC); // Frost (dark blue)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD11: Color = Color::Rgb(0xBF, 0x61, 0x6A); // Aurora (red)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD12: Color = Color::Rgb(0xD0, 0x87, 0x70); // Aurora (orange)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD13: Color = Color::Rgb(0xEB, 0xCB, 0x8B); // Aurora (yellow)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD14: Color = Color::Rgb(0xA3, 0xBE, 0x8C); // Aurora (green)
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const NORD15: Color = Color::Rgb(0xB4, 0x8E, 0xAD); // Aurora (purple)
 
 // ── UI surface colors ───────────────────────────────────────────
@@ -434,8 +525,16 @@ pub(crate) const PENDING_CARD_FG: Color = NORD4;
 pub(crate) const TOOL_STDERR_FG: Color = NORD6;
 
 // ── Diff view ───────────────────────────────────────────────────
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const DIFF_ADD_BG: Color = Color::Rgb(21, 58, 42);
 pub(crate) const DIFF_ADD_FG: Color = NORD14;
+#[expect(
+    clippy::disallowed_methods,
+    reason = "The theme owner defines the default RGB palette."
+)]
 pub(crate) const DIFF_DEL_BG: Color = Color::Rgb(58, 26, 26);
 pub(crate) const DIFF_DEL_FG: Color = NORD11;
 pub(crate) const DIFF_HUNK_BG: Color = NORD1;
@@ -467,6 +566,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "The resolver test asserts exact RGB and indexed color values."
+    )]
     fn parses_supported_theme_color_values() {
         assert_eq!(
             parse_color_value("#88c0d0"),
@@ -480,6 +583,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "The resolver test asserts exact RGB and indexed color values."
+    )]
     fn resolves_configured_token_overrides() {
         let mut tokens = BTreeMap::new();
         tokens.insert("text.accent".to_string(), "#112233".to_string());
