@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthChar;
 
 use super::Frame;
 use crate::tui::composer_text::expand_tabs;
+use crate::tui::display_sanitize::annotate_bidi_text;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
 use crate::tui::state::{ApiKeyTarget, TuiApp};
 use crate::tui::theme::{ThemeToken, theme_color};
@@ -285,7 +286,7 @@ pub(super) fn render_base_url_editor_modal(
                 .title(" Base URL "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(expand_tabs(app.base_url_input.as_str())).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(&app.base_url_input))).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -330,7 +331,7 @@ pub(super) fn render_model_name_editor_modal(
                 .title(" Model Name "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(expand_tabs(app.model_name_input.as_str())).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(&app.model_name_input))).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -377,7 +378,10 @@ pub(super) fn render_openai_profile_label_editor_modal(
                 .title(" New Endpoint Profile "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(expand_tabs(app.openai_profile_label_input.as_str())).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(
+        &app.openai_profile_label_input,
+    )))
+    .block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
