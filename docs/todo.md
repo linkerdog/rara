@@ -62,7 +62,9 @@ Active backlog only. Keep this file small and current.
       bypassed using mutation identities. Live thinking content and clock updates
       replace only their visible row block, preserving both surrounding sections.
       Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
-      mutable blocks and source-wide reference fallbacks still need work bounds;
+      mutable blocks, definition changes, and reference-expansion fallback still
+      need work bounds. Ordinary blocks after reference definitions now reuse
+      their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
       ordinary angle brackets now avoid control-cleanup replay, while completed
       legacy markers and complex control contexts retain explicit replay costs.
       See [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md);
