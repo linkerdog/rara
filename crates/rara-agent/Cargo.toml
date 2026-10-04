@@ -12,5 +12,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = "=0.3.76"
+
 [lints]
 workspace = true

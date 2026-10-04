@@ -16,8 +16,15 @@ PORTABLE_DEPENDENCIES = {
     "thiserror", "thiserror-impl", "proc-macro2", "quote", "syn", "unicode-ident",
 }
 
+BROWSER_DEPENDENCIES = PORTABLE_DEPENDENCIES | {
+    "web-time", "js-sys", "wasm-bindgen", "wasm-bindgen-macro",
+    "wasm-bindgen-macro-support", "wasm-bindgen-shared", "bumpalo", "cfg-if",
+    "once_cell", "rustversion", "futures-core", "futures-task", "futures-util",
+    "pin-project-lite", "slab",
+}
 
-def check_graph(metadata, revision):
+
+def check_graph(metadata, revision, target, allowed_dependencies):
     packages = {package["id"]: package for package in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
     core, = (package for package in packages.values() if package["name"] == "rara-core")
@@ -37,7 +44,7 @@ def check_graph(metadata, revision):
             continue
         visited.add(package_id)
         package = packages[package_id]
-        if package["name"] not in PORTABLE_DEPENDENCIES:
+        if package["name"] not in allowed_dependencies:
             raise RuntimeError(f"unexpected portable dependency: {package['name']}")
         if package["name"].startswith("rara-") and package["source"] != core["source"]:
             raise RuntimeError(f"mixed project dependency sources: {package['name']}")
@@ -45,7 +52,7 @@ def check_graph(metadata, revision):
             dependency["pkg"] for dependency in nodes[package_id]["deps"]
             if any(kind["kind"] != "dev" for kind in dependency["dep_kinds"])
         )
-    print("Core and agent dependency closure: " + ", ".join(sorted(
+    print(f"Core and agent dependency closure ({target}): " + ", ".join(sorted(
         packages[package_id]["name"] for package_id in visited
     )), flush=True)
 
@@ -78,10 +85,15 @@ def main():
             f'rev = "{args.rev}" }}\n',
             encoding="utf-8",
         )
-        metadata = json.loads(subprocess.check_output(
-            ["cargo", "metadata", "--format-version", "1"], cwd=project, text=True,
-        ))
-        check_graph(metadata, args.rev)
+        rustc_version = subprocess.check_output(["rustc", "-vV"], text=True)
+        host, = re.findall(r"^host: (.+)$", rustc_version, re.MULTILINE)
+        for target, allowed in [(host, PORTABLE_DEPENDENCIES),
+                                ("wasm32-unknown-unknown", BROWSER_DEPENDENCIES)]:
+            metadata = json.loads(subprocess.check_output(
+                ["cargo", "metadata", "--format-version", "1", "--filter-platform", target],
+                cwd=project, text=True,
+            ))
+            check_graph(metadata, args.rev, target, allowed)
         subprocess.run(["cargo", "test", "--locked"], cwd=project, check=True)
         subprocess.run([
             "cargo", "check", "--locked", "--tests", "--target",

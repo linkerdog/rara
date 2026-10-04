@@ -18,8 +18,9 @@ pub struct StopHookContext {
 /// or cleanup have completed. Preserve model/tool identity in host-owned data.
 /// Errors must retain diagnostic information; the executor never retries an
 /// effect or finalizes a failed one. Cancellation cleanup belongs to the host.
-#[async_trait]
-pub trait LoopEffects: Send {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait LoopEffects: rara_core::PlatformSend {
     fn budget(&self) -> IterationBudget;
 
     async fn request_model(&mut self, progress: LoopProgress) -> Result<ModelObservation>;

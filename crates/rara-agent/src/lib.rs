@@ -13,8 +13,8 @@ pub use model::{
     execute_model_turn,
 };
 pub use tools::{
-    ToolAdmission, ToolBatchEffects, ToolBatchOutput, ToolCallProgress, ToolReply,
-    execute_tool_batch, execute_tool_call,
+    ToolAdmission, ToolBatchEffects, ToolBatchOutput, ToolCallProgress, ToolCallProgressCallback,
+    ToolReply, execute_tool_batch, execute_tool_call,
 };
 pub use types::{
     Continuation, ContinuationContext, EffectId, ExecutionMode, InspectionEvidence,

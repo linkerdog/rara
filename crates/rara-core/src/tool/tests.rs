@@ -15,7 +15,18 @@ struct TestTool {
     name: &'static str,
 }
 
-#[async_trait]
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[test]
+fn native_tool_contracts_and_futures_remain_thread_safe() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send(_: impl Future + Send) {}
+    assert_send_sync::<Box<dyn Tool>>();
+    assert_send_sync::<ToolManager>();
+    assert_send(TestTool { name: "echo" }.call(Value::Null));
+}
+
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl Tool for TestTool {
     fn name(&self) -> &str {
         self.name
@@ -88,7 +99,8 @@ fn call_context_retains_workspace_root() {
 
 struct EventTool;
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl Tool for EventTool {
     fn name(&self) -> &str {
         "alpha_tool"
@@ -109,7 +121,7 @@ impl Tool for EventTool {
     async fn call_with_events(
         &self,
         input: Value,
-        report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+        report: &mut crate::tool::ToolProgressCallback<'async_trait>,
     ) -> Result<Value, ToolError> {
         report(ToolProgressEvent::Output {
             stream: ToolOutputStream::Stderr,
