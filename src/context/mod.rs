@@ -6,7 +6,9 @@
 mod assembler;
 mod assembly_view;
 mod compaction_view;
+mod file_inputs;
 mod file_search_provider;
+pub(crate) use file_inputs::{RuntimeContextFiles, WorkspaceMemoryAvailability};
 mod memory_selection;
 mod retrieval_provider;
 mod retrieval_view;

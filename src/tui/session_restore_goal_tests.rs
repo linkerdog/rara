@@ -14,8 +14,8 @@ use crate::session::SessionManager;
 use crate::tui::state::TuiApp;
 use crate::workspace::WorkspaceMemory;
 
-#[test]
-fn thread_restore_preserves_statuses_counter_limits_and_clear() {
+#[tokio::test]
+async fn thread_restore_preserves_statuses_counter_limits_and_clear() {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().join("workspace");
     let data = dir.path().join("state");
@@ -59,7 +59,9 @@ fn thread_restore_preserves_statuses_counter_limits_and_clear() {
         })
         .expect("fresh app");
         app.attach_state_db(db.clone());
-        restore_thread_by_id("stored-thread", &mut app, &mut slot).expect("restore thread");
+        restore_thread_by_id("stored-thread", &mut app, &mut slot)
+            .await
+            .expect("restore thread");
         assert_eq!(app.goal, Some(expected.clone()));
         assert_eq!(app.goal_handle.snapshot(), Some(expected));
         assert_eq!(app.snapshot.session_id, "stored-thread");
@@ -68,14 +70,16 @@ fn thread_restore_preserves_statuses_counter_limits_and_clear() {
             .replace(None)
             .expect("clear through runtime writer");
         app.goal = Some(RalphGoal::new("stale prior thread goal".into(), None));
-        restore_thread_by_id("stored-thread", &mut app, &mut slot).expect("restore cleared thread");
+        restore_thread_by_id("stored-thread", &mut app, &mut slot)
+            .await
+            .expect("restore cleared thread");
         assert!(app.goal.is_none());
         assert!(app.goal_handle.snapshot().is_none());
     }
 }
 
-#[test]
-fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
+#[tokio::test]
+async fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
     for corrupt in ["todo", "runtime"] {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("workspace");
@@ -135,7 +139,9 @@ fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
             other => panic!("unexpected fixture {other}"),
         }
         assert!(
-            restore_thread_by_id("target-thread", &mut app, &mut slot).is_err(),
+            restore_thread_by_id("target-thread", &mut app, &mut slot)
+                .await
+                .is_err(),
             "{corrupt}"
         );
         let agent = slot.as_ref().expect("agent retained");
@@ -159,8 +165,8 @@ fn failed_thread_reads_preserve_agent_snapshot_and_goal_binding() {
     }
 }
 
-#[test]
-fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
+#[tokio::test]
+async fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
     for (field, value) in [
         ("status", json!("unknown")),
         ("objective", json!("")),
@@ -213,9 +219,9 @@ fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
             app.goal = Some(original);
             let original_row = db.try_load_goal("original-thread").expect("original row");
             if latest {
-                restore_latest_thread(&db, &mut app, &mut slot)
+                restore_latest_thread(&db, &mut app, &mut slot).await
             } else {
-                restore_thread_by_id("target-thread", &mut app, &mut slot)
+                restore_thread_by_id("target-thread", &mut app, &mut slot).await
             }
             .expect("optional goal corruption must not abort thread restore");
             assert_eq!(slot.as_ref().expect("agent").session_id, "target-thread");
@@ -254,6 +260,7 @@ fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
             )
             .expect("repair fixture");
             restore_thread_by_id("target-thread", &mut app, &mut slot)
+                .await
                 .expect("valid restore re-enables persistence");
             assert_eq!(app.goal, Some(target));
             app.goal_handle

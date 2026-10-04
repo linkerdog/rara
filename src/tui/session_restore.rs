@@ -1,90 +1,47 @@
-use std::sync::Arc;
-
 use anyhow::Result;
-use rara_state::state_db::StateDb;
+#[cfg(test)]
+use {crate::thread_store::ThreadStore, rara_state::state_db::StateDb, std::sync::Arc};
 
 use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, CompactBoundaryMetadata, CompletedInteraction,
     PendingApproval, PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
 };
-use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
+use crate::thread_store::CompactionRecord;
 use crate::tools::bash::BashCommandInput;
+#[cfg(test)]
 use crate::tui::message_role::MessageRole;
 
 #[cfg(test)]
 mod recovery_tests;
 
-pub(super) fn apply_startup_resume(
-    target: &super::event_loop::StartupResumeTarget,
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-) {
-    use super::event_loop::StartupResumeTarget;
-    let result = match target {
-        StartupResumeTarget::Fresh => return,
-        StartupResumeTarget::Picker => {
-            app.open_overlay(super::state::Overlay::ListPicker(
-                super::state::ListPickerKind::Resume,
-            ));
-            return;
-        }
-        StartupResumeTarget::Latest => match app.state_db.as_ref().cloned() {
-            Some(state_db) => restore_latest_thread(&state_db, app, agent_slot),
-            None => Err(anyhow::anyhow!("session storage is unavailable")),
-        },
-        StartupResumeTarget::ThreadId(thread_id) => {
-            restore_thread_by_id(thread_id, app, agent_slot)
-        }
-    };
-    if let Err(error) = result {
-        log::warn!("Startup resume failed: {error:#}");
-        app.push_notice(format!(
-            "Could not resume thread; continuing with the current session: {error:#}"
-        ));
-    }
-}
+mod loading;
+pub(crate) use loading::PendingRestore;
+pub(super) use loading::{
+    apply_startup_resume, cancel_restore, poll_restore, request_restore_thread,
+};
+#[cfg(test)]
+pub(super) use loading::{finish_restore_for_test, restore_latest_thread, restore_thread_by_id};
 
-pub(super) fn restore_latest_thread(
-    state_db: &Arc<StateDb>,
+fn apply_prepared_restore(
+    prepared: loading::PreparedRestore,
     app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
+    agent: &mut Agent,
 ) -> Result<()> {
-    let agent = agent_slot
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
-    let store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
-    let Some(thread) = store.latest_thread_summary()? else {
-        return Ok(());
-    };
-    restore_thread_by_id(thread.metadata.session_id.as_str(), app, agent_slot)
-}
-
-pub(super) fn restore_thread_by_id(
-    thread_id: &str,
-    app: &mut TuiApp,
-    agent_slot: &mut Option<Agent>,
-) -> Result<()> {
-    let agent = agent_slot
-        .as_mut()
-        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
-    let state_db = app
-        .state_db
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("session storage is unavailable"))?;
-    let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
-    let thread = thread_store.load_thread(thread_id)?;
-    let todo_state = agent.session_manager.load_todo_state(thread_id)?;
-    let runtime_state = state_db.load_session_runtime_state(thread_id)?;
-    // Required thread reads succeed before rebinding optional goal state.
+    let loading::PreparedRestore {
+        thread,
+        todo_state,
+        runtime_state,
+        turns,
+        live_entries,
+        latest_plan_lifecycle,
+        goal,
+    } = prepared;
+    let thread_id = thread.metadata.session_id.clone();
     let mut resume_notice = format!("Resumed thread {thread_id}.");
-    let restored_goal = match app
-        .goal_handle
-        .restore_for_thread(thread_id, state_db.clone())
-    {
-        Ok(goal) => goal,
-        Err(error) => {
-            let reason = format!("{error:#}");
+    let restored_goal = match goal {
+        Ok(prepared) => app.goal_handle.apply_prepared_restore(prepared),
+        Err(reason) => {
             log::warn!("Goal persistence unavailable for resumed thread {thread_id}: {reason}");
             app.goal_handle
                 .disable_after_persistence_failure(reason.clone());
@@ -100,7 +57,7 @@ pub(super) fn restore_thread_by_id(
         plan_explanation,
         plan_steps,
         interactions,
-        rollout_items,
+        rollout_items: _,
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
@@ -139,7 +96,6 @@ pub(super) fn restore_thread_by_id(
         agent.current_plan.clear();
     }
     agent.plan_explanation = plan_explanation;
-    let latest_plan_lifecycle = latest_plan_lifecycle(&rollout_items);
     agent.pending_user_input = None;
     agent.pending_approval = None;
     agent.completed_user_input = None;
@@ -230,49 +186,16 @@ pub(super) fn restore_thread_by_id(
             _ => {}
         }
     }
-    let mut turns = Vec::new();
-    for item in rollout_items {
-        match item {
-            RolloutItem::Turn(turn) if !turn.entries.is_empty() => {
-                let entries = turn
-                    .entries
-                    .into_iter()
-                    .map(|entry| {
-                        TranscriptEntry::new(
-                            MessageRole::from_persisted(&entry.role),
-                            entry.message,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                turns.push(TranscriptTurn {
-                    thinking_duration: None,
-                    entries,
-                });
-            }
-            RolloutItem::Turn(_)
-            | RolloutItem::Compaction(_)
-            | RolloutItem::PlanState { .. }
-            | RolloutItem::Interaction(_)
-            | RolloutItem::PlanLifecycle(_)
-            | RolloutItem::SpawnAgent { .. } => {}
-        }
-    }
-    let rollout_root = state_db.rollout_root();
-    if !turns.is_empty() {
-        app.restore_committed_turns(turns);
-    } else {
-        app.reset_transcript();
-    }
-    let live_entries =
-        rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
-    if !live_entries.is_empty() {
-        app.active_turn.entries = live_entries
-            .into_iter()
-            .map(|entry| {
-                TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message)
-            })
-            .collect();
-    }
+    // Session-local interactions must not be carried into the new snapshot.
+    // This is a presentation reset; the old session was flushed before loading.
+    app.snapshot.pending_interactions.clear();
+    app.snapshot.completed_interactions.clear();
+    app.bottom_pane.pending_planning_suggestion = None.into();
+    app.bottom_pane.pending_follow_up_messages.clear();
+    app.bottom_pane.queued_follow_up_messages.clear();
+    app.running_tool_boundary_count = 0;
+    app.restore_committed_turns(turns);
+    app.active_turn.entries = live_entries;
     app.apply_runtime_snapshot(
         agent,
         crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
@@ -305,15 +228,6 @@ pub(super) fn restore_thread_by_id(
     app.bottom_pane.notice = Some(resume_notice);
     super::goal_resume::arm_after_restore(app);
     Ok(())
-}
-
-fn latest_plan_lifecycle(rollout_items: &[RolloutItem]) -> Option<(String, Option<String>)> {
-    rollout_items.iter().rev().find_map(|item| match item {
-        RolloutItem::PlanLifecycle(lifecycle) => {
-            Some((lifecycle.phase.clone(), lifecycle.tool_use_id.clone()))
-        }
-        _ => None,
-    })
 }
 
 fn apply_compaction_record(agent: &mut Agent, compaction: &CompactionRecord) {

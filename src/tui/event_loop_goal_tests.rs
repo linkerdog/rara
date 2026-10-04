@@ -31,12 +31,13 @@ fn seed_thread(fixture: &mut Fixture, status: GoalStatus) {
     fixture.controller.app_mut().attach_state_db(db);
 }
 
-fn restore(fixture: &mut Fixture) {
+async fn restore(fixture: &mut Fixture) {
     crate::tui::session_restore::restore_thread_by_id(
         "resumed-thread",
         fixture.controller.app_mut(),
         fixture.processor.agent_mut(),
     )
+    .await
     .unwrap();
 }
 
@@ -45,7 +46,7 @@ async fn refused_or_failed_goal_admission_keeps_the_ready_agent() {
     for status in [GoalStatus::Paused, GoalStatus::Pursuing] {
         let mut fixture = Fixture::new().await;
         seed_thread(&mut fixture, status);
-        restore(&mut fixture);
+        restore(&mut fixture).await;
         let expected_session = fixture.processor.agent().unwrap().session_id.clone();
         let app = fixture.controller.app_mut();
         if status == GoalStatus::Pursuing {
@@ -98,7 +99,7 @@ async fn refused_or_failed_goal_admission_keeps_the_ready_agent() {
 async fn plan_mode_retains_automatic_goal_until_execute_admission() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     fixture.controller.app_mut().agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     let ticket = fixture
         .controller
@@ -161,7 +162,7 @@ async fn plan_mode_retains_automatic_goal_until_execute_admission() {
 async fn actual_loop_queues_restored_goal_once_without_a_keypress() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     let port = fixture.port.clone();
     tokio::time::pause();
     {
@@ -195,6 +196,11 @@ async fn picker_and_latest_restore_arm_the_same_idle_continuation() {
                 .open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
             fixture
                 .controller
+                .app_mut()
+                .finish_resume_query_for_test()
+                .await;
+            fixture
+                .controller
                 .dispatch_event(
                     &mut fixture.processor,
                     crate::tui::app_event::AppEvent::ApplyOverlaySelection,
@@ -202,6 +208,12 @@ async fn picker_and_latest_restore_arm_the_same_idle_continuation() {
                 )
                 .await
                 .unwrap();
+            crate::tui::session_restore::finish_restore_for_test(
+                fixture.controller.app_mut(),
+                fixture.processor.agent_mut(),
+            )
+            .await
+            .unwrap();
         } else {
             let db = fixture.controller.app().state_db.as_ref().unwrap().clone();
             crate::tui::session_restore::restore_latest_thread(
@@ -209,6 +221,7 @@ async fn picker_and_latest_restore_arm_the_same_idle_continuation() {
                 fixture.controller.app_mut(),
                 fixture.processor.agent_mut(),
             )
+            .await
             .unwrap();
         }
         assert_eq!(
@@ -233,7 +246,7 @@ async fn picker_and_latest_restore_arm_the_same_idle_continuation() {
 async fn restored_command_rechecks_readiness_and_claims_only_once() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     fixture
         .controller
         .apply_runtime_command(
@@ -329,7 +342,7 @@ async fn restored_command_rechecks_readiness_and_claims_only_once() {
 async fn stale_queued_goal_does_not_take_the_agent() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     fixture
         .controller
         .queue_restored_goal(&fixture.processor)
@@ -354,7 +367,7 @@ async fn stale_queued_goal_does_not_take_the_agent() {
 async fn accepted_user_cancel_defers_goal_across_thread_restore() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Pursuing);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     fixture
         .controller
         .queue_restored_goal(&fixture.processor)
@@ -386,7 +399,7 @@ async fn accepted_user_cancel_defers_goal_across_thread_restore() {
         panic!("query completion")
     };
     *fixture.processor.agent_mut() = Some(agent);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     assert!(fixture.controller.app().goal_handle.continuation_deferred());
     assert!(fixture.controller.app().pending_goal_resume.is_none());
     let count = fixture.port.commands().len();
@@ -401,7 +414,7 @@ async fn accepted_user_cancel_defers_goal_across_thread_restore() {
 async fn paused_goal_resume_choice_requires_explicit_acceptance() {
     let mut fixture = Fixture::new().await;
     seed_thread(&mut fixture, GoalStatus::Paused);
-    restore(&mut fixture);
+    restore(&mut fixture).await;
     fixture
         .controller
         .queue_restored_goal(&fixture.processor)
@@ -455,4 +468,79 @@ async fn fresh_bootstrap_with_a_goal_does_not_imply_explicit_resume() {
         assert!(poll!(&mut future).is_pending());
         assert!(port.commands().is_empty());
     }
+}
+
+#[tokio::test]
+async fn startup_plugin_rebuild_waits_for_prepared_restore() {
+    let mut fixture = Fixture::new().await;
+    seed_thread(&mut fixture, GoalStatus::Paused);
+    let (release, wait) = std::sync::mpsc::channel();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let blocked = fixture
+        .controller
+        .app()
+        .storage
+        .as_ref()
+        .unwrap()
+        .read(move || {
+            entered.send(()).unwrap();
+            wait.recv()?;
+            Ok(())
+        })
+        .unwrap();
+    ready.await.unwrap();
+    crate::tui::session_restore::request_restore_thread(
+        "resumed-thread",
+        fixture.controller.app_mut(),
+        fixture.processor.agent_mut(),
+    )
+    .unwrap();
+    let prepared = fixture
+        .controller
+        .app()
+        .storage
+        .as_ref()
+        .unwrap()
+        .read(|| Ok(()))
+        .unwrap();
+    let port = fixture.port.clone();
+    tokio::time::pause();
+    {
+        let future = run_event_loop(
+            &mut fixture.terminal,
+            &mut fixture.controller,
+            &mut fixture.processor,
+            &fixture.oauth,
+            &mut fixture.source,
+            crate::tui::event_loop::StartupMaintenance::Rebuild,
+        );
+        tokio::pin!(future);
+        assert!(poll!(&mut future).is_pending());
+        assert!(
+            port.commands().is_empty(),
+            "startup maintenance must wait for the session binding"
+        );
+        release.send(()).unwrap();
+        blocked.await.unwrap().unwrap();
+        prepared.await.unwrap().unwrap();
+        advance(Duration::from_millis(166)).await;
+        assert!(poll!(&mut future).is_pending());
+        assert!(matches!(
+            port.commands().as_slice(),
+            [RuntimeCommand::Maintenance(
+                crate::tui::runtime_port::RuntimeMaintenanceCommand::Rebuild
+            )]
+        ));
+    }
+    assert_eq!(
+        fixture.processor.agent().unwrap().session_id,
+        "resumed-thread"
+    );
+    tokio::time::resume();
+    fixture
+        .controller
+        .app_mut()
+        .shutdown_storage()
+        .await
+        .unwrap();
 }

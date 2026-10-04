@@ -125,6 +125,8 @@ enum GoalPersistence {
     },
 }
 
+pub(crate) struct PreparedGoalRestore(GoalState);
+
 impl GoalStore {
     fn locked(&self) -> MutexGuard<'_, GoalState> {
         self.state.lock().unwrap_or_else(|poisoned| {
@@ -155,15 +157,24 @@ impl GoalStore {
         db: Arc<StateDb>,
     ) -> Result<Option<RalphGoal>> {
         let mut state = self.locked();
-        let goal = db
+        let prepared = Self::prepare_restore(thread_id, db)?;
+        *state = prepared.0;
+        Ok(state.goal.clone())
+    }
+
+    pub(crate) fn prepare_restore(
+        thread_id: &str,
+        db: Arc<StateDb>,
+    ) -> Result<PreparedGoalRestore> {
+        let stored = db
             .try_load_goal(thread_id)?
             .map(serde_json::from_value::<StoredGoal>)
             .transpose()
             .with_context(|| format!("invalid persisted goal for thread {thread_id}"))?;
-        let deferred = goal
+        let deferred = stored
             .as_ref()
             .is_some_and(|stored| stored.continuation_deferred);
-        let goal = goal.map(|stored| stored.goal);
+        let goal = stored.map(|stored| stored.goal);
         if let Some(goal) = goal.as_ref() {
             anyhow::ensure!(
                 !goal.objective.trim().is_empty(),
@@ -174,15 +185,24 @@ impl GoalStore {
                 "invalid persisted goal for thread {thread_id}: token budget must be positive"
             );
         }
-        state.goal = goal.clone();
-        state.continuation_deferred = deferred;
-        state.admission = Arc::new(());
-        state.membership = Arc::new(());
-        state.persistence = GoalPersistence::Durable {
-            db,
-            thread_id: thread_id.into(),
-        };
-        Ok(goal)
+        Ok(PreparedGoalRestore(GoalState {
+            goal,
+            continuation_deferred: deferred,
+            persistence: GoalPersistence::Durable {
+                db,
+                thread_id: thread_id.into(),
+            },
+            ..GoalState::default()
+        }))
+    }
+
+    pub(crate) fn apply_prepared_restore(
+        &self,
+        prepared: PreparedGoalRestore,
+    ) -> Option<RalphGoal> {
+        let mut state = self.locked();
+        *state = prepared.0;
+        state.goal.clone()
     }
 
     pub(crate) fn disable_after_persistence_failure(&self, reason: String) {

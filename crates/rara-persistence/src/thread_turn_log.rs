@@ -111,17 +111,32 @@ pub fn append_rollout_fragment(
     session_id: &str,
     entry: &PersistedTurnEntry,
 ) -> Result<()> {
+    append_rollout_fragments(root_dir, session_id, std::slice::from_ref(entry))
+}
+
+/// Append a buffered group of live entries with one open and one write.
+pub fn append_rollout_fragments(
+    root_dir: &Path,
+    session_id: &str,
+    entries: &[PersistedTurnEntry],
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
     let dir = root_dir.join(session_id);
     fs::create_dir_all(&dir)?;
     let path = dir.join(LIVE_LOG_FILE);
-    let mut line = serde_json::to_vec(entry)?;
-    line.push(b'\n');
+    let mut lines = Vec::new();
+    for entry in entries {
+        serde_json::to_writer(&mut lines, entry)?;
+        lines.push(b'\n');
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .with_context(|| format!("open live log {}", path.display()))?;
-    file.write_all(&line)?;
+    file.write_all(&lines)?;
     Ok(())
 }
 

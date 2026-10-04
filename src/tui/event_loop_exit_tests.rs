@@ -105,3 +105,92 @@ async fn first_ctrl_c_cancels_query_but_confirmed_quit_aborts_remaining_work() {
         .unwrap();
     assert!(fixture.controller.app().bottom_pane.running_task.is_none());
 }
+
+#[tokio::test]
+async fn blocked_exit_flush_can_be_cancelled_and_retried_without_losing_writes() {
+    use rara_state::state_db::StateDb;
+
+    let mut fixture = Fixture::new().await;
+    let db = Arc::new(StateDb::new_for_root_dir(fixture._dir.path().join("storage")).unwrap());
+    let root = db.rollout_root();
+    let app = fixture.controller.app_mut();
+    app.snapshot.session_id = "exit-thread".into();
+    app.attach_state_db(db);
+    app.push_entry(MessageRole::User, "Keep this turn across a slow exit.");
+    let (release, wait) = std::sync::mpsc::channel();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let blocked = app
+        .storage
+        .as_ref()
+        .unwrap()
+        .read(move || {
+            entered.send(()).unwrap();
+            wait.recv()?;
+            Ok(())
+        })
+        .unwrap();
+    ready.await.unwrap();
+    app.bottom_pane.input = "/quit".into();
+    let input = fixture.input.clone();
+    let screen = fixture.screen.clone();
+    tokio::time::pause();
+    {
+        let future = fixture.run();
+        tokio::pin!(future);
+        assert!(poll!(&mut future).is_pending());
+        input
+            .send(Ok(Event::Key(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        assert!(poll!(&mut future).is_pending());
+        advance(Duration::from_millis(20)).await;
+        assert!(poll!(&mut future).is_pending());
+        assert!(
+            screen
+                .borrow()
+                .parser
+                .screen()
+                .contents()
+                .contains("Saving session before exit")
+        );
+        input
+            .send(Ok(Event::Key(KeyEvent::new(
+                KeyCode::Esc,
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        input
+            .send(Ok(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        assert!(poll!(&mut future).is_pending());
+        release.send(()).unwrap();
+        blocked.await.unwrap().unwrap();
+        let quit = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        input.send(Ok(quit.clone())).unwrap();
+        input.send(Ok(quit)).unwrap();
+        // The real storage thread supplies readiness; virtual time must not race it.
+        tokio::time::resume();
+        tokio::time::timeout(Duration::from_secs(5), &mut future)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    fixture
+        .controller
+        .app_mut()
+        .shutdown_storage()
+        .await
+        .unwrap();
+    let turns = rara_persistence::thread_turn_log::load_turn_records(&root, "exit-thread").unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(
+        turns[0].entries[0].message,
+        "Keep this turn across a slow exit."
+    );
+    assert!(rara_persistence::thread_turn_log::load_live_entries(&root, "exit-thread").is_empty());
+}

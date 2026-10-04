@@ -110,7 +110,18 @@ A failed resume keeps the current session and resume picker available, with a
 visible error. Startup resume failure keeps the fresh session available.
 Credential synchronization failure keeps the model picker available and does
 not start a rebuild. Required resume reads complete before changing session
-identity, history, or goal binding.
+identity, history, or goal binding. Resume search shows loading state and ignores
+outdated query replies. Selected threads load in the background with a persistent
+activity indicator; Esc cancels the selection and Enter retains the composer
+draft until loading finishes. A successful switch replaces session-local
+interactions and keeps live recovery data until its turn is durably committed.
+
+Transcript writes and shared-task scans must not block input or drawing. Quit
+shows a saving notice while waiting for the accepted writes; Esc cancels the
+exit without cancelling those writes. A failed save keeps the terminal session
+open with an error. Final cleanup drains the storage owner before returning.
+Workspace context inspection shows loading state until background file inputs
+are available; model requests continue assembling current inputs independently.
 
 A successful backend rebuild installs the replacement agent even when saving
 configuration fails. The in-session backend remains usable, and a visible

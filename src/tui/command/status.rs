@@ -340,6 +340,9 @@ use sections::{
 /// Reserved for the richer `/status` context tab tracked in docs/todo.md.
 #[allow(dead_code)] // Reserved for status-panel context section
 pub fn status_context_text(app: &TuiApp) -> String {
+    if let Some(status) = app.context_files_status() {
+        return status.to_owned();
+    }
     let prompt_warnings = if app.snapshot.prompt_warnings.is_empty() {
         None
     } else {
@@ -718,6 +721,9 @@ fn format_latency_percentiles(percentiles: LatencyPercentiles) -> String {
 }
 
 pub fn status_prompt_sources_text(app: &TuiApp) -> String {
+    if let Some(status) = app.context_files_status() {
+        return status.to_owned();
+    }
     let mut lines = vec![
         format!("base prompt: {}", app.snapshot.prompt_base_kind),
         format!(

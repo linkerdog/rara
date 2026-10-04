@@ -11,6 +11,7 @@ use crate::workspace::WorkspaceMemory;
 // Retrieval status needs all provider inputs to produce a single ordered view.
 pub(crate) fn retrieval_source_entries(
     workspace: &WorkspaceMemory,
+    memory: crate::context::WorkspaceMemoryAvailability,
     prompt_sources: &[PromptSource],
     history: &[Message],
     session_id: &str,
@@ -23,7 +24,7 @@ pub(crate) fn retrieval_source_entries(
         .iter()
         .any(|source| source.kind_label() == "local_memory");
     let workspace_memory_path = workspace.rara_dir.join("memory.md");
-    let workspace_memory_exists = workspace.has_memory_file_cached();
+    let workspace_memory_exists = memory == crate::context::WorkspaceMemoryAvailability::Available;
     let workspace_memory_status = if workspace_memory_active {
         "active"
     } else if workspace_memory_exists {
@@ -351,6 +352,7 @@ mod tests {
 
         let entries = retrieval_source_entries(
             &workspace,
+            crate::context::WorkspaceMemoryAvailability::read(&workspace),
             &[],
             &[],
             "session-1",
@@ -377,6 +379,7 @@ mod tests {
 
         let entries = retrieval_source_entries(
             &workspace,
+            crate::context::WorkspaceMemoryAvailability::read(&workspace),
             &[],
             &[],
             "session-1",

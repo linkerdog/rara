@@ -58,6 +58,17 @@ impl RuntimeCommandProcessor {
         app: &mut TuiApp,
         command: RuntimeCommand,
     ) -> anyhow::Result<()> {
+        if matches!(
+            &command,
+            RuntimeCommand::Input(_)
+                | RuntimeCommand::Maintenance(
+                    RuntimeMaintenanceCommand::Compact | RuntimeMaintenanceCommand::Rebuild
+                )
+        ) && crate::tui::session_restore::cancel_restore(app, self.agent_mut())
+        {
+            app.bottom_pane.notice =
+                Some("Thread restore cancelled for the new runtime request.".into());
+        }
         match command {
             RuntimeCommand::SetPermissionMode(mode) => {
                 super::permissions::request_permission_mode(app, self.agent_mut(), mode);

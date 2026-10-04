@@ -37,6 +37,49 @@ It covers:
 - Persisting TUI rendering cells as model-visible messages.
 - Designing the full remote/appserver thread store.
 
+## TUI Storage Execution Contract
+
+The TUI submits owned storage work to one session-scoped background writer.
+Thread checkpoint/index access, advisory file locks, transcript file writes,
+thread listing, and thread materialization must not execute in an input or
+render callback. A
+completed in-memory turn is distinct from a durably acknowledged turn.
+
+- Preserve write ordering across runtime checkpoints, live-log updates, turn
+  commits, explicit clears, and read/flush barriers. A committed turn clears
+  its live log only after the canonical turn and SQLite index both succeed.
+- Coalesce pending adjacent runtime checkpoints and batch adjacent live entries
+  before I/O. Never coalesce a checkpoint across a commit, read, or flush barrier.
+  Accepted transcript writes remain owned until acknowledged; a failed write
+  blocks later destructive operations and is retained for retry.
+- Report storage failure without recursively persisting the failure report.
+  A flush acknowledges all work admitted before its barrier, including failures.
+  Exit and session replacement must wait for that barrier rather than detach
+  pending writes or treat enqueue as durable success.
+- Resume listing uses a debounce and request generation. Input stays responsive,
+  pending results show loading state, and stale generations cannot replace newer
+  search/sort state. Loading a selected thread has a visible pending state and
+  preserves the existing agent/session until all required reads succeed.
+  Submission preserves the draft while a restore is pending; cancellation keeps
+  the current agent. Apply deferred permission changes after the restore outcome
+  and defer startup plugin rebuilding until the session binding is settled.
+- Polling shared task files runs in the background, with at most one scan active
+  and a task-list generation fence. Scan failures are observable.
+
+Verification injects a blocked store while dispatching keys and drawing frames,
+checks ordered writes and failed-commit/live-log preservation, races old/new
+search results, checks shutdown acknowledgement, and restores a synthetic
+10,000-entry rollout. Existing storage formats and model-history semantics stay
+unchanged. Transcript admission/memory limits are tracked separately in #1008;
+this contract does not permit dropping accepted persistence work under load.
+
+Display snapshots must also load workspace prompt files, memory availability,
+Git metadata, and shared-task files off the input loop. At most one filesystem
+refresh per view is in flight; binding changes fence older results. Context
+views show a loading state until their first matching result. Model requests
+assemble current prompt inputs independently and preserve prompt section order,
+provider cache semantics, and persisted history.
+
 ## Architecture
 
 RARA should converge on a Claude-style transcript layout with Codex-style typed

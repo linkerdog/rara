@@ -67,6 +67,7 @@ mod shell_env;
 mod skill;
 mod tasklist;
 mod thread_cli;
+mod thread_io;
 mod thread_store;
 mod todo;
 mod tool_result;
