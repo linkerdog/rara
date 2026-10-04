@@ -845,6 +845,7 @@ pub struct TuiApp {
     pub(crate) scroll_acceleration: super::ScrollAcceleration,
     pub context_scroll: u16,
     pub terminal_width: u16,
+    pub(crate) terminal_capabilities: rara_terminal_detection::TerminalCapabilities,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
     pub active_live: PresentationInput<ActiveLiveSections>,

@@ -15,6 +15,7 @@ and overlay surfaces hard to tune without changing renderer internals.
 - Route markdown, diff previews, list pickers, command/status/model overlays,
   setup overlays, and popup surfaces through semantic tokens.
 - Let the TUI choose the active embedded `syntect` theme through config.
+- Adapt the completed frame to the terminal's color and character capabilities.
 
 ## Non-Goals
 
@@ -58,6 +59,52 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 
 ## Contracts
 
+### Terminal Capabilities
+
+The terminal startup boundary detects capabilities once from the environment
+and stores the immutable profile on the TUI instance. No terminal queries,
+subprocesses, per-frame environment reads, or runtime-global handles are needed.
+
+| Environment | Rendering profile |
+| --- | --- |
+| Nonempty `NO_COLOR` | Default foreground/background; retain text modifiers |
+| `TERM=dumb` | No colors and ASCII display |
+| `COLORTERM=truecolor` or `24bit`, or a direct/truecolor TERM | RGB |
+| TERM containing `256color` | ANSI 256-color palette |
+| TERM containing `16color`, or `linux` | ANSI 16-color palette |
+| Other nonempty TERM | ANSI 8-color palette; `vt100`/`vt102` remain monochrome |
+| Missing TERM without a color hint | Monochrome |
+
+`NO_COLOR` and `TERM=dumb` take precedence over richer color hints. An empty
+`NO_COLOR` does not disable color. Theme overrides describe desired colors;
+they do not override the output capability ceiling. The highest-priority
+nonempty `LC_ALL`, `LC_CTYPE`, or `LANG` determines encoding. UTF-8/UTF8 enables
+Unicode; an absent or non-UTF-8 locale selects ASCII. `TERM=dumb` forces ASCII
+even with a UTF-8 locale.
+
+The theme owner maps resolved RGB and indexed colors to the nearest supported
+nominal palette. ANSI 8/16 output contains only named ANSI colors, and ANSI 256
+output contains no RGB colors. If quantization collapses distinct foreground
+and background colors, visible text gets a contrasting supported foreground.
+No-color output resets colors while preserving bold, dim, reverse, and other
+text modifiers.
+
+The terminal adapter encodes named ANSI colors using basic 30-37/40-47 and
+90-97/100-107 SGR codes. It does not re-encode ANSI-only output as `38;5;N` or
+`48;5;N`, and it does not independently re-read color environment variables.
+
+Capability projection runs on the completed visible frame before terminal
+diffing. It covers semantic tokens, legacy colors, syntax highlighting, widget
+borders, overlays, and cached transcript rows without changing their sources.
+The shared ASCII glyph table maps UI punctuation and symbols to column-sized
+alternatives. Other unsupported graphemes use question-mark placeholders of
+the same display width. Rendering, cursor columns, and selection coordinates
+stay aligned; original input, transcript, and clipboard text remain intact.
+This is presentation fallback, not transliteration or a separate line-mode UI;
+the interactive TUI still requires cursor-addressing terminal control.
+
+### Theme Configuration
+
 - Token keys are stable dotted strings such as `text.accent`,
   `picker.highlight.bg`, `overlay.highlight.bg`, `diff.add.fg`, and
   `markdown.code`.
@@ -83,6 +130,13 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 - Diff, markdown, picker, and overlay renderers compile against semantic token
   lookups rather than direct palette constants.
 - Full workspace check and Clippy run without warnings.
+- Inject environment maps to verify capability and locale precedence without
+  changing process environment during tests.
+- Render startup, transcript, highlighted code, diff, sidebar, and overlays at
+  each capability level. Assert actual buffer colors/glyphs and text modifiers.
+- Exercise production terminal writes for ASCII/color ceilings, wide-cell
+  replacement, and cursor alignment. Verify raw input and copied text survive
+  display fallback unchanged.
 
 ## Open Risks
 
@@ -96,3 +150,4 @@ name. Unknown names fall back to the existing `CatppuccinMocha` default.
 
 - `docs/journal/2026-07-03-tui-theme-tokens.md`
 - [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)
+- [Terminal capability fallback](../journal/2026-10-05-terminal-capability-fallback.md)

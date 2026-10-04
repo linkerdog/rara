@@ -82,6 +82,7 @@ async fn run_tui_session(
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
+    app.terminal_capabilities = rara_terminal_detection::TerminalCapabilities::detect();
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
