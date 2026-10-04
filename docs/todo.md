@@ -15,10 +15,13 @@ Active backlog only. Keep this file small and current.
 
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
       LLM/tool contracts and the [shared loop machine](features/portable-agent-loop.md):
-      provider crates, portable context/tool effects, browser HTTP/SSE transport,
-      host-compatible accounting clocks and future bounds, and browser runtime
-      tests. The [contract](features/portable-llm-contracts.md) currently proves
-      browser-target compilation only.
+      provider crates, portable context/policy assembly, browser HTTP/SSE transport,
+      and browser session scheduling. Shared model/tool/loop effects now accept
+      browser-local futures and use working browser accounting clocks, with
+      real Chrome execution under [the browser effects contract](features/browser-agent-effects.md).
+      This does not yet deliver a complete browser provider/session stack.
+      Workspace resolver 3 and explicit root default-member selection are in
+      place; see [the workspace checkpoint](journal/2026-10-04-workspace-resolution.md).
 
 ## Prefix Cache Cost Evaluation
 
@@ -59,7 +62,9 @@ Active backlog only. Keep this file small and current.
       bypassed using mutation identities. Live thinking content and clock updates
       replace only their visible row block, preserving both surrounding sections.
       Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
-      mutable blocks and source-wide reference fallbacks still need work bounds;
+      mutable blocks, definition changes, and reference-expansion fallback still
+      need work bounds. Ordinary blocks after reference definitions now reuse
+      their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
       ordinary angle brackets now avoid control-cleanup replay, while completed
       legacy markers and complex control contexts retain explicit replay costs.
       See [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md);
@@ -308,7 +313,7 @@ Active backlog only. Keep this file small and current.
       not pull TUI, local-model, ACP, or OAuth implementations
       ([#860](https://github.com/linkerdog/rara/issues/860)). The Git fixture
       validates portable contracts and the shared asynchronous executor; extend
-      it to portable context/tool adapters and the
+      it to portable context/policy assembly and the
       real `RuntimeSession` with cancellation and transcript readback before
       closing the issue. Follow the [extraction sequence](features/portable-tool-contracts.md#runtime-extraction-sequence).
 - [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,

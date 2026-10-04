@@ -11,6 +11,12 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+web-time = "1.1"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "=0.3.76"
+
 # Grandfathered legacy lints via source-level #![allow]; remove as cleaned (issue #871).
 [lints]
 workspace = true

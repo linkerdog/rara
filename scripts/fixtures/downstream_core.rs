@@ -15,8 +15,9 @@ mod tests {
     use rara_agent::{
         Continuation, ContinuationContext, IterationBudget, LoopEffects, LoopEnd, LoopMachine,
         LoopProgress, ModelObservation, ModelRequest, ModelTurnEvent, ModelTurnPolicy,
-        StopHookContext, StopHookOutcome, ToolBatchOutcome, ToolCall, execute_loop,
-        execute_model_turn,
+        StopHookContext, StopHookOutcome, ToolAdmission, ToolBatchEffects, ToolBatchOutcome,
+        ToolCall, ToolReply, execute_loop, execute_model_turn, execute_tool_batch,
+        execute_tool_call,
     };
     use rara_core::llm::backend::{LlmBackend, LlmTurnMetadata};
     use rara_core::llm::contracts::LlmStreamEvent;
@@ -37,7 +38,8 @@ mod tests {
 
     struct HostTool;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl Tool for HostTool {
         fn name(&self) -> &str {
             "host_echo"
@@ -55,7 +57,7 @@ mod tests {
             &self,
             input: Value,
             context: ToolCallContext,
-            report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+            report: &mut rara_core::tool::ToolProgressCallback<'async_trait>,
         ) -> Result<Value, ToolError> {
             if context.is_cancelled() {
                 return Err(ToolError::ExecutionFailed("cancelled".into()));
@@ -73,7 +75,8 @@ mod tests {
 
     struct HostBackend;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl LlmBackend for HostBackend {
         async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
             bail!("streaming context required")
@@ -86,16 +89,16 @@ mod tests {
             messages: &[Message],
             tools: &[Value],
             metadata: LlmTurnMetadata,
-            on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+            on_event: &mut rara_core::llm::backend::LlmStreamCallback<'async_trait>,
         ) -> Result<LlmResponse> {
             metadata.ensure_not_cancelled()?;
             if messages.len() > 1 {
-                let results = messages.last().expect("nonempty transcript");
-                assert_eq!(results.role, "user");
-                let blocks = results.content.as_array().expect("tool results");
-                assert_eq!(blocks.len(), 2);
-                assert_eq!(blocks[0]["tool_use_id"], "first");
-                assert_eq!(blocks[1]["tool_use_id"], "second");
+                assert_eq!(messages.len(), 4);
+                for (message, call_id) in messages[2..].iter().zip(["first", "second"]) {
+                    assert_eq!(message.role, "user");
+                    assert_eq!(message.content[0]["tool_use_id"], call_id);
+                    assert!(message.content[0].get("is_error").is_none());
+                }
                 on_event(LlmStreamEvent::TextDelta("done".into()));
                 return Ok(LlmResponse {
                     content: vec![ContentBlock::Text {
@@ -156,6 +159,7 @@ mod tests {
         assistant: Option<Message>,
         calls: Vec<ToolCall>,
         results: Vec<Value>,
+        result_messages: Vec<Message>,
         deltas: Vec<String>,
         tool_progress: Vec<ToolProgressEvent>,
         cancellation: Arc<AtomicBool>,
@@ -176,6 +180,7 @@ mod tests {
                 assistant: None,
                 calls: Vec::new(),
                 results: Vec::new(),
+                result_messages: Vec::new(),
                 deltas: Vec::new(),
                 tool_progress: Vec::new(),
                 cancellation: Arc::new(AtomicBool::new(false)),
@@ -184,7 +189,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl LoopEffects for HostEffects {
         fn budget(&self) -> IterationBudget {
             IterationBudget::default()
@@ -237,45 +243,62 @@ mod tests {
         }
 
         async fn run_tools(&mut self, _: LoopProgress) -> Result<ToolBatchOutcome> {
-            for ToolCall { id, name, input } in std::mem::take(&mut self.calls) {
-                let tool = self
-                    .tools
-                    .get_tool(&name)
-                    .ok_or_else(|| anyhow::anyhow!("missing tool"))?;
-                let context = ToolCallContext::default()
-                    .with_session_id("host-session")
-                    .with_turn_id("host-turn")
-                    .with_call_id(id)
-                    .with_cancellation(self.cancellation.clone());
-                self.results.push(
-                    tool.call_with_context_events(input, context, &mut |event| {
-                        self.tool_progress.push(event)
-                    })
-                    .await?,
-                );
-            }
-            Ok(ToolBatchOutcome::ResultsAvailable)
+            let output = execute_tool_batch(std::mem::take(&mut self.calls), self).await?;
+            self.result_messages = output.messages;
+            Ok(output.outcome)
         }
 
         async fn commit_tool_results(&mut self, _: LoopProgress) -> Result<()> {
-            self.transcript.push(Message {
-                role: "user".into(),
-                content: json!(
-                    self.results
-                        .iter()
-                        .map(|result| json!({
-                            "type": "tool_result", "tool_use_id": result["call"],
-                            "content": result.to_string(), "is_error": false,
-                        }))
-                        .collect::<Vec<_>>()
-                ),
-            });
+            self.transcript.append(&mut self.result_messages);
             Ok(())
         }
 
         async fn finalize(&mut self, end: LoopEnd, _: LoopProgress) -> Result<()> {
             self.finalized = Some(end);
             Ok(())
+        }
+    }
+
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+    impl ToolBatchEffects for HostEffects {
+        async fn prepare_call(&mut self, call: &ToolCall) -> Result<ToolAdmission> {
+            if call.name != "host_echo" {
+                bail!("host did not authorize tool {}", call.name);
+            }
+            Ok(ToolAdmission::Invoke)
+        }
+
+        async fn invoke_call(&mut self, call: &ToolCall) -> Result<Value, ToolError> {
+            let tool = self
+                .tools
+                .get_tool(&call.name)
+                .ok_or_else(|| ToolError::ExecutionFailed("missing host tool".into()))?;
+            let context = ToolCallContext::default()
+                .with_session_id("host-session")
+                .with_turn_id("host-turn")
+                .with_cancellation(self.cancellation.clone());
+            execute_tool_call(tool, call, context, &mut |progress| {
+                assert_eq!(progress.call_id, call.id);
+                assert_eq!(progress.name, call.name);
+                self.tool_progress.push(progress.event);
+            })
+            .await
+        }
+
+        async fn complete_call(
+            &mut self,
+            _: &ToolCall,
+            result: Result<Value, ToolError>,
+        ) -> Result<ToolReply> {
+            Ok(match result {
+                Ok(result) => {
+                    let reply = ToolReply::success(result.to_string());
+                    self.results.push(result);
+                    reply
+                }
+                Err(error) => ToolReply::error(format!("Error: {error}")),
+            })
         }
     }
 
@@ -312,9 +335,9 @@ mod tests {
                 .iter()
                 .map(|message| message.role.as_str())
                 .collect::<Vec<_>>(),
-            ["user", "assistant", "user", "assistant"]
+            ["user", "assistant", "user", "user", "assistant"]
         );
-        assert_eq!(host.transcript[3].content[0]["text"], "done");
+        assert_eq!(host.transcript[4].content[0]["text"], "done");
         Ok(())
     }
 

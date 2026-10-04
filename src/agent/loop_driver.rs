@@ -307,18 +307,12 @@ where
             Some("tool_calls_available"),
             turn.assistant_message_recorded,
         );
-        turn.tool_results = self
+        let output = self
             .agent
             .execute_tool_calls(std::mem::take(&mut turn.output.tool_calls), self.report)
             .await?;
-        let outcome = if self.agent.pending_approval.is_some()
-            || self.agent.pending_plan_exit_tool_id.is_some()
-        {
-            ToolBatchOutcome::AwaitingApproval
-        } else {
-            ToolBatchOutcome::ResultsAvailable
-        };
-        Ok(outcome)
+        turn.tool_results = output.messages;
+        Ok(output.outcome)
     }
 
     async fn commit_tool_results(&mut self, progress: LoopProgress) -> Result<()> {
@@ -401,6 +395,13 @@ where
                 turn.last_assistant_message.clone()
             }
             LoopEnd::AwaitingApproval => {
+                let turn = self
+                    .pending_turn
+                    .as_mut()
+                    .context("approval pause without model output")?;
+                // A partial batch must survive the pause without advancing the plan.
+                self.agent
+                    .extend_history_messages(std::mem::take(&mut turn.tool_results));
                 self.agent.checkpoint_session()?;
                 return Ok(());
             }

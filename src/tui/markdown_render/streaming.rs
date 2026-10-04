@@ -2,10 +2,10 @@
 
 use std::{ops::Range, path::Path};
 
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{BrokenLink, Event, Parser, Tag};
 use ratatui::text::Line;
 
-use super::{Writer, markdown_options};
+use super::{ReferenceContext, Writer, markdown_options};
 
 /// Root formatting state carried only across completed top-level blocks.
 #[derive(Clone, Copy, Default)]
@@ -18,7 +18,7 @@ pub(crate) struct StreamingMarkdown {
     pub lines: Vec<Line<'static>>,
     pub last_block_start: Option<usize>,
     pub first_table_start: Option<usize>,
-    pub has_references: bool,
+    pub references: ReferenceContext,
     pub end_context: RenderContext,
 }
 
@@ -27,9 +27,14 @@ pub(crate) fn render_streaming_markdown(
     width: Option<usize>,
     cwd: &Path,
     context: RenderContext,
+    references: &ReferenceContext,
 ) -> StreamingMarkdown {
-    let parser = Parser::new_ext(input, markdown_options());
-    let has_references = parser.reference_definitions().iter().next().is_some();
+    let parser = Parser::new_with_broken_link_callback(
+        input,
+        markdown_options(),
+        Some(|link: BrokenLink<'_>| references.resolve(link.reference.as_ref())),
+    );
+    let references = ReferenceContext::from_definitions(parser.reference_definitions());
     let tracker = BlockTracker {
         source: input,
         events: parser.into_offset_iter(),
@@ -50,7 +55,7 @@ pub(crate) fn render_streaming_markdown(
         lines: writer.text.lines,
         last_block_start: (writer.iter.blocks > 1).then_some(writer.iter.last_start),
         first_table_start: writer.iter.table_start,
-        has_references,
+        references,
         end_context,
     }
 }
