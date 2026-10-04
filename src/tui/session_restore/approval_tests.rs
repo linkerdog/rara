@@ -196,6 +196,32 @@ fn approval_recovery_preserves_explicit_full_access() {
     assert!(fixture.agent.as_ref().unwrap().full_access_mode);
 }
 
+#[test]
+fn incomplete_live_restore_keeps_entries_and_other_recovery_warnings() {
+    let mut fixture = Fixture::new("future-mode");
+    let path = fixture.db.rollout_root().join(THREAD_ID).join("live.jsonl");
+    std::fs::write(&path, b"{\"role\":\"Agent\",\"message\":\"before corruption\"}\n{invalid}\n{\"role\":\"Agent\",\"message\":\"after corruption\"}\n").unwrap();
+    fixture.restore();
+    let notice = fixture.app.notice().unwrap();
+    assert_eq!(notice.level(), NoticeLevel::Warning);
+    assert!(notice.message().contains(RECOVERY_WARNING));
+    assert!(
+        notice
+            .message()
+            .contains("Live transcript recovery incomplete")
+    );
+    assert_eq!(
+        fixture.app.active_turn.entries[0].message,
+        "before corruption"
+    );
+    assert_eq!(
+        fixture.app.active_turn.entries[1].message,
+        "after corruption"
+    );
+    let persisted = std::fs::read_to_string(path).unwrap();
+    assert!(persisted.contains("Live transcript recovery incomplete"));
+}
+
 #[derive(Default)]
 struct BashRequestBackend(AtomicBool);
 

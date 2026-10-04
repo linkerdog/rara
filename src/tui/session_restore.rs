@@ -279,10 +279,18 @@ pub(super) fn restore_thread_by_id(
     } else {
         app.reset_transcript();
     }
-    let live_entries =
-        rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
-    if !live_entries.is_empty() {
-        app.active_turn.entries = live_entries
+    let live_log = rara_persistence::thread_turn_log::load_live_entries_with_recovery(
+        &rollout_root,
+        thread_id,
+    );
+    if let Some(warning) = live_log.warning() {
+        resume_notice.push(' ');
+        resume_notice.push_str(&warning);
+        resume_level = NoticeLevel::Warning;
+    }
+    if !live_log.entries.is_empty() {
+        app.active_turn.entries = live_log
+            .entries
             .into_iter()
             .map(|entry| {
                 TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message)
