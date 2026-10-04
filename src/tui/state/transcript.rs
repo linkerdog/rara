@@ -257,6 +257,7 @@ impl TuiApp {
     }
 
     pub fn reset_transcript(&mut self) {
+        self.bottom_pane.approval_details = Default::default();
         self.committed_turns.clear();
         self.active_turn.entries.clear();
         self.clear_live_log();
@@ -356,6 +357,7 @@ impl TuiApp {
     }
 
     pub fn restore_committed_turns(&mut self, turns: Vec<TranscriptTurn>) {
+        self.bottom_pane.approval_details = Default::default();
         self.committed_turns = turns;
         self.active_turn.entries.clear();
         self.clear_live_log();

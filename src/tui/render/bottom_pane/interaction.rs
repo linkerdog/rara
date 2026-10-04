@@ -5,45 +5,67 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::{bottom_pane_style, composer, view};
+use super::{bottom_pane_style, composer, shell_details, view};
 use crate::tui::custom_terminal::Frame;
 use crate::tui::display_sanitize::sanitize_display_text;
+use crate::tui::state::ApprovalDetailScroll;
 use crate::tui::theme::{TEXT_PRIMARY, TEXT_SECONDARY};
 
 pub(super) fn desired_height(panel: &view::InteractionPanelView, width: u16) -> u16 {
-    let preview_rows = detail_lines(panel, width).len().min(2);
-    (2 + preview_rows + action_lines(panel, width).len()) as u16
+    let details = detail_lines(panel, width).len();
+    let preview_rows = if panel.shell_approval.is_some() {
+        details.saturating_add(3)
+    } else {
+        details.min(2) + 2
+    };
+    u16::try_from(preview_rows.saturating_add(action_lines(panel, width).len())).unwrap_or(u16::MAX)
 }
 
-pub(super) fn render(f: &mut Frame, panel: &view::InteractionPanelView, area: Rect) {
+pub(super) fn render(
+    f: &mut Frame,
+    panel: &view::InteractionPanelView,
+    area: Rect,
+    scroll: &mut ApprovalDetailScroll,
+) {
     let actions = action_lines(panel, area.width);
     let action_height = (actions.len() as u16).min(area.height);
     let [preview_area, action_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(action_height)]).areas(area);
-    let mut preview = vec![
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                format!("# {}", panel.title),
-                Style::default().fg(panel.color),
-            ),
-        ]),
-        Line::from(""),
-    ];
-    let details = detail_lines(panel, area.width);
-    let preview_budget = usize::from(preview_area.height.saturating_sub(2));
-    let clipped = details.len() > preview_budget;
-    preview.extend(details.into_iter().take(preview_budget));
-    if clipped && preview_budget > 0 {
-        *preview.last_mut().expect("preview row") = Line::styled(
-            "  … (details truncated)",
-            Style::default().fg(TEXT_SECONDARY),
+    if let Some(approval) = &panel.shell_approval {
+        shell_details::render(
+            f,
+            panel,
+            approval,
+            detail_lines(panel, area.width),
+            scroll,
+            preview_area,
+        );
+    } else {
+        let mut preview = vec![
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("# {}", panel.title),
+                    Style::default().fg(panel.color),
+                ),
+            ]),
+            Line::from(""),
+        ];
+        let details = detail_lines(panel, area.width);
+        let preview_budget = usize::from(preview_area.height.saturating_sub(2));
+        let clipped = details.len() > preview_budget;
+        preview.extend(details.into_iter().take(preview_budget));
+        if clipped && preview_budget > 0 {
+            *preview.last_mut().expect("preview row") = Line::styled(
+                "  … (details truncated)",
+                Style::default().fg(TEXT_SECONDARY),
+            );
+        }
+        f.render_widget(
+            Paragraph::new(preview).style(bottom_pane_style()),
+            preview_area,
         );
     }
-    f.render_widget(
-        Paragraph::new(preview).style(bottom_pane_style()),
-        preview_area,
-    );
     // On extremely short terminals, keep the selected vertical action in view.
     let scroll = if actions.len() > usize::from(action_height) {
         panel

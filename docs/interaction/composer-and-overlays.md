@@ -95,7 +95,9 @@ not inherit the plain-list j/k shortcuts.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains
-its explicit navigation shortcuts. A configurable Vim mode is not provided.
+its explicit navigation shortcuts: arrows select an action, while shell
+approvals use PageUp/PageDown and Home/End to inspect the full command and
+working directory. A configurable Vim mode is not provided.
 
 Composer rendering, height, cursor placement, scrolling, and Up/Down movement
 consume one pure text layout with the actual main-pane width after any sidebar.

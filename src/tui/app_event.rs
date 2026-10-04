@@ -1,5 +1,5 @@
 use super::selection::ScreenPosition;
-use super::state::{HelpTab, Overlay, QuitShortcutKey, StatusTab};
+use super::state::{ApprovalDetailNavigation, HelpTab, Overlay, QuitShortcutKey, StatusTab};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -29,6 +29,7 @@ pub enum AppEvent {
     ScrollContext(i32),
     MoveCommandSelection(i32),
     MoveApprovalSelection(i32),
+    ScrollApprovalDetails(ApprovalDetailNavigation),
     MovePermissionSelection(i32),
     SetPermissionSelection(usize),
     MoveSkillsSelection(i32),

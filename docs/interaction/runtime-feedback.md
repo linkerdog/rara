@@ -89,9 +89,16 @@ input. The visible card, option count, and keyboard mapping must agree.
 - Pending decisions can use the full terminal viewport. Reserve action rows
   before allocating space to command previews. Long or multiline commands must
   not push choices below the visible panel. Measure visual rows after wrapping,
-  elide excess preview with a visible marker, and stack choices when they do not
-  fit on one line. The selected action stays visible through terminal resizing.
-  This layout is shared by local and SSH sessions.
+  and stack choices when they do not fit on one line. Shell details use the
+  available height and remain fully reachable with PageUp/PageDown and Home/End
+  when the composer is empty. A row-range indicator identifies the visible
+  portion. Arrows continue to select actions; paging never authorizes execution.
+  The working directory has a fixed summary row when space permits, and its
+  complete path also appears in the scrollable details. On very short screens,
+  omit decorative header rows before hiding command content or actions.
+  Scroll position belongs to the pending tool call, resets for a new call, and
+  clamps after resizing. The transcript approval card retains the full command
+  and working directory. This layout is shared by local and SSH sessions.
 
 See [planning mode](../features/planning-mode.md),
 [shell approval](../features/shell-approval-policy.md), and
