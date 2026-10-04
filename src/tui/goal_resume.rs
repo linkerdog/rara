@@ -76,8 +76,8 @@ pub(super) async fn queue_if_idle(
             && !app.is_busy()
             && app.active_pending_interaction().is_none()
             && app.overlay.is_none()
+            && let Some(ticket) = app.goal_ui.paused_offer.take()
         {
-            let ticket = app.goal_ui.paused_offer.take().expect("paused offer");
             super::goal_ui::open(app, super::goal_ui::GoalDialog::Resume(ticket));
             return true;
         }
@@ -102,10 +102,9 @@ pub(super) async fn queue_if_idle(
         .await
     {
         Ok(()) => {
-            app.pending_goal_resume
-                .as_mut()
-                .expect("pending resume")
-                .enqueued = true;
+            if let Some(pending) = app.pending_goal_resume.as_mut() {
+                pending.enqueued = true;
+            }
         }
         Err(error) => {
             app.pending_goal_resume = None;

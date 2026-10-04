@@ -204,7 +204,10 @@ pub(super) fn should_show_spinner(app: &TuiApp, label: &str) -> bool {
     let Some(task) = app.bottom_pane.running_task.as_ref() else {
         return false;
     };
-    matches!(task.kind, TaskKind::Query | TaskKind::Rebuild)
+    matches!(
+        task.kind,
+        TaskKind::Query | TaskKind::ReviewPreparation | TaskKind::Rebuild
+    )
 }
 
 fn build_footer_view(app: &TuiApp) -> FooterView {

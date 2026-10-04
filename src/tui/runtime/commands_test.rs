@@ -797,3 +797,35 @@ async fn approval_command_scopes_always_to_bash_without_enabling_full_access() {
         Some("Bash approval set to always.")
     );
 }
+
+#[tokio::test]
+async fn review_preparation_keeps_the_agent_until_git_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .unwrap();
+    attach_task_services(&mut app);
+    app.snapshot.cwd = dir.path().display().to_string();
+    let oauth = Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).unwrap());
+    let mut agent = Some(test_agent_with_shared_task_tool(&dir));
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Review,
+            arg: None,
+        },
+        &mut app,
+        &mut agent,
+        &oauth,
+    )
+    .await
+    .unwrap();
+    assert!(app.is_busy(), "review must have an owned preparation task");
+    assert!(
+        agent.is_some(),
+        "preparation must preserve the agent before Git succeeds"
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}

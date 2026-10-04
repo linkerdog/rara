@@ -394,6 +394,7 @@ pub struct CompletedInteractionSnapshot {
 #[derive(Debug)]
 pub enum TaskKind {
     Query,
+    ReviewPreparation,
     Compact,
     Rebuild,
     OAuth,
@@ -410,6 +411,9 @@ pub enum OAuthLoginMode {
 // TaskCompletion carries task-specific results across the async join boundary;
 // boxing individual variants would complicate every completion handler.
 pub enum TaskCompletion {
+    ReviewPrepared {
+        result: anyhow::Result<crate::tui::runtime::review::ReviewPreparation>,
+    },
     Query {
         agent: Agent,
         result: anyhow::Result<()>,

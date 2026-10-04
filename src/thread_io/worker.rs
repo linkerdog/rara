@@ -105,7 +105,10 @@ impl ThreadIo {
                 if sender.is_closed() {
                     return;
                 }
-                let result = flushed.and_then(|()| read());
+                let result = flushed.and_then(|()| {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read))
+                        .unwrap_or_else(|_| Err(anyhow::anyhow!("storage read panicked")))
+                });
                 // A stale picker/restore request may intentionally drop its receiver.
                 if let Err(result) = sender.send(result)
                     && let Err(error) = result
@@ -165,7 +168,10 @@ fn flush_pending(
     status: &Mutex<StorageStatus>,
 ) -> Result<()> {
     while let Some(operation) = pending.front() {
-        if let Err(error) = store.write(operation) {
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store.write(operation)))
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("storage write panicked")));
+        if let Err(error) = result {
             let message = format!("{error:#}");
             let previous = status
                 .lock()
@@ -216,7 +222,13 @@ fn run(
             }
             Ok(Request::Read(read)) => {
                 can_merge = false;
-                read(flush_pending(&*store, &mut pending, status));
+                let flushed = flush_pending(&*store, &mut pending, status);
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read(flushed))).is_err()
+                {
+                    // The read acknowledgement closes with an error, but later
+                    // accepted writes must retain their owner and ordering.
+                    log::warn!("Storage read panicked; continuing the storage worker");
+                }
                 deadline = Instant::now() + WRITE_INTERVAL;
             }
             Ok(Request::Shutdown(reply)) => {

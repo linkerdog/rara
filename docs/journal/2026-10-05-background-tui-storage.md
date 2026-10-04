@@ -44,7 +44,8 @@ are already authorized. No database migration or history rewrite is required.
 
 ## Implementation Checkpoint
 
-The storage owner accepts immutable requests, batches adjacent live fragments,
+The storage owner isolates read/write panics so later accepted writes keep their
+owner; failed writes retain their operation for retry. It accepts immutable requests, batches adjacent live fragments,
 coalesces adjacent checkpoints, and serializes writes with read/flush/shutdown
 barriers. Failed operations remain at the head of the queue; later live-log
 clears cannot discard recovery data. Error projection does not recursively
@@ -77,8 +78,11 @@ prompt ordering, budget calculation, provider cache behavior, and history.
 
 The touched context assembler `mod.rs` is now a facade; its implementation and
 existing tests live in `assembly.rs`. No persistence format or protocol migration
-is introduced. The separate `/review` fix remains PR #1027; both changes must
-land before closing #978.
+is introduced. The separate `/review` fix landed in PR #1027. Main at `74ae3cd4` also
+contains #1024 event recovery and #1026 panic lints; it was merged into this
+branch. The only conflict was the runtime command admission guard, resolved by
+retaining both review-preparation gating and restore cancellation for a new
+runtime request. Post-merge validation is recorded below.
 
 ## Validation
 
@@ -93,9 +97,9 @@ sleeps. Fresh display projection is compared with model-context assembly.
 
 Local validation:
 
-- `cargo test --lib tui:: -- --nocapture`: 1,026 passed, four existing ignored.
+- `cargo test --lib tui:: -- --nocapture`: 1,055 passed, four existing ignored after merging current main.
 - `cargo test --lib context:: -- --nocapture`: 67 passed.
-- `cargo test --lib thread_io:: -- --nocapture`: three passed.
+- `cargo test --lib thread_io:: -- --nocapture`: five passed, including read/write panic isolation.
 - `cargo test --lib runtime_goals -- --nocapture`: 11 passed.
 - `cargo test -p rara-persistence`: seven passed.
 - `cargo clippy --workspace --all-targets -- -D warnings`: passed.

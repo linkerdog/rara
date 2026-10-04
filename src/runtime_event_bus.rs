@@ -15,6 +15,11 @@ impl SequencedEvent for RuntimeControlEvent {
     }
 }
 
+pub(crate) struct RuntimeEventCapacity {
+    pub(crate) broadcast: usize,
+    pub(crate) replay: usize,
+}
+
 /// Native event projection over the shared ordered session event log.
 #[derive(Clone, Debug)]
 pub struct RuntimeEventBus {
@@ -25,13 +30,23 @@ pub struct RuntimeEventBus {
 }
 
 impl RuntimeEventBus {
+    #[cfg(test)]
     pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
-        let (raw_sender, _) = broadcast::channel(capacity);
-        let (control_sender, _) = broadcast::channel(capacity);
+        Self::with_capacity(RuntimeEventCapacity {
+            broadcast: capacity,
+            replay: capacity,
+        })
+    }
+
+    pub(crate) fn with_capacity(capacity: RuntimeEventCapacity) -> Self {
+        let (raw_sender, _) = broadcast::channel(capacity.broadcast.max(1));
+        let (control_sender, _) = broadcast::channel(capacity.broadcast.max(1));
         Self {
             raw_sender,
-            control: Arc::new(EventLog::with_sender(control_sender.clone(), capacity)),
+            control: Arc::new(EventLog::with_sender(
+                control_sender.clone(),
+                capacity.replay,
+            )),
             #[cfg(test)]
             control_sender,
         }

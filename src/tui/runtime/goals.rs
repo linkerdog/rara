@@ -60,7 +60,10 @@ pub(super) async fn handle_command(
                     .as_ref()
                     .is_some_and(|goal| goal.status != GoalStatus::Complete)
                 {
-                    let ticket = app.goal_handle.resume_ticket().expect("existing goal");
+                    let ticket = app
+                        .goal_handle
+                        .resume_ticket()
+                        .ok_or_else(|| anyhow::anyhow!("goal changed; open /goal again"))?;
                     goal_ui::open(
                         app,
                         GoalDialog::Replace {
@@ -174,7 +177,10 @@ async fn start_new_goal(
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<()> {
     app.goal = app.goal_handle.snapshot();
-    let goal = app.goal.as_ref().expect("new goal");
+    let goal = app
+        .goal
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("goal was cleared before it could be started"))?;
     let mut notice = format!("Goal set: {}", goal.objective);
     if let Some(budget) = goal.token_budget {
         notice.push_str(&format!(" [budget: {budget} tokens]"));
@@ -345,4 +351,24 @@ pub(super) fn parse_goal_token_budget(input: &str) -> Option<u32> {
 
     let budget = value.round() as u32;
     (budget > 0).then_some(budget)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::RuntimeSnapshot;
+    use crate::tui::testing::TuiHarness;
+
+    #[tokio::test]
+    async fn goal_cleared_before_start_returns_a_recoverable_error() {
+        let mut tui = TuiHarness::new(RuntimeSnapshot::default()).unwrap();
+        let mut agent = None;
+        let error = start_new_goal(tui.app_mut(), &mut agent, None)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("goal was cleared"));
+        assert!(tui.app().goal.is_none());
+        assert!(!tui.app().is_busy());
+        tui.expect_no_commands();
+    }
 }

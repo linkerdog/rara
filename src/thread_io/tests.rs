@@ -172,3 +172,64 @@ async fn database_failure_keeps_live_recovery_copy_and_retry_commits_one_ordinal
     assert_eq!(turns[0].entries.len(), 2);
     assert!(thread_turn_log::load_live_entries(&root, "test").is_empty());
 }
+
+#[tokio::test]
+async fn a_panicking_read_does_not_drop_later_accepted_writes() {
+    let store = RecordingStore::default();
+    let writes = store.writes.clone();
+    let mut io = ThreadIo::with_store_on_barriers(Box::new(store)).unwrap();
+    let (release, wait) = mpsc::channel();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let failed = io
+        .read(move || -> Result<()> {
+            entered.send(()).unwrap();
+            wait.recv()?;
+            panic!("scripted read failure");
+        })
+        .unwrap();
+    ready.await.unwrap();
+    io.submit(checkpoint(7)).unwrap();
+    release.send(()).unwrap();
+    assert!(
+        failed
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("read panicked")
+    );
+    io.shutdown().await.unwrap();
+    assert_eq!(*writes.lock().unwrap(), ["runtime:7"]);
+}
+
+#[tokio::test]
+async fn a_panicking_write_keeps_the_operation_before_later_clears() {
+    struct PanickingStore(AtomicBool, RecordingStore);
+    impl WriteStore for PanickingStore {
+        fn write(&self, operation: &WriteOperation) -> Result<()> {
+            assert!(
+                !self.0.swap(false, Ordering::SeqCst),
+                "scripted write panic"
+            );
+            self.1.write(operation)
+        }
+    }
+    let store = PanickingStore(AtomicBool::new(true), RecordingStore::default());
+    let writes = store.1.writes.clone();
+    let mut io = ThreadIo::with_store_on_barriers(Box::new(store)).unwrap();
+    io.submit(checkpoint(8)).unwrap();
+    io.submit(WriteOperation::ClearLive {
+        session_id: "test".into(),
+    })
+    .unwrap();
+    assert!(
+        io.flush()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("panicked")
+    );
+    assert!(writes.lock().unwrap().is_empty());
+    io.shutdown().await.unwrap();
+    assert_eq!(*writes.lock().unwrap(), ["runtime:8", "clear"]);
+}
