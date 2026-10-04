@@ -172,6 +172,11 @@ provider call, and a terminal turn event does not imply the interaction is done.
 Approvals take precedence over a simultaneous plain question. Late, duplicate
 or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
 pending ownership; live approvals are not advertised as surviving process exit.
+When approval pauses a tool batch, results from calls that already completed
+remain in the transcript and its enabled checkpoint exactly once, with their
+original provider call IDs. Pausing does not advance the plan, insert a normal
+tool continuation, or invoke a later call. Approving or rejecting the pending
+call preserves those earlier results in the next provider request.
 Ordered input events distinguish a requested wait, an accepted answer naming its
 original waiting turn, and discard by cancel, interrupt, shutdown or legacy
 replacement. Discarding an already waiting turn does not emit another terminal
@@ -355,8 +360,21 @@ usage events are not yet public; they remain required Nowledge Mem parity work.
 The public tool contract carries trusted session, turn, call, workspace, and
 cancellation context. Host tool implementations can own approval, budgeting,
 safety filtering, audit behavior, and authority rather than accepting those
-values from model arguments. A distinct injectable middleware stack remains
-target work.
+values from model arguments. Its canonical types now live in the
+[portable core tool contract](portable-tool-contracts.md), with compatibility
+re-exports through the existing tool path. A distinct injectable middleware
+stack and lightweight runtime package remain target work.
+
+The application uses the [shared loop executor](portable-agent-loop.md) for
+effect scheduling and the pure machine for continuation, bounded repair,
+tool/approval, and finalization decisions. Its `LoopEffects` adapter retains
+native model/tool execution, persistence, hooks, and cancellation cleanup.
+Model dispatch and response collection use the shared `execute_model_turn`
+effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
+Serial tool batches and trusted-context invocation use shared tool effects;
+native admission, result policy, and batch budgets remain explicit adapters.
+Only machine control state is serializable. Portable context/policy assembly and
+session ownership remain necessary for a lightweight host runtime.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
@@ -401,6 +419,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |
 | Tool identity | delivered | Repeated same-name calls retain distinct provider call IDs. |
+| Partial tool batch | delivered | Shell approval and rejection retain preceding results in paused readback, checkpoints, and the resumed provider request without replaying completed calls. |
 | Adapters | partial | Embedded, ACP, Wire, print, exec, and ask use `RuntimeSession`; TUI command ownership remains compatible but separate. |
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
@@ -459,3 +478,4 @@ model-generated tool arguments.
 
 - `docs/journal/2026-08-22-runtime-session.md`
 - [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+- [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)

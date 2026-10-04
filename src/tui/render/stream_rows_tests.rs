@@ -135,6 +135,8 @@ fn live_response_rows_match_full_source_rendering_at_every_character() {
         "```rust\n/* comment\ncontinued */\nlet value = 42;\n```\n\nAfter code.\n",
         "> quoted\n> ```rust\n> let value = 1;\n> ```\n\nAfter quote.\n",
         "[first][id]\n\nUnrelated paragraph.\n\n[id]: https://example.com\n",
+        "[id]: first\n\nSee [id].\n\nNext [late].\n\n[late]: second\n\nAfter [id] [late].\n",
+        "[id]: first\n\nSee [id].\n\n[ID]: other\n\nAfter [ID].\n",
     ];
     for source in sources {
         let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
