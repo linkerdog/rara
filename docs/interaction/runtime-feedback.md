@@ -64,6 +64,15 @@ If the broadcast stream lags, retained task events recover the missing tail and
 terminal feedback in sequence without duplicating output. A task panic retains
 already-produced text, closes the live stream, and surfaces the task failure.
 
+Broadcast lag is repaired from the bounded runtime replay window before later
+events are shown. Successful recovery is silent. If replay and query receipts
+cannot recover a missing range, the transcript shows that runtime events were
+lost and state is being refreshed. The refresh uses the owned runtime state,
+including goals and background agent activity; a busy agent is refreshed when
+it returns. Retained transcript text remains visible, but missing transient
+output is not presented as recovered. Recovery does not signal turn completion
+or reset the fence for terminal or foreign-session events.
+
 ### RUN-03: Approval Focus And Scope
 
 Pending interaction priority is plan approval, shell approval, then requested

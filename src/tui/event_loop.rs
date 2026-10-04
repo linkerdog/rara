@@ -308,6 +308,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     }
                     RuntimeActivity::Command(None) => {}
                 }
+                needs_redraw |= maintainer.resync_after_event_loss(processor);
             }
             maybe_event = events.next_event() => {
                 match maybe_event {

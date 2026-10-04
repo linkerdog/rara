@@ -351,6 +351,32 @@ current session produces `ResyncRequired`; an invalid future cursor must not
 silently suppress subsequent events. A closed session can still replay retained
 events and then returns `Closed`.
 
+The TUI compatibility adapter also consumes an ordered, replay-aware stream.
+Its default bootstrap retains 1024 control events behind a 256-slot broadcast
+channel. Explicit session event-capacity settings still supply the same requested
+size to broadcast and retention. Broadcast lag and sequence gaps trigger replay before a
+later event can be projected. Subscription captures a cursor before subscribing
+and replays from it, closing the publication race; cancelled receives retain
+the cursor and pending replay.
+
+An exhausted replay window becomes an explicit projection recovery gap. Query
+receipts can fill that missing range without duplicating text. Missing events
+outside those receipts produce a visible warning and a refresh from the owned
+runtime, goal store, and agent activity state; an agent snapshot refresh waits
+until the retained event tail is applied and the running task returns its agent.
+Old replay must not overwrite a fresh snapshot. Idle recovery retires stale
+live progress without inventing tool results. The UI's cached snapshot is not an
+authoritative recovery source. A refresh cannot recreate lost transient text
+or progress, and must not claim that it did. Query completion first drains the
+ordered stream through the cursor captured after execution returns, before
+draining remaining receipts. This preserves interleaved background events,
+including live records that outlast the replay window when Tokio rounds broadcast
+capacity up.
+
+Verification compares lagged and uninterrupted non-query projections, exercises
+exhausted windows with and without complete query receipts, checks completion
+interleaving and stale-event fencing, and cancels/resumes stream receives.
+
 Thinking, assistant output, and tool lifecycle events for a turn precede its
 terminal event because the actor publishes that boundary only after the root
 execution callback returns. Diagnosing events from future externally managed

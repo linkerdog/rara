@@ -320,6 +320,12 @@ impl TuiHarness {
                 self.app
                     .set_runtime_phase(RuntimePhase::Failed, Some(reason));
             }
+            RuntimeProjectionEvent::ResyncRequired(gap) => {
+                self.app.push_notice(format!(
+                    "Runtime events missing after sequence {}",
+                    gap.requested
+                ));
+            }
             RuntimeProjectionEvent::Reconnected => {
                 self.app.set_runtime_phase(RuntimePhase::Idle, None);
             }
