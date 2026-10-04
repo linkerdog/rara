@@ -1,0 +1,39 @@
+name: browser
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  browser-effects:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-02
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+      - name: Install matching wasm-bindgen test runner
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(next(p["version"] for p in tomllib.load(open("Cargo.lock", "rb"))["package"] if p["name"] == "wasm-bindgen"))')
+          archive="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
+          curl --fail --location --output "$RUNNER_TEMP/bindgen.tar.gz" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/${archive}.tar.gz"
+          tar -xzf "$RUNNER_TEMP/bindgen.tar.gz" -C "$RUNNER_TEMP"
+          echo "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=$RUNNER_TEMP/$archive/wasm-bindgen-test-runner" >> "$GITHUB_ENV"
+      - name: Run shared effects and accounting in Chrome
+        env:
+          CHROMEDRIVER: ${{ steps.chrome.outputs.chromedriver-path }}
+          TEST_CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ runner.temp }}/webdriver.json
+        run: |
+          python3 -c 'import json, os; json.dump({"goog:chromeOptions": {"binary": os.environ["TEST_CHROME_BINARY"]}}, open(os.environ["WASM_BINDGEN_TEST_WEBDRIVER_JSON"], "w"))'
+          cargo test --locked --target wasm32-unknown-unknown -p rara-agent -p rara-observability --test browser

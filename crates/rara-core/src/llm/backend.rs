@@ -15,6 +15,15 @@ use super::contracts::{
 };
 use super::types::{LlmResponse, Message};
 
+/// Stream observer using the host target's threading convention.
+/// In `async_trait` methods, bind this alias to `'async_trait` to preserve the
+/// existing callback borrow contract without introducing another lifetime.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub type LlmStreamCallback<'a> = dyn FnMut(LlmStreamEvent) + Send + 'a;
+/// Browser stream observers may retain JavaScript-owned local state.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub type LlmStreamCallback<'a> = dyn FnMut(LlmStreamEvent) + 'a;
+
 /// Per-turn metadata passed alongside a completion request.
 #[derive(Debug, Clone)]
 pub struct LlmTurnMetadata {
@@ -143,8 +152,9 @@ impl SummaryPrefix {
 /// cooperative cancellation should override a context-aware request method
 /// and observe `LlmTurnMetadata`; the default adapters cannot interrupt a
 /// blocking `ask` implementation.
-#[async_trait]
-pub trait LlmBackend: Send + Sync {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait LlmBackend: crate::PlatformSend + crate::PlatformSync {
     fn model_label(&self) -> Option<String> {
         None
     }
@@ -163,7 +173,7 @@ pub trait LlmBackend: Send + Sync {
         &self,
         messages: &[Message],
         tools: &[Value],
-        _on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+        _on_event: &mut LlmStreamCallback<'async_trait>,
     ) -> Result<LlmResponse> {
         self.ask(messages, tools).await
     }
@@ -173,7 +183,7 @@ pub trait LlmBackend: Send + Sync {
         messages: &[Message],
         tools: &[Value],
         _metadata: LlmTurnMetadata,
-        on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+        on_event: &mut LlmStreamCallback<'async_trait>,
     ) -> Result<LlmResponse> {
         self.ask_streaming(messages, tools, on_event).await
     }

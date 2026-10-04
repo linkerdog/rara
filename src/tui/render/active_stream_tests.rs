@@ -165,6 +165,35 @@ fn growing_stream_retains_stable_styled_row_allocations() {
     }
 }
 
+#[test]
+fn reference_context_appends_reuse_production_visual_rows() {
+    let mut harness = stream_harness();
+    harness.app_mut().append_agent_delta(
+        "[id]: https://example.com\n\nFIRST-STABLE [id].\n\nMutable paragraph.\n\n",
+    );
+    harness.screen_buffer(80, 20);
+    let width = harness.app().transcript_scroll.layout().unwrap().width;
+    let initial = super::renderable_transcript_lines(harness.app(), width);
+    let index = initial
+        .iter()
+        .position(|line| line.to_string().contains("FIRST-STABLE"))
+        .unwrap();
+    let before = work(&harness);
+    for _ in 0..200 {
+        harness.app_mut().append_agent_delta("Another [id].\n\n");
+        harness.screen_buffer(80, 20);
+        let rows = super::renderable_transcript_lines(harness.app(), width);
+        assert!(std::ptr::eq(
+            initial.get(index).unwrap(),
+            rows.get(index).unwrap()
+        ));
+    }
+    let after = work(&harness);
+    eprintln!("reference layout: {before:?} -> {after:?}");
+    assert!(after.wrapped_lines - before.wrapped_lines < 200 * 20);
+    assert_canonical(&harness, width);
+}
+
 fn assert_canonical(harness: &TuiHarness, width: u16) {
     let rows = super::renderable_transcript_lines(harness.app(), width);
     assert_eq!(

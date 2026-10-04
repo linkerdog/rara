@@ -13,8 +13,11 @@ mod tests {
     use anyhow::{Result, bail};
     use async_trait::async_trait;
     use rara_agent::{
-        ContinuationContext, IterationBudget, LoopEffect, LoopEnd, LoopMachine, LoopProgress,
-        ModelObservation, ResponseEvidence, StopHookOutcome, ToolBatchOutcome,
+        Continuation, ContinuationContext, IterationBudget, LoopEffects, LoopEnd, LoopMachine,
+        LoopProgress, ModelObservation, ModelRequest, ModelTurnEvent, ModelTurnPolicy,
+        StopHookContext, StopHookOutcome, ToolAdmission, ToolBatchEffects, ToolBatchOutcome,
+        ToolCall, ToolReply, execute_loop, execute_model_turn, execute_tool_batch,
+        execute_tool_call,
     };
     use rara_core::llm::backend::{LlmBackend, LlmTurnMetadata};
     use rara_core::llm::contracts::LlmStreamEvent;
@@ -35,7 +38,8 @@ mod tests {
 
     struct HostTool;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl Tool for HostTool {
         fn name(&self) -> &str {
             "host_echo"
@@ -53,7 +57,7 @@ mod tests {
             &self,
             input: Value,
             context: ToolCallContext,
-            report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+            report: &mut rara_core::tool::ToolProgressCallback<'async_trait>,
         ) -> Result<Value, ToolError> {
             if context.is_cancelled() {
                 return Err(ToolError::ExecutionFailed("cancelled".into()));
@@ -71,7 +75,8 @@ mod tests {
 
     struct HostBackend;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl LlmBackend for HostBackend {
         async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
             bail!("streaming context required")
@@ -84,16 +89,16 @@ mod tests {
             messages: &[Message],
             tools: &[Value],
             metadata: LlmTurnMetadata,
-            on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+            on_event: &mut rara_core::llm::backend::LlmStreamCallback<'async_trait>,
         ) -> Result<LlmResponse> {
             metadata.ensure_not_cancelled()?;
             if messages.len() > 1 {
-                let results = messages.last().expect("nonempty transcript");
-                assert_eq!(results.role, "user");
-                let blocks = results.content.as_array().expect("tool results");
-                assert_eq!(blocks.len(), 2);
-                assert_eq!(blocks[0]["tool_use_id"], "first");
-                assert_eq!(blocks[1]["tool_use_id"], "second");
+                assert_eq!(messages.len(), 4);
+                for (message, call_id) in messages[2..].iter().zip(["first", "second"]) {
+                    assert_eq!(message.role, "user");
+                    assert_eq!(message.content[0]["tool_use_id"], call_id);
+                    assert!(message.content[0].get("is_error").is_none());
+                }
                 on_event(LlmStreamEvent::TextDelta("done".into()));
                 return Ok(LlmResponse {
                     content: vec![ContentBlock::Text {
@@ -134,142 +139,231 @@ mod tests {
         }
     }
 
-    #[test]
-    fn host_contracts_preserve_deltas_and_trusted_call_identity() -> Result<()> {
-        let backend: Arc<dyn LlmBackend> = Arc::new(HostBackend);
-        let mut tools = ToolManager::new();
-        tools.register(Box::new(HostTool));
-        let mut deltas = Vec::new();
-        let mut machine = LoopMachine::new(LoopProgress::default());
-        let model = machine.begin_iteration(IterationBudget::default())?;
-        assert_eq!(model.effect, LoopEffect::RequestModel);
-        let mut transcript = vec![Message {
-            role: "user".into(),
-            content: json!("echo twice"),
-        }];
-        let response = immediate(backend.ask_streaming_with_context(
-            &transcript,
-            &tools.get_schemas(),
-            LlmTurnMetadata::execute(),
-            &mut |event| {
-                if let LlmStreamEvent::TextDelta(text) = event {
-                    deltas.push(text);
-                }
-            },
-        ))?;
-        assert_eq!(deltas, ["two ", "calls"]);
-        let assistant = machine.model_completed(
-            model.id,
-            ModelObservation {
-                tool_call_count: response.content.len(),
-                ..Default::default()
-            },
-        )?;
-        assert_eq!(assistant.effect, LoopEffect::RecordAssistant);
-        transcript.push(Message {
-            role: "assistant".into(),
-            content: serde_json::to_value(&response.content)?,
-        });
-        let tool_request =
-            machine.assistant_recorded(assistant.id, ContinuationContext::default())?;
-        assert_eq!(tool_request.effect, LoopEffect::RunTools);
-        let mut results = Vec::new();
-        let mut progress = Vec::new();
-        for block in response.content {
-            let ContentBlock::ToolUse { id, name, input } = block else {
-                bail!("expected a tool call");
+    struct HostModelEvents<'a>(&'a mut Vec<String>);
+
+    impl ModelTurnPolicy for HostModelEvents<'_> {
+        fn event(&mut self, event: ModelTurnEvent) {
+            match event {
+                ModelTurnEvent::Stream(LlmStreamEvent::TextDelta(text))
+                | ModelTurnEvent::AssistantText(text) => self.0.push(text),
+                ModelTurnEvent::Stream(LlmStreamEvent::ReasoningDelta(_))
+                | ModelTurnEvent::ToolUse(_) => {}
+            }
+        }
+    }
+
+    struct HostEffects {
+        backend: Arc<dyn LlmBackend>,
+        tools: ToolManager,
+        transcript: Vec<Message>,
+        assistant: Option<Message>,
+        calls: Vec<ToolCall>,
+        results: Vec<Value>,
+        result_messages: Vec<Message>,
+        deltas: Vec<String>,
+        tool_progress: Vec<ToolProgressEvent>,
+        cancellation: Arc<AtomicBool>,
+        finalized: Option<LoopEnd>,
+    }
+
+    impl HostEffects {
+        fn new() -> Self {
+            let mut tools = ToolManager::new();
+            tools.register(Box::new(HostTool));
+            Self {
+                backend: Arc::new(HostBackend),
+                tools,
+                transcript: vec![Message {
+                    role: "user".into(),
+                    content: json!("echo twice"),
+                }],
+                assistant: None,
+                calls: Vec::new(),
+                results: Vec::new(),
+                result_messages: Vec::new(),
+                deltas: Vec::new(),
+                tool_progress: Vec::new(),
+                cancellation: Arc::new(AtomicBool::new(false)),
+                finalized: None,
+            }
+        }
+    }
+
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+    impl LoopEffects for HostEffects {
+        fn budget(&self) -> IterationBudget {
+            IterationBudget::default()
+        }
+
+        async fn request_model(&mut self, _: LoopProgress) -> Result<ModelObservation> {
+            let tools = self.tools.get_schemas();
+            let request = ModelRequest {
+                messages: &self.transcript,
+                tools: &tools,
+                metadata: LlmTurnMetadata::execute().with_cancellation(self.cancellation.clone()),
             };
-            let tool = tools
-                .get_tool(&name)
-                .ok_or_else(|| anyhow::anyhow!("missing tool"))?;
+            let output = execute_model_turn(
+                self.backend.as_ref(),
+                &request,
+                &mut HostModelEvents(&mut self.deltas),
+            )
+            .await?;
+            self.assistant = output.assistant_message;
+            self.calls = output.tool_calls;
+            Ok(ModelObservation {
+                tool_call_count: self.calls.len(),
+                response: output.response,
+                ..Default::default()
+            })
+        }
+
+        async fn record_assistant(&mut self, _: LoopProgress) -> Result<ContinuationContext> {
+            if let Some(message) = self.assistant.take() {
+                self.transcript.push(message);
+            }
+            Ok(ContinuationContext::default())
+        }
+
+        async fn continue_turn(
+            &mut self,
+            continuation: Continuation,
+            _: LoopProgress,
+        ) -> Result<()> {
+            bail!("fixture did not request continuation: {continuation:?}")
+        }
+
+        async fn run_stop_hooks(
+            &mut self,
+            context: StopHookContext,
+            _: LoopProgress,
+        ) -> Result<StopHookOutcome> {
+            assert!(!context.stop_hook_active);
+            Ok(StopHookOutcome::AllowCompletion)
+        }
+
+        async fn run_tools(&mut self, _: LoopProgress) -> Result<ToolBatchOutcome> {
+            let output = execute_tool_batch(std::mem::take(&mut self.calls), self).await?;
+            self.result_messages = output.messages;
+            Ok(output.outcome)
+        }
+
+        async fn commit_tool_results(&mut self, _: LoopProgress) -> Result<()> {
+            self.transcript.append(&mut self.result_messages);
+            Ok(())
+        }
+
+        async fn finalize(&mut self, end: LoopEnd, _: LoopProgress) -> Result<()> {
+            self.finalized = Some(end);
+            Ok(())
+        }
+    }
+
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+    impl ToolBatchEffects for HostEffects {
+        async fn prepare_call(&mut self, call: &ToolCall) -> Result<ToolAdmission> {
+            if call.name != "host_echo" {
+                bail!("host did not authorize tool {}", call.name);
+            }
+            Ok(ToolAdmission::Invoke)
+        }
+
+        async fn invoke_call(&mut self, call: &ToolCall) -> Result<Value, ToolError> {
+            let tool = self
+                .tools
+                .get_tool(&call.name)
+                .ok_or_else(|| ToolError::ExecutionFailed("missing host tool".into()))?;
             let context = ToolCallContext::default()
                 .with_session_id("host-session")
                 .with_turn_id("host-turn")
-                .with_call_id(id);
-            results.push(immediate(async {
-                Ok(tool
-                    .call_with_context_events(input, context, &mut |event| progress.push(event))
-                    .await?)
-            })?);
+                .with_cancellation(self.cancellation.clone());
+            execute_tool_call(tool, call, context, &mut |progress| {
+                assert_eq!(progress.call_id, call.id);
+                assert_eq!(progress.name, call.name);
+                self.tool_progress.push(progress.event);
+            })
+            .await
         }
+
+        async fn complete_call(
+            &mut self,
+            _: &ToolCall,
+            result: Result<Value, ToolError>,
+        ) -> Result<ToolReply> {
+            Ok(match result {
+                Ok(result) => {
+                    let reply = ToolReply::success(result.to_string());
+                    self.results.push(result);
+                    reply
+                }
+                Err(error) => ToolReply::error(format!("Error: {error}")),
+            })
+        }
+    }
+
+    #[test]
+    fn shared_executor_preserves_deltas_identity_and_transcript_order() -> Result<()> {
+        let mut host = HostEffects::new();
+        let mut progress = LoopProgress::default();
         assert_eq!(
-            results,
+            immediate(execute_loop(&mut host, &mut progress))?,
+            LoopEnd::ResponseComplete
+        );
+        assert_eq!(host.finalized, Some(LoopEnd::ResponseComplete));
+        assert_eq!(progress.agentic_turns, 1);
+        assert_eq!(host.deltas, ["two ", "calls", "done"]);
+        assert_eq!(
+            host.results,
             [
                 json!({"text": "first", "session": "host-session", "turn": "host-turn", "call": "first"}),
                 json!({"text": "second", "session": "host-session", "turn": "host-turn", "call": "second"}),
             ]
         );
         assert_eq!(
-            progress,
+            host.tool_progress,
             vec![
                 ToolProgressEvent::Output {
                     stream: ToolOutputStream::Stdout,
-                    chunk: "echoing".into(),
+                    chunk: "echoing".into()
                 };
                 2
             ]
         );
-        let commit =
-            machine.tools_completed(tool_request.id, ToolBatchOutcome::ResultsAvailable)?;
-        assert_eq!(commit.effect, LoopEffect::CommitToolResults);
-        transcript.push(Message {
-            role: "user".into(),
-            content: json!(
-                results
-                    .iter()
-                    .map(|result| json!({
-                        "type": "tool_result", "tool_use_id": result["call"],
-                        "content": result.to_string(), "is_error": false,
-                    }))
-                    .collect::<Vec<_>>()
-            ),
-        });
-        // Only control state is restored; the host retains transcript/results.
-        machine = serde_json::from_slice(&serde_json::to_vec(&machine)?)?;
-        let model = machine.checkpoint_completed(commit.id, IterationBudget::default())?;
-        assert_eq!(model.effect, LoopEffect::RequestModel);
-        let response = immediate(backend.ask_streaming_with_context(
-            &transcript,
-            &tools.get_schemas(),
-            LlmTurnMetadata::execute(),
-            &mut |event| {
-                if let LlmStreamEvent::TextDelta(text) = event {
-                    deltas.push(text);
-                }
-            },
-        ))?;
-        let assistant = machine.model_completed(
-            model.id,
-            ModelObservation {
-                response: ResponseEvidence {
-                    had_text_response: true,
-                    had_reasoning_response: false,
-                },
-                ..Default::default()
-            },
-        )?;
-        transcript.push(Message {
-            role: "assistant".into(),
-            content: serde_json::to_value(response.content)?,
-        });
-        let hooks = machine.assistant_recorded(assistant.id, ContinuationContext::default())?;
         assert_eq!(
-            hooks.effect,
-            LoopEffect::RunStopHooks {
-                stop_hook_active: false
-            }
+            host.transcript
+                .iter()
+                .map(|message| message.role.as_str())
+                .collect::<Vec<_>>(),
+            ["user", "assistant", "user", "user", "assistant"]
         );
-        let finish = machine.stop_hooks_completed(hooks.id, StopHookOutcome::AllowCompletion)?;
+        assert_eq!(host.transcript[4].content[0]["text"], "done");
+        Ok(())
+    }
+
+    #[test]
+    fn cancellation_from_the_host_prevents_execution_and_finalization() {
+        let mut host = HostEffects::new();
+        host.cancellation.store(true, Ordering::SeqCst);
+        let mut progress = LoopProgress::default();
+        assert!(immediate(execute_loop(&mut host, &mut progress)).is_err());
+        assert!(host.results.is_empty());
+        assert!(host.deltas.is_empty());
+        assert_eq!(host.transcript.len(), 1);
+        assert_eq!(host.finalized, None);
+        assert_eq!(progress, LoopProgress::default());
+    }
+
+    #[test]
+    fn pure_control_snapshot_retains_its_next_transition() -> Result<()> {
+        let mut original = LoopMachine::new(LoopProgress::default());
+        let model = original.begin_iteration(IterationBudget::default())?;
+        let mut restored: LoopMachine = serde_json::from_slice(&serde_json::to_vec(&original)?)?;
         assert_eq!(
-            machine.finalization_completed(finish.id)?,
-            LoopEnd::ResponseComplete
+            original.model_completed(model.id, ModelObservation::default())?,
+            restored.model_completed(model.id, ModelObservation::default())?
         );
-        assert_eq!(machine.progress().agentic_turns, 1);
-        assert_eq!(deltas, ["two ", "calls", "done"]);
-        assert_eq!(
-            transcript.last().expect("final response").content[0]["text"],
-            "done"
-        );
+        assert_eq!(original, restored);
         Ok(())
     }
 

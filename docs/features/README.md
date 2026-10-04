@@ -48,8 +48,8 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
-- `portable-agent-loop.md`: serializable shared loop decisions, effect receipts,
-  native driver boundaries, and external dependency validation.
+- `portable-agent-loop.md`: serializable shared loop decisions, asynchronous
+  execution, host effect boundaries, and external dependency validation.
 - `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation
   context, compatibility exports, and standalone Git dependency verification.
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
@@ -96,6 +96,8 @@ future appserver integrations can use.
   paste/transcript ingestion, bounded tool display tails, and selection identity.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
+- `browser-agent-effects.md`: browser-local shared model/tool/loop effects,
+  accounting clocks, native thread-safety compatibility, and browser execution tests.
 
 ## App Server Architecture
 

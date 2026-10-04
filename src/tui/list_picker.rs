@@ -594,7 +594,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = if app.resume_search_query.is_empty() {
         "type to filter".to_string()
     } else {
-        app.resume_search_query.clone()
+        crate::tui::display_sanitize::sanitize_display_line(&app.resume_search_query)
     };
     let sort_status = if app.resume_sort_by_created {
         "sort=updated [created]"

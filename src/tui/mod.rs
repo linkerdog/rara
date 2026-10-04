@@ -3,6 +3,8 @@
 
 mod app_event;
 mod auth_mode_picker;
+#[cfg(test)]
+mod bidi_display_tests;
 mod clipboard;
 mod command;
 mod composer_text;

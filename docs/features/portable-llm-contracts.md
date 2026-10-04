@@ -14,8 +14,9 @@ though only the root shape was consumed by the runtime.
 
 ## Non-Goals
 
-Provider extraction, browser HTTP/SSE execution, WASI, and a portable agent loop
-are later phases of [issue #871](https://github.com/linkerdog/rara/issues/871).
+Provider extraction, browser HTTP/SSE execution, and WASI are outside this
+boundary. The [shared agent loop](portable-agent-loop.md) and
+[browser effects](browser-agent-effects.md) consume these same contracts.
 This phase does not change prompt order, cancellation, accounting, or defaults.
 
 ## Architecture
@@ -65,11 +66,12 @@ contracts without the application package or workspace patches.
 
 ## Operational Notes And Open Risks
 
-Compilation on a browser target is not browser execution proof. Accounting
-still uses `std::time::Instant`, and `async_trait` retains Send futures. A future
-browser transport must address the clock and non-Send fetch futures before
-claiming end-to-end support. Runtime mode and summary strategy defaults are
-unchanged by this extraction.
+Browser-target effects use local futures/callbacks and browser monotonic clocks;
+native contracts retain Send/Sync bounds and standard clocks. Headless Chrome
+tests execute the shared effects, including promise suspension and accounting.
+Browser HTTP/SSE providers and session scheduling remain separate #871 work;
+these tests do not claim a complete browser client. Runtime mode and summary
+strategy defaults are unchanged.
 
 ## Source Journals
 

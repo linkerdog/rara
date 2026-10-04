@@ -1,8 +1,10 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::display_sanitize::{annotate_bidi_text, bidi_annotation};
 pub(crate) use super::text_wrap::expand_tabs;
 use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
 
@@ -63,9 +65,9 @@ impl WrappedText {
         }
         self.positions
             .iter()
-            .filter(|(_, position)| position.row == target.row)
             .min_by_key(|(offset, position)| {
                 (
+                    position.row.abs_diff(target.row),
                     position.column.abs_diff(target.column),
                     std::cmp::Reverse(*offset),
                 )
@@ -108,6 +110,30 @@ pub(crate) fn wrapped_text(input: &str, config: WrapConfig<'_>) -> Arc<WrappedTe
 }
 
 fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
+    let projected = annotate_bidi_text(input);
+    let mut layout = build_display_layout(&projected, config);
+    if matches!(projected, Cow::Borrowed(_)) {
+        return layout;
+    }
+
+    // Only source grapheme boundaries are editable. Intermediate columns/rows
+    // inside an expanded label must never become fictitious source offsets.
+    let mut source_offset = 0;
+    let mut display_offset = 0;
+    let mut positions = vec![(0, layout.position_for_offset(0))];
+    for grapheme in input.graphemes(true) {
+        for ch in grapheme.chars() {
+            source_offset += 1;
+            display_offset += bidi_annotation(ch).map_or(1, |label| label.chars().count());
+        }
+        positions.push((source_offset, layout.position_for_offset(display_offset)));
+    }
+    layout.positions = positions;
+    layout
+}
+
+/// Wraps already projected text; offsets here belong to that display string.
+fn build_display_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
     let width = usize::from(config.width.max(1));
     let mut rows = Vec::new();
     let ranges = wrap_ranges(
@@ -162,7 +188,7 @@ pub(crate) fn clipped_cursor_column(input: &str, offset: usize, width: u16) -> u
         .take(offset)
         .take_while(|ch| *ch != '\n')
         .collect::<String>();
-    display_width(&prefix).min(usize::from(width.max(1) - 1))
+    display_width(&annotate_bidi_text(&prefix)).min(usize::from(width.max(1) - 1))
 }
 
 #[cfg(test)]

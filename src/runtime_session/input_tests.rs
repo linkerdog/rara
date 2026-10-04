@@ -24,6 +24,7 @@ use crate::{
 };
 
 mod approvals;
+mod partial_tool_batch;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 const QUESTION: &str = "<request_user_input>\nquestion: Which path?\noption: Minimal | Keep the diff small.\noption: Broad | Expand.\n</request_user_input>\nChoose one.";

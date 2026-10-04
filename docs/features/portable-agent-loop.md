@@ -12,7 +12,9 @@ planning, cancellation, and completion semantics to diverge.
 `rara-agent` owns the existing loop's deterministic transitions. Its machine
 accepts observations and completed-effect acknowledgements, then requests the
 next effect. The machine performs no I/O, awaits no futures, and depends only
-on serialization and error types. The application drives this same machine.
+on serialization and error types. A shared asynchronous executor drives this
+machine through the `LoopEffects` host interface. The executor owns effect
+ordering and acknowledgements; the application supplies native effects.
 
 The serializable control state includes the phase, continuation count, bounded
 plan-repair and Stop-hook counters, pending response observations, and final
@@ -47,12 +49,85 @@ The principal boundaries are:
 6. Commit continuation/results before admitting another model request.
 7. Apply finalization before acknowledging the final loop outcome.
 
-The root driver contains effect handling, not a second implementation of these
-decisions. Native approval/classifier/tool policy remains in the application
-adapter. Request construction and context projection retain their existing
-owners and stable prompt order.
+The root adapter contains effect handling, not an execution loop or a second
+implementation of these decisions. Native approval/classifier/tool policy
+remains in that adapter. Request construction and context projection retain
+their existing owners and stable prompt order.
+
+`execute_loop` awaits each host effect before acknowledging it to the machine.
+`LoopEffects` implementations must complete required persistence or cleanup
+before returning success. Failed effects return their original error without
+acknowledgement, replay, another model request, or implicit finalization. The
+shared progress value is updated before invoking an effect, including when the
+effect later fails. Approval pauses retain their explicit finalization reason;
+the adapter preserves the distinction from session-end cleanup.
+
+The executor requires no async runtime, spawning facility, clock, filesystem, or
+transport. Native effects retain Send futures; the browser target accepts local
+effects and callbacks under [the browser effects contract](browser-agent-effects.md).
+Cancellation is cooperative:
+hosts finish cancellation cleanup before returning an error. Dropping an
+executor future does not imply cleanup or session completion.
 
 ## Contracts
+
+### Model Effects
+
+`execute_model_turn` is the shared model effect beneath `LoopEffects`. It
+accepts the host's prepared message/tool view and turn metadata, checks
+cooperative cancellation before dispatch, forwards stream events, and collects
+the resulting assistant message, tool calls, and response evidence. It performs
+no context assembly, clock reads, accounting, persistence, or tool execution.
+
+`ModelTurnPolicy` observes the provider result before any response blocks are
+processed. Hosts retain accounting and usage handling even when a request
+fails. Policies may normalize text and prepare executable tool inputs; the
+assistant message retains the provider's original tool arguments while each
+executable call preserves its provider call ID. Native planning, hooks, and
+terminal presentation remain policy effects in their original order.
+
+Streamed text suppresses fallback text emission for that response. Reasoning
+stream events and nonempty `reasoning_content` metadata both count as reasoning
+evidence. Metadata is retained alongside visible text/tool content, but a
+metadata-only response does not create an assistant history entry. Policy
+failures stop collection before subsequent blocks or completion callbacks.
+
+The application and downstream fixture consume this implementation. The shared
+model effect is not an independent session runtime or a context/prompt policy.
+
+### Tool Effects
+
+`execute_tool_batch` owns serial admission, invocation, result completion, and
+provider-ID result collection. `ToolBatchEffects` supplies session-scoped
+policy: batch preparation, per-call admission, invocation, and result handling.
+Every stage completes before the next call is admitted. An approval pause
+retains completed results without synthesizing a result for the pending call.
+After an approval answer has recorded its real result, native continuation
+repairs any abandoned later calls before the next model request and checkpoint.
+These synthetic results are errors; already completed calls are never replayed.
+Cancel/interrupt during the pause uses the same repair before a fresh prompt.
+
+An approval pause returns `AwaitingApproval` without invoking the paused call or later calls.
+Effect errors propagate without replay or implicit transcript commit.
+
+Admission may invoke a tool, provide an already-handled reply, pause for
+approval, or explicitly omit a call after host diagnostics. The native adapter
+preserves existing mode restrictions, approval/classifier/hook order, and its
+legacy hook-failure omission. The shared executor does not grant permission.
+
+`execute_tool_call` forwards the host's trusted context and binds progress and
+the context call ID to the provider call. Model arguments cannot replace host
+identity. Cancellation stays cooperative: invocation awaits the tool's actual
+return and does not fabricate an early terminal result. Tool failures are
+passed to host result policy, which may convert them into model-visible errors
+as the native application does. Result-policy failures stop the batch.
+
+`ToolReply` preserves the existing user-message tool-result envelope, omitting
+`is_error` on success. Hosts retain result compaction, batch budgets, persistence,
+and visible result events. The application and downstream fixture use the same
+batch and invocation code.
+
+### Loop Decisions
 
 - `max_turns` wins over token exhaustion when both are reached. Limits are
   checked before model preparation, including after tool and continuation
@@ -90,7 +165,7 @@ Use `rara-agent` and `rara-core` from the same reviewed full Git revision and
 normal default features. `scripts/check_downstream_core.py --rev <full-sha>`
 creates a fresh consumer outside the workspace, without copying the repository
 lockfile or patches. It audits the production closure of both crates, runs a
-fake backend/custom-tool round trip driven by the shared machine, and compiles
+fake backend/custom-tool round trip driven by the shared executor, and compiles
 the fixture for `wasm32-unknown-unknown`. The script requires that target to be
 installed on the selected Rust toolchain. This validates control transitions
 and contract composition; it does not exercise the application session API or
@@ -106,6 +181,9 @@ claim browser execution.
 | Bounded recovery | Plan repair and Stop-hook exhaustion retain exact counters and outcomes |
 | Serialization | Round trips at each reachable pending effect preserve the next transition |
 | Existing application | Agent planning, approval, hooks, duplicate-tool, budget, and session integration tests |
+| Async effects | Suspended model/tool/checkpoint/finalization effects prevent later work; errors preserve progress and stop admission |
+| Model effects | Stream/fallback ordering, reasoning evidence, original versus executable tool arguments, cancellation, policy errors, and metadata-only history |
+| Tool effects | Approval pauses, suspended invocation/result handling, trusted call identity, error/omission replies, and serial result ordering |
 | Dependency boundary | External Git fixture audits both core and agent dependency closures |
 | Portable compilation | Native tests and browser-target compilation without feature flags |
 
@@ -113,10 +191,10 @@ claim browser execution.
 
 1. Establish the pure machine and focused transition tests. Exit when invalid
    transitions, counter boundaries, and state round trips are demonstrated.
-2. Replace existing root loop decisions with the machine, retaining the effect
-   implementation and observable ordering. Exit when existing agent/session
-   regressions plus focused ordering tests pass.
-3. Exercise the machine as a pinned remote Git dependency with the same public
+2. Establish the shared asynchronous executor and adapt existing native effects,
+   retaining observable ordering. Exit when suspension/error tests and existing
+   agent/session regressions pass without a second application driver.
+3. Exercise the executor as a pinned remote Git dependency with the same public
    contracts used by the application. Exit after native/browser checks, strict
    Clippy, Cargo formatting, and default Bazel verification.
 
@@ -125,9 +203,16 @@ claim browser execution.
 Control-state serialization is narrower than durable agent recovery. Hosts
 must pair it with their own transcript and effect ledger. The application still
 owns native execution facilities; this crate alone does not make the existing
-`RuntimeSessionBuilder` lightweight. Future executor extraction must keep these
-same decisions and preserve host authority instead of growing another loop.
+`RuntimeSessionBuilder` lightweight. Extracting model/tool effects and session
+assembly must keep these decisions and preserve host authority instead of
+growing another loop.
+
+Session actor extraction begins after these gates and must preserve the
+existing ownership and cancellation-return barriers.
 
 ## Source Journals
 
 - [2026-10-04-portable-agent-loop](../journal/2026-10-04-portable-agent-loop.md)
+- [2026-10-04-shared-agent-executor](../journal/2026-10-04-shared-agent-executor.md)
+- [2026-10-04-portable-model-turn](../journal/2026-10-04-portable-model-turn.md)
+- [2026-10-04-portable-tool-execution](../journal/2026-10-04-portable-tool-execution.md)
