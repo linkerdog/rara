@@ -16,9 +16,12 @@ Active backlog only. Keep this file small and current.
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
       LLM/tool contracts and the [shared loop machine](features/portable-agent-loop.md):
       provider crates, portable context/policy assembly, browser HTTP/SSE transport,
-      host-compatible accounting clocks and future bounds, and browser runtime
-      tests. The [contract](features/portable-llm-contracts.md) currently proves
-      browser-target compilation only.
+      and browser session scheduling. Shared model/tool/loop effects now accept
+      browser-local futures and use working browser accounting clocks, with
+      real Chrome execution under [the browser effects contract](features/browser-agent-effects.md).
+      This does not yet deliver a complete browser provider/session stack.
+      Workspace resolver 3 and explicit root default-member selection are in
+      place; see [the workspace checkpoint](journal/2026-10-04-workspace-resolution.md).
 
 ## Prefix Cache Cost Evaluation
 
@@ -55,14 +58,26 @@ Active backlog only. Keep this file small and current.
       counts and retained-allocation guards. Eligible active response bodies now
       retain stable visual blocks with a mutable preview and explicit replay
       epochs. Persistent balanced indexes bound retained root-handle copies
-      logarithmically. General active-prefix/non-streaming/thinking assembly,
-      comparison, and changed-prefix rewrapping remain explicit costs. Long
-      mutable blocks and source-wide reference fallbacks still need work bounds;
+      logarithmically. Unchanged active-prefix assembly and comparison are now
+      bypassed using mutation identities. Live thinking content and clock updates
+      replace only their visible row block, preserving both surrounding sections.
+      Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
+      mutable blocks, definition changes, and reference-expansion fallback still
+      need work bounds. Ordinary blocks after reference definitions now reuse
+      their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
+      ordinary angle brackets now avoid control-cleanup replay, while completed
+      legacy markers and complex control contexts retain explicit replay costs.
+      See [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md);
       exact-head CI/review/merge and terminal acceptance remain separate gates.
+      Live thinking now copies only its selected four-row tail; its source
+      parsing and long-row wrapping costs remain separate. See
+      [the thinking checkpoint](journal/2026-10-03-bounded-thinking-window.md).
+      See [the prefix checkpoint](journal/2026-10-03-active-prefix-cache.md).
+      See [the thinking layout checkpoint](journal/2026-10-03-live-thinking-row-slot.md).
       See [the shared-row checkpoint](journal/2026-10-03-transcript-row-reuse.md).
       See [the active-stream checkpoint](journal/2026-10-03-active-stream-rows.md).
-      Audit tables that begin within a mutable paragraph against the canonical
-      renderer before closing the review tail.
+      Tables interrupting mutable paragraphs have a canonical-renderer check at
+      every Unicode-safe two-chunk split, including CRLF and reference contexts.
       See [the source-cache checkpoint](journal/2026-10-03-incremental-markdown.md),
       [the streaming contract](features/streaming-transcript.md) and
       [the frame checkpoint](journal/2026-10-02-tui-frame-coalescing.md).
@@ -76,7 +91,10 @@ Active backlog only. Keep this file small and current.
       Stateful display ingestion, invocation/stream-isolated bounded progress,
       safe paste/terminal previews, and same-length middle-edit selection have
       focused automated coverage. Legacy identity-free events cannot separate
-      concurrent same-name calls. Define a Unicode formatting/annotation policy
+      concurrent same-name calls. Assistant control-token cleanup now agrees
+      across chunk boundaries, including delayed separators and DSML evidence;
+      see [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md).
+      Define a Unicode formatting/annotation policy
       for bidi overrides and invisible text without breaking joiners or emoji;
       terminal-control filtering alone does not prevent visual spoofing. See
       [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
@@ -108,6 +126,9 @@ Active backlog only. Keep this file small and current.
       interleavings, vt100 output, isolated Unix PTY lifecycle checks, and TUI
       print/raw-color lints now have focused guards. Each new gate needs a
       concrete protected defect and RED evidence before becoming required.
+      Item-level lint ownership, actual-loop quit/cancel, full-session shell
+      handoff, and the real suspend input adapter are covered by
+      [the review follow-up checkpoint](journal/2026-10-04-tui-review-followups.md).
 - [x] Complete the session-scoped `RuntimeClient` migration: route typed
       commands and runtime snapshots/events through the client, then remove
       runtime registries and completion orchestration from `TuiApp`.

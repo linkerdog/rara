@@ -1,4 +1,5 @@
 mod local_links;
+mod references;
 mod streaming;
 mod table;
 
@@ -11,6 +12,7 @@ use ratatui::{
     style::Style,
     text::{Line, Span, Text},
 };
+pub(crate) use references::{ReferenceBudget, ReferenceContext};
 pub(crate) use streaming::{RenderContext, render_streaming_markdown};
 use table::{TableRenderState, render_table_lines};
 

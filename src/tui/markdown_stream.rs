@@ -1,14 +1,19 @@
 //! One append-only source and one materialized row cache per live stream.
 mod code_fence;
 
-use std::path::{Path, PathBuf};
+use std::{
+    ops::Range,
+    path::{Path, PathBuf},
+};
 
 use code_fence::OpenCodeFence;
 use ratatui::text::Line;
 
 #[cfg(test)]
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
-use crate::tui::markdown_render::{RenderContext, render_streaming_markdown};
+use crate::tui::markdown_render::{
+    ReferenceBudget, ReferenceContext, RenderContext, render_streaming_markdown,
+};
 use crate::tui::theme::{self, ThemeRevision};
 
 pub(crate) struct RenderedStream<'a> {
@@ -33,7 +38,9 @@ pub(crate) struct MarkdownStreamCollector {
     stable_line_len: usize,
     stable_context: RenderContext,
     held_table_start: Option<usize>,
-    has_references: bool,
+    references: ReferenceContext,
+    reference_replay: bool,
+    closing_brackets: usize,
     open_fence: Option<OpenCodeFence>,
     width: Option<usize>,
     cwd: PathBuf,
@@ -52,6 +59,7 @@ pub(crate) struct MarkdownWork {
     pub appended_bytes: usize,
     pub rendered_rows: usize,
     pub fence_bytes: usize,
+    pub reference_bytes: usize,
 }
 
 impl MarkdownStreamCollector {
@@ -65,7 +73,9 @@ impl MarkdownStreamCollector {
             stable_line_len: 0,
             stable_context: RenderContext::default(),
             held_table_start: None,
-            has_references: false,
+            references: ReferenceContext::default(),
+            reference_replay: false,
+            closing_brackets: 0,
             open_fence: None,
             width,
             cwd: cwd.to_path_buf(),
@@ -78,6 +88,7 @@ impl MarkdownStreamCollector {
     }
 
     pub fn push_delta(&mut self, delta: &str) {
+        self.closing_brackets += delta.bytes().filter(|&byte| byte == b']').count();
         if let Some(newline) = delta.rfind('\n') {
             self.complete_source_len = self.buffer.len() + newline + 1;
         }
@@ -85,12 +96,14 @@ impl MarkdownStreamCollector {
         #[cfg(test)]
         {
             self.work.appended_bytes += delta.len();
+            self.work.reference_bytes += delta.len();
         }
     }
 
     pub fn replace_source(&mut self, source: &str) {
         self.buffer.clear();
         self.complete_source_len = 0;
+        self.closing_brackets = 0;
         self.reset_render();
         self.push_delta(source);
     }
@@ -103,7 +116,8 @@ impl MarkdownStreamCollector {
         self.stable_line_len = 0;
         self.stable_context = RenderContext::default();
         self.held_table_start = None;
-        self.has_references = false;
+        self.references = ReferenceContext::default();
+        self.reference_replay = false;
         self.open_fence = None;
         self.lines.clear();
     }
@@ -152,6 +166,19 @@ impl MarkdownStreamCollector {
         if self.held_table_start.is_some() {
             return;
         }
+        if !self.references.allows_incremental(ReferenceBudget {
+            source_bytes: self.buffer.len(),
+            closing_brackets: self.closing_brackets,
+        }) {
+            self.reference_replay = true;
+        }
+        if self.reference_replay
+            || self
+                .references
+                .has_mutable_definition(self.stable_source_len)
+        {
+            self.invalidate_reference_prefix();
+        }
         if let Some(mut fence) = self.open_fence.take() {
             if let Some(rows) = fence.update(&self.buffer, self.complete_source_len) {
                 self.lines.truncate(fence.row_end);
@@ -185,7 +212,7 @@ impl MarkdownStreamCollector {
         };
         self.render_tail(render_end, boundary);
         self.rendered_complete_len = self.complete_source_len;
-        if new_complete_source && self.held_table_start.is_none() && !self.has_references {
+        if new_complete_source && self.held_table_start.is_none() && !self.reference_replay {
             let fence_source = &self.buffer[self.stable_source_len..render_end];
             #[cfg(test)]
             {
@@ -214,22 +241,33 @@ impl MarkdownStreamCollector {
 
     fn render_tail(&mut self, source_end: usize, boundary: RenderBoundary) {
         let start = self.stable_source_len;
+        if start > 0 && !self.reference_source_fits(start..source_end) {
+            self.render_reference_replay(source_end, boundary);
+            return;
+        }
         self.record_parse(source_end - start);
         let pending = render_streaming_markdown(
             &self.buffer[start..source_end],
             self.width,
             &self.cwd,
             self.stable_context,
+            &self.references,
         );
         self.record_rows(pending.lines.len());
-        if pending.has_references && !self.has_references {
-            self.row_epoch = self.row_epoch.wrapping_add(1);
-            self.has_references = true;
-            self.stable_source_len = 0;
-            self.stable_line_len = 0;
-            self.stable_context = RenderContext::default();
+        if !pending.references.is_empty() && start > 0 {
+            self.invalidate_reference_prefix();
             self.render_tail(source_end, boundary);
             return;
+        }
+        if start == 0 {
+            self.references = pending.references;
+            if !self.references.allows_incremental(ReferenceBudget {
+                source_bytes: self.buffer.len(),
+                closing_brackets: self.closing_brackets,
+            }) || !self.reference_source_fits(0..source_end)
+            {
+                self.reference_replay = true;
+            }
         }
         if let Some(table_start) = pending.first_table_start
             && matches!(boundary, RenderBoundary::CompleteLines)
@@ -237,11 +275,22 @@ impl MarkdownStreamCollector {
             self.held_table_start = Some(start + table_start);
             // The table and following source remain hidden until finalization.
             // Re-render only the preceding mutable blocks, never retained rows.
+            if start == 0 {
+                // Definitions in the hidden suffix must not revise this prefix.
+                self.references = ReferenceContext::default();
+            }
             self.render_tail(start + table_start, boundary);
             return;
         }
-        if self.has_references {
+        if self.reference_replay {
             self.lines = pending.lines;
+            return;
+        }
+        if matches!(boundary, RenderBoundary::CompleteLines)
+            && let Some(block_start) = pending.last_block_start
+            && !self.reference_source_fits(start..start + block_start)
+        {
+            self.render_reference_replay(source_end, boundary);
             return;
         }
         let stable_rows = match boundary {
@@ -252,6 +301,7 @@ impl MarkdownStreamCollector {
                     self.width,
                     &self.cwd,
                     self.stable_context,
+                    &self.references,
                 );
                 self.record_rows(stable.lines.len());
                 (block_start, stable.lines.len(), stable.end_context)
@@ -265,6 +315,37 @@ impl MarkdownStreamCollector {
             self.stable_line_len += row_count;
             self.stable_context = context;
         }
+    }
+
+    fn reference_source_fits(&mut self, range: Range<usize>) -> bool {
+        if self.references.is_empty() {
+            return true;
+        }
+        #[cfg(test)]
+        {
+            self.work.reference_bytes += range.len();
+        }
+        let source = &self.buffer[range];
+        self.references.allows_incremental(ReferenceBudget {
+            source_bytes: source.len(),
+            closing_brackets: source.bytes().filter(|&byte| byte == b']').count(),
+        })
+    }
+
+    fn render_reference_replay(&mut self, source_end: usize, boundary: RenderBoundary) {
+        self.reference_replay = true;
+        self.invalidate_reference_prefix();
+        self.render_tail(source_end, boundary);
+    }
+
+    /// Definitions in a mutable suffix can revise links in retained rows.
+    fn invalidate_reference_prefix(&mut self) {
+        self.row_epoch = self.row_epoch.wrapping_add(1);
+        self.stable_source_len = 0;
+        self.stable_line_len = 0;
+        self.stable_context = RenderContext::default();
+        self.references = ReferenceContext::default();
+        self.open_fence = None;
     }
 
     #[cfg(test)]

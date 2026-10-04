@@ -64,8 +64,9 @@ pub struct ToolBatchOutput {
 /// processing before returning a reply; errors stop further admission. Tool
 /// errors are given to result policy, which decides whether to return an error
 /// reply or fail the batch. Implementors preserve cooperative cleanup barriers.
-#[async_trait]
-pub trait ToolBatchEffects: Send {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait ToolBatchEffects: rara_core::PlatformSend {
     async fn begin_batch(&mut self, _calls: &[ToolCall]) -> Result<()> {
         Ok(())
     }
@@ -119,6 +120,13 @@ pub struct ToolCallProgress {
     pub event: ToolProgressEvent,
 }
 
+/// Invocation progress observer with native thread safety.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub type ToolCallProgressCallback<'a> = dyn FnMut(ToolCallProgress) + Send + 'a;
+/// Browser invocation observers may retain JavaScript-owned local state.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub type ToolCallProgressCallback<'a> = dyn FnMut(ToolCallProgress) + 'a;
+
 /// Invoke a host-selected tool with trusted context and provider call identity.
 ///
 /// Cancellation is forwarded, not synthesized into a premature completion.
@@ -126,7 +134,7 @@ pub async fn execute_tool_call(
     tool: &dyn Tool,
     call: &ToolCall,
     context: ToolCallContext,
-    report: &mut (dyn FnMut(ToolCallProgress) + Send),
+    report: &mut ToolCallProgressCallback<'_>,
 ) -> Result<Value, ToolError> {
     tool.call_with_context_events(
         call.input.clone(),

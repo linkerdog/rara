@@ -27,6 +27,31 @@ Top-heavy files that strain compilation and review:
 Compilation is monolithic: every change to any file rebuilds all of `rara`, and
 every test run depends on the full binary crate.
 
+## Workspace Build Policy
+
+The root manifest explicitly selects Cargo resolver `3` and
+`default-members = ["."]`. Resolver 3 uses Rust-version-aware dependency
+selection when resolving new versions. It does not establish a project MSRV or
+upgrade dependencies already retained in `Cargo.lock`.
+
+Commands issued at the workspace root without package selection continue to
+build or test the root application. Shared crates are selected with `-p`, and
+`--workspace` remains the explicit whole-workspace scope. Browser checks select
+portable crates and `wasm32-unknown-unknown` explicitly; they must not attempt to
+build the native application through default member selection.
+
+Member crates inherit the existing workspace Clippy policy. Changing resolver
+or default members does not relax that policy, add native/browser feature flags,
+or transfer the workspace's resolution policy to downstream Cargo workspaces.
+Downstream consumers own their resolver and lockfile.
+
+Workspace configuration changes must preserve the locked dependency graph
+unless a dependency update is explicitly part of the change. Verification
+compares package identities, selected features, and dependency edges separately
+for the native and browser targets, as well as default package selection. Native
+workspace Clippy, selected portable tests/browser compilation, default Bazel,
+and the independent downstream Git fixture cover integration.
+
 ## Target Structure
 
 ```
@@ -127,3 +152,7 @@ Every dev cycle (edit → `cargo check` → loop):
 | Any change recompiles all 36k lines | Change in `rara-tui` recompiles only `rara-tui` + `rara-app` (thin) |
 | Full test suite = single crate | Tests per-crate, parallelizable |
 | CI build = monolithic | CI build = 8 crates in parallel, only dirty crates rebuilt |
+
+## Source Journals
+
+- [2026-10-04-workspace-resolution](../journal/2026-10-04-workspace-resolution.md)

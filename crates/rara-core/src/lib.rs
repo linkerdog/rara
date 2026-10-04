@@ -3,6 +3,8 @@
 //! Provider-neutral LLM and executable tool contracts.
 
 pub mod llm;
+pub mod observation;
 pub mod tool;
 
-pub mod observation;
+mod platform;
+pub use platform::{PlatformSend, PlatformSync};

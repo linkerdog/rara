@@ -10,7 +10,7 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("waiting for tool output".into());
+    app.runtime_phase_detail = Some("waiting for tool output".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -30,7 +30,8 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.snapshot = RuntimeSnapshot {
         plan_steps: vec![("pending".into(), "Review architecture".into())],
         pending_interactions: vec![crate::tui::state::PendingInteractionSnapshot {
@@ -44,7 +45,8 @@ fn active_turn_cell_keeps_sections_in_stable_order() {
             created_at_epoch_seconds: None,
         }],
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -74,7 +76,7 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("resuming after approval".into());
+    app.runtime_phase_detail = Some("resuming after approval".into()).into();
     app.snapshot
         .pending_interactions
         .push(crate::tui::state::PendingInteractionSnapshot {
@@ -121,7 +123,8 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
             message: "Inspect the codebase".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_exploration_note("Inspect the auth bridge.");
     app.record_planning_note("Reuse the shared auth flow.");
     app.record_running_action("Run cargo check");
@@ -184,7 +187,7 @@ fn active_turn_cell_shows_busy_feedback_without_active_turn_entries() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::SendingPrompt;
-    app.runtime_phase_detail = Some("sending prompt to provider".into());
+    app.runtime_phase_detail = Some("sending prompt to provider".into()).into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -204,7 +207,7 @@ fn active_turn_cell_keeps_exploration_notes_inside_exploring_block() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("waiting for model response · 12s elapsed".into());
+    app.runtime_phase_detail = Some("waiting for model response · 12s elapsed".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -218,7 +221,7 @@ fn active_turn_cell_keeps_exploration_notes_inside_exploring_block() {
                 payload: None,
             },
         ],
-    };
+    }.into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -246,7 +249,7 @@ fn active_turn_cell_uses_stateful_live_exploration_sections() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("waiting for model response · 20s elapsed".into());
+    app.runtime_phase_detail = Some("waiting for model response · 20s elapsed".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
@@ -254,7 +257,8 @@ fn active_turn_cell_uses_stateful_live_exploration_sections() {
             message: "Inspect the repository".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_exploration_action("Read src/tools/vector.rs");
     app.record_exploration_note("I have inspected the repository structure.");
 
@@ -289,7 +293,8 @@ fn active_turn_cell_appends_long_live_exploration_events() {
             message: "Inspect the repository".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     for idx in 1..=5 {
         app.record_exploration_action(format!("Read src/module_{idx}.rs"));
     }
@@ -329,7 +334,8 @@ fn active_turn_cell_appends_long_live_planning_events() {
             message: "Refine the plan".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     for idx in 1..=5 {
         app.record_planning_action(format!("Inspect planning module {idx}"));
     }
@@ -369,7 +375,8 @@ fn active_turn_cell_appends_long_live_running_events() {
             message: "Run the checks".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     for idx in 1..=6 {
         app.record_running_action(format!("Run task {idx}"));
     }
@@ -400,7 +407,7 @@ fn active_turn_cell_updated_plan_snapshot() {
     .expect("build tui app");
     app.agent_execution_mode = crate::agent::AgentExecutionMode::Plan;
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("waiting for model response · 3s elapsed".into());
+    app.runtime_phase_detail = Some("waiting for model response · 3s elapsed".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
@@ -408,7 +415,8 @@ fn active_turn_cell_updated_plan_snapshot() {
             message: "Read the local codebase and propose the next refactor".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_planning_note("The auth flow should reuse codex_login instead of mirroring it.");
     app.record_exploration_action("Read src/oauth.rs");
     app.snapshot = RuntimeSnapshot {
@@ -427,7 +435,8 @@ fn active_turn_cell_updated_plan_snapshot() {
             "Prefer direct Codex auth reuse before extending more TUI flows.".into(),
         ),
         ..RuntimeSnapshot::default()
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -454,7 +463,7 @@ fn active_turn_cell_hides_structured_plan_response_once_plan_card_exists() {
             TranscriptEntry { role: MessageRole::User, message: "Plan the next refactor".into(), payload: None },
             TranscriptEntry { role: MessageRole::Agent, message: "<proposed_plan>\n- [completed] Inspect the auth flow\n- [in_progress] Reuse codex_login\n- [pending] Add auth picker snapshots\n</proposed_plan>\nPrefer direct auth reuse before expanding more TUI flows.".into(), payload: None },
         ],
-    };
+    }.into();
     app.snapshot.plan_steps = vec![
         ("completed".into(), "Inspect the auth flow".into()),
         ("in_progress".into(), "Reuse codex_login".into()),
@@ -490,7 +499,7 @@ fn active_turn_cell_prefers_inline_plan_artifact_over_preamble_before_snapshot_s
             TranscriptEntry { role: MessageRole::User, message: "Review the codebase and propose changes".into(), payload: None },
             TranscriptEntry { role: MessageRole::Agent, message: "I reviewed the current implementation.\nHere is the concise plan.\n<proposed_plan>\n- [completed] Inspect the runtime entrypoint\n- [pending] Tighten the render path\n</proposed_plan>\nKeep the diff narrow and reviewable.".into(), payload: None },
         ],
-    };
+    }.into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -532,7 +541,8 @@ fn active_turn_cell_suppresses_planning_chatter_when_exploring() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.record_exploration_action("Read crates/instructions/src/lib.rs");
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
@@ -571,7 +581,8 @@ fn active_turn_cell_uses_planning_sidecar_for_non_structured_plan_output() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -617,7 +628,8 @@ fn active_turn_cell_uses_explicit_sidecar_entries_when_live_state_is_empty() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -642,7 +654,7 @@ fn active_turn_cell_uses_lightweight_busy_response_when_not_streaming() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("waiting for model response · 2s elapsed".into());
+    app.runtime_phase_detail = Some("waiting for model response · 2s elapsed".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -658,7 +670,8 @@ fn active_turn_cell_uses_lightweight_busy_response_when_not_streaming() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -682,7 +695,7 @@ fn active_turn_cell_renders_live_response_as_lightweight_message() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("waiting for model response".into());
+    app.runtime_phase_detail = Some("waiting for model response".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -698,7 +711,8 @@ fn active_turn_cell_renders_live_response_as_lightweight_message() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -721,7 +735,7 @@ fn active_turn_cell_prefers_responding_over_system_notice_while_sending_prompt()
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::SendingPrompt;
-    app.runtime_phase_detail = Some("sending prompt to provider".into());
+    app.runtime_phase_detail = Some("sending prompt to provider".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -736,7 +750,8 @@ fn active_turn_cell_prefers_responding_over_system_notice_while_sending_prompt()
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -757,7 +772,8 @@ fn active_turn_cell_shows_planning_section_for_plan_agent() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("plan_agent {\"instruction\":\"refine the plan\"}".into());
+    app.runtime_phase_detail =
+        Some("plan_agent {\"instruction\":\"refine the plan\"}".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
@@ -765,7 +781,8 @@ fn active_turn_cell_shows_planning_section_for_plan_agent() {
             message: "Plan the refactor".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_planning_action("Delegate plan refinement: refine the plan");
     app.record_planning_note("Sub-agent summary: reuse the workspace traversal helper");
 
@@ -789,14 +806,14 @@ fn active_turn_cell_renders_device_code_prompt_system_message() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::OAuthPollingDeviceCode;
-    app.runtime_phase_detail = Some("Waiting for device-code confirmation.".into());
+    app.runtime_phase_detail = Some("Waiting for device-code confirmation.".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry { role: MessageRole::Runtime, message: "Starting Codex device-code login flow.".into(), payload: None },
             TranscriptEntry { role: MessageRole::System, message: "Open this URL in a browser and enter the one-time code:\nhttps://example.test\n\nCode: ABCD".into(), payload: Some(crate::tui::state::TranscriptEntryPayload::System(crate::tui::state::SystemMessageKind::OAuthPrompt)) },
         ],
-    };
+    }.into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)

@@ -30,8 +30,10 @@ adapters use `rara_agent::execute_loop`, model dispatch, and tool invocation.
   permission checks and await host interaction before returning; the actor
   continues to observe cooperative cancellation while they wait.
 - Claim browser runtime execution. The package rejects browser targets with a
-  focused diagnostic; `rara-core` and `rara-agent` remain browser-compilable.
-  Browser clocks, future bounds, transport, and session scheduling are #871 work.
+  focused diagnostic. Shared model/tool/loop effects support browser-local
+  futures and working accounting clocks under the
+  [browser effects contract](browser-agent-effects.md). Browser provider
+  transport and session scheduling remain #871 work.
 
 ## Architecture
 

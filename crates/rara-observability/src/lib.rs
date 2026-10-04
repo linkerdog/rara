@@ -9,9 +9,13 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::Instant;
 
 mod inference;
 mod inference_comparison;

@@ -68,7 +68,9 @@ remain browser-compilable. This does not claim browser runtime execution.
 ## Follow-Ups
 
 The [downstream contract](../features/downstream-runtime.md) defines the #860
-acceptance gate and supported Cargo form. #871 still requires native
-provider/context extraction, browser HTTP/SSE, clocks/future adaptation, and
-browser runtime tests. Existing TUI migration and store/parity work remain in
+acceptance gate and supported Cargo form. Shared browser effects and accounting
+clocks are covered by [the browser checkpoint](2026-10-04-browser-agent-effects.md).
+#871 still requires native provider/context extraction, browser HTTP/SSE,
+session scheduling, and browser runtime tests. Existing TUI migration and
+store/parity work remain in
 [the active backlog](../todo.md).

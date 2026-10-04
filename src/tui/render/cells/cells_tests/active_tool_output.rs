@@ -31,7 +31,8 @@ fn active_turn_cell_hides_background_stdout_label_and_pins_stderr() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered_lines = ActiveTurnCell::new(&app, Some(Path::new("."))).display_lines(100);
     let rendered = rendered_lines
@@ -90,7 +91,8 @@ fn active_turn_cell_renders_terminal_result_as_terminal_cell() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -143,7 +145,8 @@ fn active_turn_cell_renders_latest_tool_result_diff_preview() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -186,7 +189,8 @@ fn active_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
                 is_error: false,
             })),
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -209,7 +213,7 @@ fn active_turn_cell_prefers_responding_over_tool_result_while_processing_respons
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::ProcessingResponse;
-    app.runtime_phase_detail = Some("waiting for model output".into());
+    app.runtime_phase_detail = Some("waiting for model output".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -224,7 +228,8 @@ fn active_turn_cell_prefers_responding_over_tool_result_while_processing_respons
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -246,7 +251,7 @@ fn active_turn_cell_renders_bash_completion_as_status_line() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("tool completed".into());
+    app.runtime_phase_detail = Some("tool completed".into()).into();
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![
@@ -261,7 +266,8 @@ fn active_turn_cell_renders_bash_completion_as_status_line() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -284,7 +290,7 @@ fn active_turn_cell_marks_truncated_bash_completion_body() {
     })
     .expect("build tui app");
     app.runtime_phase = RuntimePhase::RunningTool;
-    app.runtime_phase_detail = Some("tool completed".into());
+    app.runtime_phase_detail = Some("tool completed".into()).into();
     let body = (1..=20)
         .map(|idx| format!("line {idx}"))
         .collect::<Vec<_>>()
@@ -303,7 +309,8 @@ fn active_turn_cell_marks_truncated_bash_completion_body() {
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)

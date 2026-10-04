@@ -27,8 +27,8 @@ runtime. The host still owns transcript content, in-flight model/tool results,
 tools, cancellation tokens, permissions, context projection, hooks, stores, and
 event publication. Restoring control state alone must not replay an external
 effect or claim durable recovery. Store/effect coordination, provider adapters,
-and browser execution remain #871 work. Native and host session ownership is
-provided by the [lightweight runtime package](downstream-runtime.md).
+and browser provider/session execution remain #871 work. Native and host session
+ownership is provided by the [lightweight runtime package](downstream-runtime.md).
 
 ## Architecture
 
@@ -62,8 +62,9 @@ effect later fails. Approval pauses retain their explicit finalization reason;
 the adapter preserves the distinction from session-end cleanup.
 
 The executor requires no async runtime, spawning facility, clock, filesystem, or
-transport. It uses the existing Send-future convention; browser-specific future
-bounds remain part of provider/transport work. Cancellation is cooperative:
+transport. Native effects retain Send futures; the browser target accepts local
+effects and callbacks under [the browser effects contract](browser-agent-effects.md).
+Cancellation is cooperative:
 hosts finish cancellation cleanup before returning an error. Dropping an
 executor future does not imply cleanup or session completion.
 
@@ -203,9 +204,9 @@ must pair it with their own transcript and effect ledger. The application still
 owns native execution facilities; this crate alone does not make the existing
 application builder lightweight. The separate `rara-runtime` host builder and
 native session adapter share the extracted actor, loop/model/tool effects, and
-ordered event log. Native context/provider assembly and browser execution
-remain distinct work; host policy must preserve authority without growing
-another loop.
+ordered event log. Native context/provider assembly and browser provider/session
+execution remain distinct work; host policy must preserve authority without
+growing another loop.
 
 ## Source Journals
 

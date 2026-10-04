@@ -20,6 +20,13 @@ struct Effects {
     tool_fails: bool,
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[test]
+fn native_tool_batch_future_remains_send() {
+    fn assert_send(_: impl Future + Send) {}
+    assert_send(execute_tool_batch(Vec::new(), &mut Effects::default()));
+}
+
 impl Effects {
     async fn step(&mut self, label: String) -> Result<()> {
         let index = {
@@ -45,7 +52,8 @@ impl Effects {
     }
 }
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl ToolBatchEffects for Effects {
     async fn begin_batch(&mut self, _: &[ToolCall]) -> Result<()> {
         self.step("begin".into()).await
@@ -219,7 +227,8 @@ struct ProbeTool {
     returned: Arc<AtomicBool>,
 }
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl Tool for ProbeTool {
     fn name(&self) -> &str {
         "echo"
@@ -237,7 +246,7 @@ impl Tool for ProbeTool {
         &self,
         input: Value,
         context: ToolCallContext,
-        report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+        report: &mut rara_core::tool::ToolProgressCallback<'async_trait>,
     ) -> Result<Value, ToolError> {
         assert_eq!(context.session_id(), Some("session"));
         assert_eq!(context.turn_id(), Some("turn"));

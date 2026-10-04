@@ -9,15 +9,21 @@ use crate::tui::theme::TEXT_MUTED;
 
 /// Renders thinking content as dimmed lines with a ┊ accent prefix.
 ///
-/// When collapsed (default): shows first 2 lines plus duration summary.
-/// When expanded (Alt+T): shows last max_lines lines (stale-tail for stream).
-/// The `duration` field is Some for committed turns with a known duration.
+/// Committed blocks select a two-line head or `max_lines` tail; live streams
+/// always select a four-line tail. Duration may be live elapsed time or a
+/// recorded duration for a finalized block.
 pub(crate) struct ThinkingBlockCell<'a> {
-    message: String,
-    stream_lines: Option<&'a [Line<'static>]>,
+    content: ThinkingContent<'a>,
     max_lines: usize,
     collapsed: bool,
     duration: Option<std::time::Duration>,
+    #[cfg(test)]
+    work: Option<crate::tui::transcript_work::WorkMeter>,
+}
+
+enum ThinkingContent<'a> {
+    Message(String),
+    Stream(&'a [Line<'static>]),
 }
 
 impl<'a> ThinkingBlockCell<'a> {
@@ -28,28 +34,33 @@ impl<'a> ThinkingBlockCell<'a> {
         duration: Option<std::time::Duration>,
     ) -> Self {
         Self {
-            message: message.to_string(),
-            stream_lines: None,
+            content: ThinkingContent::Message(message.to_string()),
             max_lines,
             collapsed,
             duration,
+            #[cfg(test)]
+            work: None,
         }
     }
 
-    pub(crate) fn with_stream_lines(
-        message: String,
-        stream_lines: Option<&'a [Line<'static>]>,
-        max_lines: usize,
-        collapsed: bool,
+    pub(crate) fn from_stream(
+        lines: &'a [Line<'static>],
         duration: Option<std::time::Duration>,
     ) -> Self {
         Self {
-            message,
-            stream_lines,
-            max_lines,
-            collapsed,
+            content: ThinkingContent::Stream(lines),
+            max_lines: 4,
+            collapsed: false,
             duration,
+            #[cfg(test)]
+            work: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_work_meter(mut self, work: crate::tui::transcript_work::WorkMeter) -> Self {
+        self.work = Some(work);
+        self
     }
 
     fn duration_label(&self) -> Option<String> {
@@ -69,15 +80,14 @@ impl<'a> ThinkingBlockCell<'a> {
 impl HistoryCell for ThinkingBlockCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let render_width = usize::from(width.saturating_sub(2));
-        let mut rendered_lines: Vec<Line<'static>> = Vec::new();
-
-        if !self.message.is_empty() {
-            let rendered = render_markdown_text_with_width(&self.message, Some(render_width));
-            rendered_lines.extend(rendered.lines);
-        }
-        if let Some(lines) = self.stream_lines {
-            rendered_lines.extend(lines.iter().cloned());
-        }
+        let rendered;
+        let rendered_lines = match &self.content {
+            ThinkingContent::Message(message) => {
+                rendered = render_markdown_text_with_width(message, Some(render_width));
+                rendered.lines.as_slice()
+            }
+            ThinkingContent::Stream(lines) => lines,
+        };
 
         if rendered_lines.is_empty() {
             return vec![];
@@ -100,53 +110,47 @@ impl HistoryCell for ThinkingBlockCell<'_> {
         }
 
         let total = rendered_lines.len();
-        let mut lines = Vec::with_capacity(effective_max + 2);
+        let mut lines = Vec::with_capacity(effective_max.min(total) + 2);
 
         lines.push(Line::from(Span::styled(
             format!("┊ {}", heading_parts.join("")),
             Style::default().fg(TEXT_MUTED),
         )));
 
-        if self.collapsed {
-            // Show first N lines (preview mode).
-            let head = &rendered_lines[..effective_max.min(total)];
-            for line in head {
-                let mut accented = Line::from(Span::styled("┊ ", Style::default().fg(TEXT_MUTED)));
-                for span in &line.spans {
-                    accented.push_span(Span::styled(
-                        span.content.to_string(),
-                        span.style.patch(Style::default().fg(TEXT_MUTED)),
-                    ));
-                }
-                lines.push(accented);
-            }
-            if total > effective_max {
-                lines.push(Line::from(Span::styled(
-                    format!("┊  ... {} more lines", total - effective_max),
-                    Style::default().fg(TEXT_MUTED),
-                )));
-            }
+        // Select before copying: live thinking may retain thousands of hidden rows.
+        let visible = if self.collapsed {
+            &rendered_lines[..effective_max.min(total)]
         } else {
-            // Show tail lines (stale-tail for stream, or full for expanded).
-            let start = total.saturating_sub(effective_max);
-            if start > 0 {
-                lines.push(Line::from(Span::styled(
-                    format!("┊  ... {start} more lines"),
-                    Style::default().fg(TEXT_MUTED),
-                )));
+            &rendered_lines[total.saturating_sub(effective_max)..]
+        };
+        let summary = (visible.len() < total).then(|| {
+            Line::from(Span::styled(
+                format!("┊  ... {} more lines", total - visible.len()),
+                Style::default().fg(TEXT_MUTED),
+            ))
+        });
+        for line in visible {
+            #[cfg(test)]
+            if let Some(work) = &self.work {
+                work.record(crate::tui::transcript_work::WorkKind::Clone, 1);
             }
-            let tail = &rendered_lines[start..];
-            for line in tail {
-                let mut accented = Line::from(Span::styled("┊ ", Style::default().fg(TEXT_MUTED)));
-                for span in &line.spans {
-                    accented.push_span(Span::styled(
-                        span.content.to_string(),
-                        span.style.patch(Style::default().fg(TEXT_MUTED)),
-                    ));
-                }
-                lines.push(accented);
+            let mut accented = Line::from(Span::styled("┊ ", Style::default().fg(TEXT_MUTED)));
+            for span in &line.spans {
+                accented.push_span(Span::styled(
+                    span.content.to_string(),
+                    span.style.patch(Style::default().fg(TEXT_MUTED)),
+                ));
             }
+            lines.push(accented);
+        }
+        if let Some(summary) = summary {
+            let index = if self.collapsed { lines.len() } else { 1 };
+            lines.insert(index, summary);
         }
         lines
     }
 }
+
+#[cfg(test)]
+#[path = "thinking_cells_tests.rs"]
+mod tests;

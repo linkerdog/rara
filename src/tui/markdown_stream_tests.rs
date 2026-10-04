@@ -191,6 +191,34 @@ fn final_table_matches_canonical_styled_rows() {
 }
 
 #[test]
+fn table_interrupting_a_mutable_paragraph_preserves_preceding_prose_at_every_split() {
+    for before in [
+        "Intro.\n",
+        "Stable.\n\nA mutable **paragraph**.\nContinued prose.\n",
+        "Stable.\r\n\r\nUnicode \u{4e16}\u{754c} e\u{301}.\r\n",
+        "See [id].\n\n[id]: https://example.com\n\nMore prose.\n",
+    ] {
+        let source = format!("{before}| A | B |\n| --- | --- |\n| long | value |\n\nAfter.\n");
+        let expected_live = canonical(before, None);
+        let expected_final = canonical(&source, None);
+        for (split, _) in source.char_indices().chain([(source.len(), '\0')]) {
+            let mut stream = collector();
+            for chunk in [&source[..split], &source[split..]] {
+                stream.push_delta(chunk);
+                stream.lines();
+            }
+            assert!(
+                stream.held_table_start.is_some(),
+                "split {split}: {source:?}"
+            );
+            assert_eq!(stream.lines(), expected_live, "split {split}: {source:?}");
+            stream.finalize();
+            assert_eq!(stream.lines(), expected_final, "split {split}: {source:?}");
+        }
+    }
+}
+
+#[test]
 fn loose_list_matches_canonical_styled_rows() {
     assert_live_equals_full(&["- first\n", "- second\n\n", "  another paragraph\n"]);
 }
@@ -282,6 +310,191 @@ fn reference_definitions_invalidate_prior_blocks() {
         "[id]: https://example.com\n",
         "\nLater [id].\n",
     ]);
+}
+
+#[test]
+fn reference_context_keeps_completed_paragraph_work_linear() {
+    let mut stream = collector();
+    let mut source = "[id]: https://example.com\n\n".to_string();
+    stream.push_delta(&source);
+    stream.lines();
+    for _ in 0..200 {
+        let chunk = "See [the docs][id].\n\n";
+        source.push_str(chunk);
+        stream.push_delta(chunk);
+        assert_eq!(stream.lines(), canonical(&source, None));
+    }
+    let work = stream.work();
+    eprintln!("reference paragraphs: {work:?}");
+    assert!(work.parsed_bytes < source.len() * 8, "{work:?}");
+    assert!(work.reference_bytes < source.len() * 12, "{work:?}");
+    let pointer = stream.lines()[0].spans[0].content.as_ptr();
+    for _ in 0..20 {
+        assert_eq!(stream.lines()[0].spans[0].content.as_ptr(), pointer);
+    }
+    assert_eq!(stream.work(), work);
+}
+
+#[test]
+fn reference_context_late_definition_replays_once_then_reuses_history() {
+    let mut stream = collector();
+    let mut source = "See [id].\n\n".repeat(1000);
+    stream.push_delta(&source);
+    stream.lines();
+    let definition = "[id]: https://example.com\n\nAfter.\n\n";
+    source.push_str(definition);
+    stream.push_delta(definition);
+    assert_eq!(stream.lines(), canonical(&source, None));
+    let after_replay = stream.work();
+    for _ in 0..200 {
+        let chunk = "More [id].\n\n";
+        source.push_str(chunk);
+        stream.push_delta(chunk);
+        stream.lines();
+    }
+    assert_eq!(stream.lines(), canonical(&source, None));
+    let parsed = stream.work().parsed_bytes - after_replay.parsed_bytes;
+    eprintln!("reference append after late definition: {parsed} parsed bytes");
+    assert!(parsed < 200 * 100, "{parsed}");
+}
+
+#[test]
+fn reference_context_long_document_retains_the_document_expansion_budget() {
+    let mut stream = collector();
+    let mut source = "[id]: https://example.com\n\n".to_owned();
+    stream.push_delta(&source);
+    for _ in 0..3000 {
+        let chunk = "Read the detailed documentation at [the reference][id].\n\n";
+        source.push_str(chunk);
+        stream.push_delta(chunk);
+        stream.lines();
+    }
+    assert_eq!(stream.lines(), canonical(&source, None));
+    let work = stream.work();
+    eprintln!("long reference document: {work:?}");
+    assert!(work.parsed_bytes < source.len() * 8, "{work:?}");
+    assert!(work.reference_bytes < source.len() * 12, "{work:?}");
+}
+
+#[test]
+fn reference_context_matches_canonical_at_every_character_boundary() {
+    let sources = [
+        "See [STRASSE].\n\n[Straße]: https://example.com\n\nNext [strasse].\n",
+        "[id]: first \"first title\"\n\n[ID]: second\n\nSee [ID].\n\nMore.\n",
+        "See [docs][id].\n\n[id]: <https://example.com/a>\n  \"later title\"\n\nAfter [id].\n",
+        "[a b]: target\n\nSee [A\nB].\n\nNext ![image][a b].\n",
+        "[id]: first\n\nOne [id].\n\nTwo [new].\n\n[new]: second\n\nThree [id] [new].\n",
+        "[id]: first\n\n- See [id].\n- Next [id].\n\n> Quote [id].\n\nAfter.\n",
+        "[id]: first\n\n```rust\nlet value = \"[id]\";\n```\n\nSee [id].\n",
+        "[id]: <a\\*b> 'a &amp; b'\n\nSee [id] and [missing].\n\nAfter.\n",
+        "See [id].\n\n[id]: <target>invalid\n\nAfter [id].\n",
+    ];
+    for source in sources {
+        let boundaries: Vec<_> = source
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(std::iter::once(source.len()))
+            .collect();
+        for &split in &boundaries {
+            assert_live_equals_full(&[&source[..split], &source[split..]]);
+        }
+        let chunks: Vec<_> = boundaries
+            .windows(2)
+            .map(|pair| &source[pair[0]..pair[1]])
+            .collect();
+        assert_live_equals_full(&chunks);
+    }
+}
+
+#[test]
+fn reference_context_preserves_expansion_limits_as_source_grows() {
+    let mut stream = collector();
+    let mut source = format!("[id]: https://example.com/{}\n\n", "x".repeat(2048));
+    stream.push_delta(&source);
+    stream.lines();
+    for _ in 0..60 {
+        source.push_str("[id]\n\n");
+        stream.push_delta("[id]\n\n");
+        assert_eq!(stream.lines(), canonical(&source, None));
+    }
+    // Growing input increases the canonical parser's expansion budget and can
+    // resolve links that were previously left literal.
+    let padding = format!("{}\n\n", "plain ".repeat(25_000));
+    source.push_str(&padding);
+    stream.push_delta(&padding);
+    assert_eq!(stream.lines(), canonical(&source, None));
+    // A cold full parse has more fuel than its would-be stable prefix. The
+    // prefix must not freeze the literal links from a smaller parser budget.
+    let mut cold = collector();
+    cold.push_delta(&source);
+    assert_eq!(cold.lines(), canonical(&source, None));
+    cold.push_delta("After.\n\n");
+    assert_eq!(
+        cold.lines(),
+        canonical(&format!("{source}After.\n\n"), None)
+    );
+    stream.finalize();
+    assert_eq!(stream.lines(), canonical(&source, None));
+}
+
+#[test]
+fn reference_context_tail_preserves_the_full_document_expansion_budget() {
+    let mut stream = collector();
+    let mut source = format!(
+        "[id]: https://example.com/{}\n\n{}\n\nMutable [id].\n",
+        "x".repeat(2048),
+        "plain ".repeat(35_000),
+    );
+    stream.push_delta(&source);
+    stream.lines();
+    assert!(stream.stable_source_len > 200_000);
+    for index in 0..60 {
+        source.push_str("[id] ");
+        stream.push_delta("[id] ");
+        assert!(
+            stream.lines() == canonical(&source, None),
+            "reference expansion differs at append {index}"
+        );
+    }
+}
+
+#[test]
+fn reference_context_does_not_publish_definitions_after_a_held_table() {
+    let before = "See [id].\n\n";
+    let source =
+        format!("{before}| A | B |\n| --- | --- |\n| a | b |\n\n[id]: https://example.com\n");
+    for (split, _) in source.char_indices().chain([(source.len(), '\0')]) {
+        let mut stream = collector();
+        stream.push_delta(&source[..split]);
+        stream.lines();
+        stream.push_delta(&source[split..]);
+        assert_eq!(stream.lines(), canonical(before, None), "split {split}");
+        stream.finalize();
+        assert_eq!(stream.lines(), canonical(&source, None));
+    }
+}
+
+#[test]
+fn reference_context_replacement_resets_definitions_and_expansion_guard() {
+    let mut stream = collector();
+    stream.push_delta(&format!(
+        "[id]: https://example.com/{}\n\n{}",
+        "x".repeat(2048),
+        "[id]\n\n".repeat(60)
+    ));
+    stream.lines();
+    let fresh = "[id]: first\n\nSee [id].\n\nNext.\n\n";
+    stream.replace_source(fresh);
+    assert_eq!(stream.lines(), canonical(fresh, None));
+    let changed = fresh.replace("first", "other");
+    stream.replace_source(&changed);
+    assert_eq!(stream.lines(), canonical(&changed, None));
+    let before = stream.work();
+    for _ in 0..200 {
+        stream.push_delta("Next [id].\n\n");
+        stream.lines();
+    }
+    assert!(stream.work().parsed_bytes - before.parsed_bytes < 200 * 100);
 }
 
 #[test]
