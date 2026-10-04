@@ -1,6 +1,8 @@
 use super::*;
 use crate::tui::message_role::MessageRole;
 
+mod details;
+
 fn pending_shell_app() -> (tempfile::TempDir, TuiApp) {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
@@ -74,9 +76,10 @@ fn pending_decision_uses_available_terminal_height() {
 }
 
 #[test]
-fn clipped_command_preview_marks_elision_without_hiding_choices() {
+fn long_command_preview_exposes_paging_and_directory_without_hiding_choices() {
     let (_temp, mut app) = pending_shell_app();
     let screen = render_screen_text(&mut app, 80, 24);
-    assert!(screen.contains("details truncated"), "{screen}");
+    assert!(screen.contains("PgUp/PgDn"), "{screen}");
+    assert!(screen.contains("cwd:"), "{screen}");
     assert!(screen.contains("[4] Reject"), "{screen}");
 }

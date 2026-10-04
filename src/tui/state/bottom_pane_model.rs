@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::{char_offset_to_byte_index, effective_cursor_offset};
+use super::{ApprovalDetailScroll, char_offset_to_byte_index, effective_cursor_offset};
 use crate::tui::input_text::ceil_grapheme_offset;
 use crate::tui::presentation_revision::PresentationInput;
 use crate::tui::queued_input::PendingFollowUpMessage;
@@ -20,6 +20,7 @@ pub struct BottomPaneModel {
     pub input: String,
     pub input_cursor_offset: Option<usize>,
     pub composer_scroll: usize,
+    pub(crate) approval_details: ApprovalDetailScroll,
     pub pending_planning_suggestion: PresentationInput<Option<String>>,
     pub pending_follow_up_messages: PresentationInput<Vec<PendingFollowUpMessage>>,
     pub queued_follow_up_messages: PresentationInput<Vec<String>>,
@@ -45,6 +46,7 @@ impl BottomPaneModel {
             input: String::new(),
             input_cursor_offset: None,
             composer_scroll: 0,
+            approval_details: ApprovalDetailScroll::default(),
             pending_planning_suggestion: Default::default(),
             pending_follow_up_messages: Default::default(),
             queued_follow_up_messages: Default::default(),
