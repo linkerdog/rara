@@ -4,7 +4,7 @@ use super::super::app_event::AppEvent;
 use super::super::event_dispatch::dispatch_event_with_runtime;
 use super::super::input_control;
 use super::super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
-use super::super::state::{TaskCompletion, TuiApp};
+use super::super::state::{TaskCompletion, TaskKind, TuiApp};
 use crate::agent::Agent;
 use crate::memory_lifecycle::MemorySyncReason;
 use crate::oauth::OAuthManager;
@@ -58,6 +58,26 @@ impl RuntimeCommandProcessor {
         app: &mut TuiApp,
         command: RuntimeCommand,
     ) -> anyhow::Result<()> {
+        // Preparation retains the agent, so its presence alone cannot admit
+        // another maintenance task or an interaction continuation.
+        if app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .is_some_and(|task| matches!(task.kind, TaskKind::ReviewPreparation))
+            && matches!(
+                command,
+                RuntimeCommand::Maintenance(_)
+                    | RuntimeCommand::Input(
+                        InputControlRequest::AnswerPendingInput { .. }
+                            | InputControlRequest::AnswerPlanApproval { .. }
+                            | InputControlRequest::AnswerShellApproval { .. }
+                    )
+            )
+        {
+            app.push_notice("Wait for review preparation to finish or cancel it first.");
+            return Ok(());
+        }
         match command {
             RuntimeCommand::SetPermissionMode(mode) => {
                 super::permissions::request_permission_mode(app, self.agent_mut(), mode);
@@ -166,6 +186,9 @@ impl RuntimeCommandProcessor {
                 | SessionControlRequest::InterruptCurrentTurn),
             ) => {
                 input_control::handle_session_control(app, request);
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Review) => {
+                super::review::start(app, self.agent_mut());
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Compact) => {
                 if let Some(agent) = self.runtime.agent() {

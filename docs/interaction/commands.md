@@ -41,7 +41,7 @@ complete alias in the palette ranks its canonical command first.
 | `/plan` | Enter read-only planning mode | None |
 | `/quit` | Persist local runtime state and leave the terminal UI | `/exit` |
 | `/resume` | Open the recent thread picker | `/threads` |
-| `/review` | Start review of current local changes when an agent is available | None |
+| `/review` | Collect staged and unstaged changes asynchronously, then review them when an agent is available | None |
 | `/skills` | Inspect loaded skills and invocation availability; read-only | None |
 | `/status` | Inspect runtime, configuration, and context status tabs | `/runtime` |
 | `/tasks [task_list_id]` | Show the current task list, or switch it when an ID is supplied | `/task-list` |
@@ -91,6 +91,35 @@ and manual-only availability are reported as status. A future enablement editor
 must first have a runtime-owned update path and readback; local presentation
 mutation alone is not a successful setting change.
 
+### CMD-06: Bounded Review Preparation
+
+`/review` starts a background preparation task and immediately returns control
+to the composer. The runtime retains its agent until collection succeeds.
+Busy sessions and unresolved interactions reject a new review. Competing
+maintenance commands cannot replace preparation or consume its retained agent.
+Escape or Ctrl-C cancels preparation;
+a stop admitted before completion is consumed must prevent model invocation.
+
+Collect staged and unstaged diffs from the active workspace without a pager,
+external diff driver, or text conversion. Both commands must exit successfully.
+A missing Git executable, invalid repository, nonzero exit, pipe failure, or
+collection deadline produces a visible error including bounded Git diagnostics.
+Failure must never be translated into an empty diff or a clean-tree review.
+
+The collection deadline is 10 seconds for both commands together. Retain at most
+256 KiB of diff bytes across both commands and 16 KiB of stderr per command;
+continue draining excess output without retaining it to obtain the real exit
+status. The review prompt keeps at most 600 lines of the retained diff and
+explicitly marks byte or line truncation. Output beyond those bounds must not
+be presented as the complete change. Helper processes are terminated and reaped
+when collection is timed out, cancelled, or dropped.
+
+Two successful empty diffs show `No staged or unstaged changes to review.`
+without calling the model; this does not claim that untracked files are absent.
+Success with changes starts the existing review query. Preparation failure,
+empty results, and cancellation preserve the runtime agent and do not account
+an executed goal turn. No Git operation is awaited on the UI event-loop path.
+
 ## Validation Matrix
 
 | Contract | Observable check |
@@ -100,6 +129,7 @@ mutation alone is not a successful setting change.
 | CMD-03 | Busy inspection preserves progress; mutations and aliases use the same policy in palette, help, and submission |
 | CMD-04 | Open `/help` through submission and inspect the production-rendered General page |
 | CMD-05 | Render runtime-projected skill status; press Space and verify no local toggle or runtime command |
+| CMD-06 | Delay Git capture while dispatching input; verify clean/error/truncated outcomes, cancellation races, child cleanup, retained agent, and one query on success |
 
 ## Open Risks
 
@@ -112,3 +142,5 @@ mutation alone is not a successful setting change.
 
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Busy commands and permission controls](../journal/2026-09-17-tui-permission-controls.md)
+
+- [Bounded review preparation](../journal/2026-10-04-review-diff-capture.md)

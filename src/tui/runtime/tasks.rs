@@ -420,6 +420,8 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
 pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     use crate::agent::{AgentExecutionMode, BashApprovalMode};
     let (sender, receiver) = mpsc::unbounded_channel();
+    let cancellation_token = Arc::new(AtomicBool::new(false));
+    agent.set_cancellation_token(Some(cancellation_token.clone()));
     let bus = app.event_bus.clone().expect("event bus must exist");
     let query_control = QueryTaskControl::new(agent.session_id.clone());
     let task_control = query_control.clone();
@@ -480,7 +482,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         handle,
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
-        cancellation_token: None,
+        cancellation_token: Some(cancellation_token),
         query_control: Some(task_control_for_app),
     });
 }
@@ -723,6 +725,20 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
         app.bottom_pane.notice = Some("No running task to cancel.".into());
         return false;
     };
+    if matches!(task.kind, TaskKind::ReviewPreparation) {
+        let Some(token) = &task.cancellation_token else {
+            log::warn!("Review preparation is missing its cancellation control");
+            app.push_notice("Review preparation cannot be cancelled right now.");
+            return false;
+        };
+        if token.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        task.handle.abort();
+        app.push_notice("Stopping review preparation.");
+        crate::tui::goal_resume::defer_for_user_stop(app);
+        return true;
+    }
     if !matches!(task.kind, TaskKind::Query) {
         app.bottom_pane.notice =
             Some("Only running model queries can be cancelled from the TUI.".into());
