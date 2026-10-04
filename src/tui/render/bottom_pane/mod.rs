@@ -3,6 +3,7 @@ pub(super) mod composer;
 mod footer;
 mod interaction;
 mod layout;
+mod shell_details;
 mod view;
 mod view_builder;
 

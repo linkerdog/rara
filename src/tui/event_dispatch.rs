@@ -231,6 +231,18 @@ async fn dispatch_event_inner(
             };
             kind.set_idx(app, idx);
         }
+        AppEvent::ScrollApprovalDetails(direction) => {
+            if let Some(request_id) = app
+                .active_pending_interaction()
+                .filter(|pending| pending.kind == ActivePendingInteractionKind::ShellApproval)
+                .and_then(|pending| pending._snapshot.approval.as_ref())
+                .map(|approval| approval.tool_use_id.clone())
+            {
+                app.bottom_pane
+                    .approval_details
+                    .navigate(&request_id, direction);
+            }
+        }
         AppEvent::MoveApprovalSelection(delta) => {
             if app.active_pending_interaction().is_some_and(|interaction| {
                 matches!(
@@ -655,11 +667,17 @@ async fn dispatch_event_inner(
                             open_provider_family_overlay(app);
                         }
                         ListPickerKind::Model => {
-                            if app.selected_provider_family() == ProviderFamily::Codex {
-                                let _ = sync_codex_credential_from_auth_store(
+                            if app.selected_provider_family() == ProviderFamily::Codex
+                                && let Err(error) = sync_codex_credential_from_auth_store(
                                     app,
                                     oauth_manager.as_ref(),
-                                )?;
+                                )
+                            {
+                                log::warn!("Could not load saved credential: {error:#}");
+                                app.push_notice(format!(
+                                    "Could not load saved credential: {error:#}"
+                                ));
+                                return Ok(false);
                             }
                             if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
                                 app.select_local_model(app.model_picker_idx);
@@ -865,7 +883,15 @@ async fn dispatch_event_inner(
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
                             {
-                                restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
+                                if let Err(error) =
+                                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)
+                                {
+                                    log::warn!("Could not resume thread {thread_id}: {error:#}");
+                                    app.push_notice(format!(
+                                        "Could not resume thread {thread_id}: {error:#}"
+                                    ));
+                                    return Ok(false);
+                                }
                                 let mode = app.permission_mode;
                                 if mode == super::state::PermissionMode::FullAccess {
                                     if let Some(runtime_port) = runtime_port {

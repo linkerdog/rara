@@ -7,6 +7,7 @@ use super::super::super::state::{
 };
 use super::view::{
     ActivityView, BottomPaneView, FooterView, InteractionAction, InteractionPanelView,
+    ShellApprovalView,
 };
 use crate::tui::theme::{
     INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
@@ -272,34 +273,49 @@ pub(super) fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelVi
     let pending = app.active_pending_interaction()?;
 
     match pending.kind {
-        ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
-            title: "Permission Required",
-            color: STATUS_WARNING,
-            detail: compact_shell_approval_detail(app),
-            actions: vec![
-                InteractionAction {
-                    key: "1",
-                    label: "Allow once",
-                },
-                InteractionAction {
-                    key: "2",
-                    label: "Allow prefix",
-                },
-                InteractionAction {
-                    key: "3",
-                    label: "Allow session",
-                },
-                InteractionAction {
-                    key: "4",
-                    label: "Reject",
-                },
-            ],
-            selected: app.approval_picker_idx,
-        }),
+        ActivePendingInteractionKind::ShellApproval => {
+            let approval = pending._snapshot.approval.as_ref()?;
+            let cwd = approval
+                .payload
+                .cwd
+                .as_deref()
+                .filter(|cwd| !cwd.trim().is_empty())
+                .unwrap_or(".")
+                .to_owned();
+            Some(InteractionPanelView {
+                title: "Permission Required",
+                color: STATUS_WARNING,
+                detail: format!("{}\ncwd: {cwd}", approval.command),
+                shell_approval: Some(ShellApprovalView {
+                    tool_use_id: approval.tool_use_id.clone(),
+                    cwd,
+                }),
+                actions: vec![
+                    InteractionAction {
+                        key: "1",
+                        label: "Allow once",
+                    },
+                    InteractionAction {
+                        key: "2",
+                        label: "Allow prefix",
+                    },
+                    InteractionAction {
+                        key: "3",
+                        label: "Allow session",
+                    },
+                    InteractionAction {
+                        key: "4",
+                        label: "Reject",
+                    },
+                ],
+                selected: app.approval_picker_idx,
+            })
+        }
         ActivePendingInteractionKind::PlanApproval => Some(InteractionPanelView {
             title: "Plan Approval",
             color: TEXT_ACCENT,
             detail: String::new(),
+            shell_approval: None,
             actions: vec![
                 InteractionAction {
                     key: "1",
@@ -323,6 +339,7 @@ pub(super) fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelVi
                 .pending_request_input()
                 .map(|interaction| interaction.title.clone())
                 .unwrap_or_default(),
+            shell_approval: None,
             actions: vec![
                 InteractionAction {
                     key: "Enter",
@@ -337,17 +354,4 @@ pub(super) fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelVi
         }),
         _ => None,
     }
-}
-
-fn compact_shell_approval_detail(app: &TuiApp) -> String {
-    app.pending_command_approval()
-        .and_then(|i| i.approval.as_ref())
-        .map(|a| {
-            format!(
-                "{}\n  cwd: {}",
-                a.command,
-                a.payload.cwd.as_deref().unwrap_or(".")
-            )
-        })
-        .unwrap_or_default()
 }

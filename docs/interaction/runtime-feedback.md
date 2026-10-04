@@ -63,6 +63,11 @@ commands such as `/compact` can display their own lifecycle events.
 If the broadcast stream lags, retained task events recover the missing tail and
 terminal feedback in sequence without duplicating output. A task panic retains
 already-produced text, closes the live stream, and surfaces the task failure.
+It also clears busy state and pending decisions owned by the lost agent,
+without terminating the terminal session. Queued text remains available; the
+next submitted prompt uses the existing missing-agent rebuild path. A rebuild
+failure remains visible and retryable. The failed agent's in-memory state is
+not reused after a panic.
 
 Broadcast lag is repaired from the bounded runtime replay window before later
 events are shown. Successful recovery is silent. If replay and query receipts
@@ -93,15 +98,33 @@ input. The visible card, option count, and keyboard mapping must agree.
 - Pending decisions can use the full terminal viewport. Reserve action rows
   before allocating space to command previews. Long or multiline commands must
   not push choices below the visible panel. Measure visual rows after wrapping,
-  elide excess preview with a visible marker, and stack choices when they do not
-  fit on one line. The selected action stays visible through terminal resizing.
-  This layout is shared by local and SSH sessions.
+  and stack choices when they do not fit on one line. Shell details use the
+  available height and remain fully reachable with PageUp/PageDown and Home/End
+  when the composer is empty. A row-range indicator identifies the visible
+  portion. Arrows continue to select actions; paging never authorizes execution.
+  The working directory has a fixed summary row when space permits, and its
+  complete path also appears in the scrollable details. On very short screens,
+  omit decorative header rows before hiding command content or actions.
+  Scroll position belongs to the pending tool call, resets for a new call, and
+  clamps after resizing. The transcript approval card retains the full command
+  and working directory. This layout is shared by local and SSH sessions.
 
 See [planning mode](../features/planning-mode.md),
 [shell approval](../features/shell-approval-policy.md), and
 [thread goals](../features/thread-goals.md) for the underlying decisions.
 
 ### RUN-04: Transcript And Recovery
+
+A failed resume keeps the current session and resume picker available, with a
+visible error. Startup resume failure keeps the fresh session available.
+Credential synchronization failure keeps the model picker available and does
+not start a rebuild. Required resume reads complete before changing session
+identity, history, or goal binding.
+
+A successful backend rebuild installs the replacement agent even when saving
+configuration fails. The in-session backend remains usable, and a visible
+warning explains that the configuration was not saved. Terminal I/O and
+transport errors retain their own error contracts.
 
 Render live progress, committed turns, tool lifecycle, thinking visibility,
 and pending decisions from typed presentation state. Keep event chronology and

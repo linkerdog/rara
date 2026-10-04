@@ -485,7 +485,7 @@ async fn query_join_failure_closes_identity_without_waiting_for_terminal() {
             .controller
             .receive_runtime_task_completion(&mut fixture.processor, completion)
             .await
-            .is_err()
+            .expect("task panic must not terminate the controller")
     );
     assert!(fixture.controller.app().bottom_pane.running_task.is_none());
     for event in fixture.drain_events() {
@@ -516,6 +516,28 @@ async fn query_join_failure_closes_identity_without_waiting_for_terminal() {
         .collect::<Vec<_>>()
         .join("\n");
     assert_eq!(text, "Before. Tail.");
+    assert!(!fixture.controller.app().is_busy());
+    assert!(fixture.processor.agent().is_none());
+    fixture
+        .controller
+        .apply_runtime_command(
+            &mut fixture.processor,
+            RuntimeCommand::Input(InputControlRequest::SubmitUserPrompt {
+                prompt: "Retry after the failure.".into(),
+            }),
+        )
+        .await
+        .expect("the controller remains usable");
+    let task = fixture
+        .controller
+        .app()
+        .bottom_pane
+        .running_task
+        .as_ref()
+        .expect("rebuild");
+    assert!(matches!(task.kind, TaskKind::Rebuild));
+    task.handle.abort();
+    assert!(fixture.controller.app().has_queued_follow_up_messages());
 }
 
 #[tokio::test]
