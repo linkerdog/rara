@@ -45,7 +45,9 @@ not inherit the plain-list j/k shortcuts.
 
 ### INPUT-02: Composer Submission And Editing
 
-- Enter submits; Shift+Enter and Ctrl+J insert a newline.
+- Enter submits; Shift+Enter inserts a newline when the terminal distinguishes
+  it through enhanced key reporting. Ctrl+J is the legacy-terminal fallback.
+  Keyboard enhancement ownership and restoration follow RUN-05.
 - Ctrl+C closes the top overlay without cancelling underlying work or arming
   quit. Without an overlay, the first press clears an idle composer or requests
   cancellation while running, preserving the running draft. It also shows
