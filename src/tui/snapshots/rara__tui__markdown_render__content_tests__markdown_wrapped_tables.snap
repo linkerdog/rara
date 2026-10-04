@@ -1,0 +1,34 @@
+---
+source: src/tui/markdown_content_tests.rs
+expression: output
+---
+width 8
+ID: A
+Descript
+ion:
+B(alpha)
+B(beta)
+B(gamma)
+B(delta)
+Count:
+12
+
+ID: B
+Descript
+ion:
+中文
+value
+Count: 
+
+width 24
+ID | Description | Count
+-- | ----------- | -----
+A  | B(alpha beta)  |    12
+   | B(gamma delta) |      
+B  | 中文 value  |      
+
+width 48
+ID |      Description       | Count
+-- | ---------------------- | -----
+A  | B(alpha beta gamma delta) |    12
+B  |       中文 value       |
