@@ -44,6 +44,7 @@ pub(crate) enum RuntimeCommand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeMaintenanceCommand {
     Compact,
+    Review,
     Rebuild,
     RefreshModelCatalog(ModelCatalogProvider),
 }

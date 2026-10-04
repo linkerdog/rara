@@ -229,6 +229,33 @@ async fn busy_composer_hint_hides_cancel_for_non_query_tasks() {
     }
 }
 
+#[tokio::test]
+async fn review_preparation_shows_cancel_hint_and_spinner() {
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .expect("build tui app");
+    app.runtime_phase = RuntimePhase::LocalCommand;
+    let (_sender, receiver) = mpsc::unbounded_channel();
+    app.bottom_pane.running_task = Some(RunningTask {
+        kind: TaskKind::ReviewPreparation,
+        receiver,
+        handle: tokio::spawn(std::future::pending::<TaskCompletion>()),
+        started_at: Instant::now(),
+        next_heartbeat_after_secs: 2,
+        cancellation_token: None,
+        query_control: None,
+    });
+    assert_eq!(
+        composer_hint_line(&app).to_string(),
+        "Enter queue  Esc/Ctrl+C cancel"
+    );
+    let (label, _, _) = activity_status_line(&app);
+    assert!(should_show_spinner(&app, label));
+    app.bottom_pane.running_task.take().unwrap().handle.abort();
+}
+
 #[test]
 fn composer_hint_line_excludes_repo_context() {
     let temp = tempdir().unwrap();

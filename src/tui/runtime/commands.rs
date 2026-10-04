@@ -9,7 +9,7 @@ use super::super::state::{
 use super::goals::{
     parse_goal_objective_and_budget, parse_goal_token_budget, start_goal_follow_up,
 };
-use super::tasks::{start_compact_task, start_rebuild_task, start_review_task};
+use super::tasks::{start_compact_task, start_rebuild_task};
 use crate::agent::{Agent, AgentEvent, AgentExecutionMode, BashApprovalMode};
 use crate::config::{McpRegistry, SourcedMcpServerConfig};
 use crate::mcp_status::{McpStatusSnapshot, format_mcp_status};
@@ -132,30 +132,13 @@ pub(super) async fn execute_local_command_with_runtime(
             app.push_notice("Planning mode enabled. Read-only planning; approve to execute.");
         }
         LocalCommandKind::Review => {
-            if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
-            } else if let Some(agent) = agent_slot.take() {
-                let diff = capture_git_diff(&app.snapshot.cwd);
-                let prompt = if diff.is_empty() {
-                    "No local git changes found. The working tree is clean.".to_string()
-                } else {
-                    let lines: Vec<&str> = diff.lines().collect();
-                    if lines.len() > 800 {
-                        let preview = lines
-                            .iter()
-                            .take(600)
-                            .copied()
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        format!(
-                            "Review the following code changes:\n\n```diff\n{preview}\n...\n```\n\n(Full diff truncated; use tools to inspect if needed.)"
-                        )
-                    } else {
-                        format!("Review the following code changes:\n\n```diff\n{diff}\n```")
-                    }
-                };
-                start_review_task(app, prompt, agent);
-            }
+            request_maintenance(
+                app,
+                agent_slot,
+                runtime_port,
+                RuntimeMaintenanceCommand::Review,
+            )
+            .await?;
         }
         LocalCommandKind::Permissions => {
             let selected = app
@@ -216,6 +199,7 @@ async fn request_maintenance(
             .await?;
     } else {
         match command {
+            RuntimeMaintenanceCommand::Review => super::review::start(app, agent_slot),
             RuntimeMaintenanceCommand::Compact => {
                 if let Some(agent) = agent_slot.take() {
                     start_compact_task(app, agent);
@@ -389,43 +373,6 @@ fn mcp_project_root_from_cwd(cwd: PathBuf) -> PathBuf {
         }
     }
     cwd
-}
-
-fn capture_git_diff(cwd: &str) -> String {
-    use std::path::Path;
-    use std::process::Command;
-    let dir = if cwd.is_empty() {
-        None
-    } else {
-        Some(Path::new(cwd))
-    };
-    let cmd = |args: &[&str]| {
-        let mut c = Command::new("git");
-        c.args(args);
-        if let Some(d) = dir {
-            c.current_dir(d);
-        }
-        c.output()
-    };
-    let run = |args| -> Option<String> {
-        cmd(args)
-            .ok()
-            .and_then(|out| {
-                if !out.stderr.is_empty() {
-                    let _stderr_msg = String::from_utf8_lossy(&out.stderr);
-                }
-                String::from_utf8(out.stdout).ok()
-            })
-            .filter(|s| !s.trim().is_empty())
-    };
-    let staged = run(&["diff", "--staged"]);
-    let unstaged = run(&["diff"]);
-    match (staged, unstaged) {
-        (Some(s), Some(u)) => format!("{s}\n{u}"),
-        (Some(s), None) => s,
-        (None, Some(u)) => u,
-        (None, None) => String::new(),
-    }
 }
 
 fn mark_local_command(app: &mut TuiApp, detail: Option<String>) {

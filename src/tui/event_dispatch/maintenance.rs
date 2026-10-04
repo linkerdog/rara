@@ -14,6 +14,9 @@ pub(super) async fn request_maintenance(
             .await?;
     } else {
         match command {
+            RuntimeMaintenanceCommand::Review => {
+                crate::tui::runtime::review::start(app, agent_slot);
+            }
             RuntimeMaintenanceCommand::Rebuild => {
                 crate::tui::runtime::start_rebuild_task_with_agent_tree_control(
                     app,
