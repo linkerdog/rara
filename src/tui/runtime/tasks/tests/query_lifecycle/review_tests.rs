@@ -2,6 +2,44 @@ use super::*;
 use crate::tui::message_role::MessageRole;
 
 #[tokio::test]
+async fn unrequested_cancellation_text_preserves_query_failure() {
+    let mut fixture = Fixture::start(BackendOutcome::CancellationTextFailure).await;
+    fixture.backend.release.notify_one();
+    let completion = fixture.task_return().await;
+    assert!(!fixture.backend.observed_stop.load(Ordering::SeqCst));
+    let events = fixture.drain_events();
+    assert!(events.iter().any(|event| matches!(
+        &event.event,
+        RuntimeEvent::Session(SessionEvent::TurnFailed { reason })
+            if reason.contains("provider failure quoting cancelled by user")
+    )));
+    for event in events {
+        assert!(fixture.deliver(event).await);
+    }
+    assert!(
+        fixture
+            .controller
+            .receive_runtime_task_completion(&mut fixture.processor, completion,)
+            .await
+            .unwrap()
+    );
+    assert_eq!(fixture.controller.app().runtime_phase, RuntimePhase::Failed);
+    assert_eq!(
+        fixture.controller.app().runtime_phase_detail.as_deref(),
+        Some("query failed")
+    );
+    assert!(
+        fixture
+            .controller
+            .app()
+            .bottom_pane
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.contains("provider failure quoting cancelled by user"))
+    );
+}
+
+#[tokio::test]
 async fn broadcast_boundary_does_not_replay_future_query_receipts() {
     let mut fixture = Fixture::start(BackendOutcome::Answer).await;
     fixture.backend.release.notify_one();

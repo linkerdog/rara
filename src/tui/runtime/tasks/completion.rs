@@ -261,9 +261,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         .query_control
                         .as_ref()
                         .and_then(QueryTaskControl::stop_kind);
-                    let cancelled =
-                        stopped.is_some() || error_message.contains("cancelled by user");
-                    if cancelled {
+                    if stopped.is_some() {
                         agent.discard_pending_interactions();
                     }
                     app.set_agent_execution_mode(agent.execution_mode);
@@ -282,15 +280,11 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     }
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
-                    if cancelled {
+                    if let Some(kind) = stopped {
                         app.finalize_active_turn();
-                        let (notice, detail) = match stopped {
-                            Some(QueryStopKind::Interrupt) => {
-                                ("Query interrupted.", "query interrupted")
-                            }
-                            Some(QueryStopKind::Cancel) | None => {
-                                ("Query cancelled.", "query cancelled")
-                            }
+                        let (notice, detail) = match kind {
+                            QueryStopKind::Interrupt => ("Query interrupted.", "query interrupted"),
+                            QueryStopKind::Cancel => ("Query cancelled.", "query cancelled"),
                         };
                         app.bottom_pane.notice = Some(notice.into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some(detail.into()));

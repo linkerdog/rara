@@ -245,6 +245,11 @@ session/turn identity, including the terminal event. A stop racing with task
 return is serialized; a finished task rejects the request and the first accepted
 stop kind cannot be relabelled.
 
+Only an admitted typed stop selects the cancelled/interrupted completion path.
+Provider or maintenance errors remain failures even if their text mentions a
+user cancellation. Maintenance without stop admission must not translate an
+error string into a successful terminal event.
+
 The accepted stop wins over a later successful execution return, including a
 newly raised approval; pending interactions are discarded and automatic goal
 continuation is not entered. An execution error remains available as a diagnostic

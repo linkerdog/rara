@@ -83,7 +83,7 @@ fn lifecycle_helper_publishes_turn_finished_for_success() {
 }
 
 #[test]
-fn lifecycle_helper_publishes_turn_finished_for_cancellation() {
+fn unrequested_cancellation_text_preserves_maintenance_failure() {
     let bus = Arc::new(RuntimeEventBus::new(8));
     let mut control = bus.subscribe_control();
     let provenance = RuntimeProvenance::local_tui("session-1");
@@ -97,9 +97,10 @@ fn lifecycle_helper_publishes_turn_finished_for_cancellation() {
     let event = control.try_recv().expect("control event");
     assert!(matches!(
         event.event,
-        RuntimeEvent::Session(SessionEvent::TurnFinished {
-            reason: Some(reason)
-        }) if reason == "cancelled by user"
+        RuntimeEvent::Error(ErrorEvent::RuntimeError {
+            message,
+            recoverable: false,
+        }) if message == "cancelled by user"
     ));
 }
 
@@ -614,7 +615,10 @@ async fn queued_follow_up_starts_after_query_cancellation() {
     ));
     let agent = create_test_agent(&temp);
     app.queue_follow_up_message("continue after cancel");
+    let control = super::QueryTaskControl::new(agent.session_id.clone());
+    control.request_stop(super::QueryStopKind::Cancel, &AtomicBool::new(false));
     install_completed_query_task(&mut app, agent, Err(anyhow::anyhow!("cancelled by user")));
+    app.bottom_pane.running_task.as_mut().unwrap().query_control = Some(control);
 
     let mut agent_slot = None;
     finish_ready_query_task(&mut app, &mut agent_slot).await;
