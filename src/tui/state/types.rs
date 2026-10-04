@@ -84,6 +84,7 @@ impl ApiKeyTarget {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
+    HistorySearch,
     Goal,
     Help(HelpTab),
     CommandPalette,
@@ -780,6 +781,7 @@ pub struct TuiApp {
     pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
     pub input_history: Vec<String>,
+    pub(crate) prompt_history: crate::tui::prompt_history::HistoryState,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
     pub committed_turns: Vec<TranscriptTurn>,

@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
+use rara_persistence::prompt_history::PromptHistoryStore;
 
 use super::fixture_runtime;
 use crate::oauth::OAuthManager;
@@ -29,7 +30,32 @@ impl Drop for SessionChild {
 
 #[test]
 fn full_session_hands_off_the_shell_before_restoring_modes() {
+    check_history_shutdown(HistoryFixture::Writable);
+}
+
+#[test]
+fn full_session_surfaces_history_failure_after_restoring_modes() {
+    check_history_shutdown(HistoryFixture::Unavailable);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum HistoryFixture {
+    Writable,
+    Unavailable,
+}
+
+fn check_history_shutdown(history: HistoryFixture) {
+    use fs2::FileExt;
     let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    let store = PromptHistoryStore::new(&home);
+    let lock = std::fs::File::create(home.join("prompt_history.lock")).unwrap();
+    lock.lock_exclusive().unwrap();
+    let mut lock = Some(lock);
+    if history == HistoryFixture::Unavailable {
+        std::fs::create_dir(store.path()).unwrap();
+    }
     let pair = native_pty_system()
         .openpty(PtySize {
             rows: 24,
@@ -49,6 +75,14 @@ fn full_session_hands_off_the_shell_before_restoring_modes() {
     command.cwd(dir.path());
     command.env("RARA_HOME", dir.path().join("home"));
     command.env("RARA_TEST_SESSION_ROOT", dir.path());
+    command.env(
+        "RARA_TEST_HISTORY_FAILURE",
+        if history == HistoryFixture::Unavailable {
+            "1"
+        } else {
+            "0"
+        },
+    );
     let mut child = SessionChild {
         handle: pair.slave.spawn_command(command).unwrap(),
         reaped: false,
@@ -92,6 +126,20 @@ fn full_session_hands_off_the_shell_before_restoring_modes() {
             writer.flush().unwrap();
             quit_sent = true;
         }
+        // The cursor-show command ends restoration, after raw mode is disabled.
+        if lock.is_some()
+            && let Some(restored) = output.windows(8).position(|part| part == b"\x1b[?2004l")
+            && output[restored..]
+                .windows(6)
+                .any(|part| part == b"\x1b[?25h")
+        {
+            assert_eq!(pair.master.get_termios().unwrap(), before);
+            assert!(
+                child.handle.try_wait().unwrap().is_none(),
+                "history cleanup must still be pending"
+            );
+            drop(lock.take());
+        }
     }
     reader_task.join().unwrap();
     let status = loop {
@@ -103,6 +151,10 @@ fn full_session_hands_off_the_shell_before_restoring_modes() {
         std::thread::sleep(Duration::from_millis(10));
     };
     assert!(status.success(), "{}", String::from_utf8_lossy(&output));
+    assert!(
+        lock.is_none(),
+        "history writes must wait until terminal restoration"
+    );
     assert_eq!(pair.master.get_termios().unwrap(), before);
     let output = String::from_utf8(output).unwrap();
     assert!(output.contains("SESSION_RETURNED raw=false"), "{output}");
@@ -116,6 +168,11 @@ fn full_session_hands_off_the_shell_before_restoring_modes() {
     let mut parser = vt100::Parser::new(24, 100, 0);
     parser.process(&output.as_bytes()[..restore_start]);
     assert_eq!(parser.screen().cursor_position(), (23, 0));
+    if history == HistoryFixture::Writable {
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.entries.len(), 1);
+        assert_eq!(loaded.entries[0].text(), "/quit");
+    }
 }
 
 #[test]
@@ -137,7 +194,7 @@ fn full_session_child() {
     runtime.block_on(async {
         let (config, client) = fixture_runtime(&root).await;
         let oauth = OAuthManager::new_for_config_dir(root.join("oauth")).unwrap();
-        run_tui(
+        let result = run_tui(
             client,
             oauth,
             TuiStartupOptions {
@@ -146,8 +203,13 @@ fn full_session_child() {
                 permission_override: None,
             },
         )
-        .await
-        .unwrap();
+        .await;
+        if std::env::var("RARA_TEST_HISTORY_FAILURE").unwrap() == "1" {
+            let error = format!("{:#}", result.unwrap_err());
+            assert!(error.contains("flush prompt history on exit"), "{error}");
+        } else {
+            result.unwrap();
+        }
     });
     println!(
         "SESSION_RETURNED raw={}",

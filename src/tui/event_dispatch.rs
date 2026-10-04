@@ -180,6 +180,7 @@ async fn dispatch_event_inner(
         AppEvent::NavigateInputHistory(delta) => {
             app.navigate_input_history(delta);
         }
+        AppEvent::PromptHistory(action) => app.apply_history_action(action),
         AppEvent::ScrollTranscript(delta) => super::render::scroll_transcript(app, delta),
         AppEvent::StartTranscriptSelection(position) => {
             app.transcript_selection.start(position);

@@ -222,6 +222,26 @@ impl SandboxWorkspaceWriteConfig {
 pub struct TuiConfig {
     #[serde(default, skip_serializing_if = "TuiThemeConfig::is_default")]
     pub theme: TuiThemeConfig,
+    #[serde(default, skip_serializing_if = "TuiHistoryConfig::is_default")]
+    pub history: TuiHistoryConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TuiHistoryConfig {
+    pub enabled: bool,
+}
+
+impl Default for TuiHistoryConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl TuiHistoryConfig {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 impl TuiConfig {

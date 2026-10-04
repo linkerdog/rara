@@ -4,6 +4,7 @@ use super::state::{ApprovalDetailNavigation, HelpTab, Overlay, QuitShortcutKey, 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Noop,
+    PromptHistory(super::prompt_history::HistoryAction),
     /// Reserved for protocol/UI-control callers that should request overlays
     /// without reaching into TUI state directly (docs/todo.md).
     #[allow(dead_code)] // Reserved for protocol/UI-control callers (docs/todo.md)

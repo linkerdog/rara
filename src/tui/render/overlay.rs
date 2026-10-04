@@ -29,6 +29,15 @@ use crate::tui::status_display::render_status_lines;
 
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
+        Overlay::HistorySearch => {
+            let popup = popup_rect(f.area(), 96, 80);
+            render_dimmer(f, f.area());
+            f.render_widget(Clear, popup);
+            let block = popup_block();
+            let inner = block.inner(popup);
+            f.render_widget(block, popup);
+            crate::tui::prompt_history::render_history_search(f, app, inner)
+        }
         Overlay::Goal => {
             let popup = popup_rect(f.area(), 85, 70);
             render_dimmer(f, f.area());

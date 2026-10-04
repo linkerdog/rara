@@ -102,6 +102,7 @@ boundary below.
 | Terminal scrollback, resize, wide-cell replacement, synchronized output | `testing::terminal_emulator::EmulatorBackend` and `custom_terminal::inline::tests` |
 | Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children |
 | Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
+| Persistent prompt recall and incremental search | `prompt_history_tests`, persistence store process tests, and `event_loop_session_tests` with a held writer lock through terminal restoration |
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
 | Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |

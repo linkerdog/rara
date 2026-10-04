@@ -33,6 +33,7 @@ async fn handle_submit_inner(
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     app.flush_composer_paste();
+    let has_large_paste = !app.bottom_pane.large_paste_pending.is_empty();
     app.bottom_pane.expand_large_paste();
     let input = std::mem::take(&mut app.bottom_pane.input);
     app.bottom_pane.clear_input();
@@ -63,7 +64,11 @@ async fn handle_submit_inner(
         }
         return Ok(false);
     }
-    app.record_input_history(&trimmed);
+    if !has_large_paste {
+        app.record_input_history(&input);
+    } else {
+        app.reset_input_history_navigation();
+    }
 
     if app.is_busy() && !trimmed.starts_with('/') {
         if let Some(runtime_port) = runtime_port {

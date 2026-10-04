@@ -7,8 +7,6 @@ const OPENAI_PROFILE_SETUP_KINDS: [OpenAiEndpointKind; 4] = [
     OpenAiEndpointKind::Openrouter,
 ];
 
-pub(in crate::tui) const INPUT_HISTORY_LIMIT: usize = 200;
-
 pub fn openai_profile_setup_kinds() -> &'static [OpenAiEndpointKind] {
     &OPENAI_PROFILE_SETUP_KINDS
 }
@@ -57,6 +55,7 @@ pub(super) fn state_db_status_error(prefix: &str, message: impl Into<String>) ->
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TextInputTarget {
     Composer,
+    HistorySearch,
     ModelSearch,
     BaseUrl,
     ApiKey,
