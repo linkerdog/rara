@@ -3,6 +3,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
 use crate::agent::Agent;
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp};
 
 mod git_diff;
@@ -28,11 +29,20 @@ pub(crate) enum ReviewPreparation {
 
 pub(in crate::tui) fn start(app: &mut TuiApp, agent: &Option<Agent>) {
     if app.is_busy() {
-        app.push_notice("A task is already running. Wait for it to finish.");
+        app.push_notice(
+            NoticeLevel::Info,
+            "A task is already running. Wait for it to finish.",
+        );
     } else if agent.is_none() {
-        app.push_notice("No active agent available for review.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "No active agent available for review.",
+        );
     } else if app.active_pending_interaction().is_some() {
-        app.push_notice("Resolve the pending interaction before starting a review.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "Resolve the pending interaction before starting a review.",
+        );
     } else {
         start_capture(app, Arc::new(git_diff::GitDiffCapture));
     }
@@ -71,7 +81,7 @@ fn start_capture(app: &mut TuiApp, capture: Arc<dyn DiffCapture>) {
         cancellation_token: Some(Arc::new(AtomicBool::new(false))),
         query_control: None,
     });
-    app.push_notice("Collecting local changes for review.");
+    app.push_notice(NoticeLevel::Info, "Collecting local changes for review.");
     app.set_runtime_phase(
         RuntimePhase::LocalCommand,
         Some("collecting changes".into()),
@@ -93,16 +103,22 @@ pub(super) fn finish(
             if let Some(agent) = agent_slot.take() {
                 super::tasks::start_review_task(app, prompt, agent);
             } else {
-                app.push_notice("Review could not start: the runtime agent is unavailable.");
+                app.push_notice(
+                    NoticeLevel::Warning,
+                    "Review could not start: the runtime agent is unavailable.",
+                );
                 app.set_runtime_phase(RuntimePhase::Failed, Some("review unavailable".into()));
             }
         }
         Ok(ReviewPreparation::Clean) => {
-            app.push_notice("No staged or unstaged changes to review.");
+            app.push_notice(
+                NoticeLevel::Info,
+                "No staged or unstaged changes to review.",
+            );
             app.set_runtime_phase(RuntimePhase::Idle, Some("no changes to review".into()));
         }
         Ok(ReviewPreparation::Cancelled) => {
-            app.push_notice("Review preparation cancelled.");
+            app.push_notice(NoticeLevel::Info, "Review preparation cancelled.");
             app.set_runtime_phase(
                 RuntimePhase::Idle,
                 Some("review preparation cancelled".into()),
@@ -110,7 +126,10 @@ pub(super) fn finish(
         }
         Err(error) => {
             log::warn!("Review preparation failed: {error:#}");
-            app.push_notice(format!("Could not collect changes for review: {error:#}"));
+            app.push_notice(
+                NoticeLevel::Error,
+                format!("Could not collect changes for review: {error:#}"),
+            );
             app.set_runtime_phase(
                 RuntimePhase::Failed,
                 Some("review preparation failed".into()),

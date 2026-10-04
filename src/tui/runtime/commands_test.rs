@@ -297,7 +297,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     assert_eq!(app.bash_approval_mode_label(), "suggestion");
     assert_eq!(app.permission_mode, original_permission_mode);
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Unavailable while a task is running. Wait or cancel it first.")
     );
 
@@ -446,7 +446,7 @@ async fn goal_command_resumes_blocked_goal() {
         Some(crate::tui::state::GoalStatus::Pursuing)
     );
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Goal resumed. The blocked-goal audit has restarted.")
     );
     assert!(app.bottom_pane.running_task.is_some());
@@ -499,9 +499,7 @@ async fn goal_command_starts_an_active_goal_continuation_when_idle() {
     );
     assert!(app.bottom_pane.running_task.is_some());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|notice| notice.contains("Continuing active goal."))
     );
     assert!(
@@ -551,7 +549,7 @@ async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
         Some(crate::tui::state::GoalStatus::Paused)
     );
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Unavailable while a task is running. Wait or cancel it first.")
     );
 }
@@ -591,7 +589,7 @@ async fn goal_command_keeps_paused_goal_without_a_runtime_agent() {
         Some(crate::tui::state::GoalStatus::Paused)
     );
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Goal resume is unavailable until the runtime agent is ready.")
     );
 }
@@ -791,10 +789,7 @@ async fn approval_command_scopes_always_to_bash_without_enabling_full_access() {
             .load(std::sync::atomic::Ordering::Relaxed),
         initial_network_access
     );
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Bash approval set to always.")
-    );
+    assert_eq!(app.notice_text(), Some("Bash approval set to always."));
 }
 
 #[tokio::test]

@@ -61,7 +61,7 @@ async fn finish_task(clipboard: &mut Clipboard) -> Option<String> {
         {
             tokio::task::yield_now().await;
         }
-        clipboard.poll().await
+        clipboard.poll().await.map(|notice| notice.message)
     })
     .await
     .expect("copy completion deadline")
@@ -215,18 +215,59 @@ async fn terminal_only_copy_does_not_claim_terminal_acceptance_or_spawn_work() {
         native: None,
         timeout: NATIVE_COPY_TIMEOUT,
     });
+    let notice = clipboard.request("hello".into());
+    assert_eq!(notice.level, NoticeLevel::Info);
     assert!(
-        clipboard
-            .request("hello".into())
+        notice
+            .message
             .contains("acceptance depends on terminal policy")
     );
+    let notice = clipboard.request("x".repeat(osc52::MAX_RAW_BYTES + 1));
+    assert_eq!(notice.level, NoticeLevel::Error);
     assert!(
-        clipboard
-            .request("x".repeat(osc52::MAX_RAW_BYTES + 1))
+        notice
+            .message
             .contains("exceeds the terminal clipboard limit")
     );
     assert!(clipboard.active.is_none());
     assert!(clipboard.poll().await.is_none());
+}
+
+#[tokio::test]
+async fn copy_outcome_sets_severity_for_success_fallback_and_failure() {
+    for (terminal_succeeds, native_succeeds, expected) in [
+        (true, true, NoticeLevel::Info),
+        (false, true, NoticeLevel::Info),
+        (true, false, NoticeLevel::Warning),
+        (false, false, NoticeLevel::Error),
+    ] {
+        let (mut clipboard, _, mut calls) = scripted_clipboard();
+        let text = if terminal_succeeds {
+            "selected text".into()
+        } else {
+            "x".repeat(osc52::MAX_RAW_BYTES + 1)
+        };
+        assert_eq!(clipboard.request(text).level, NoticeLevel::Info);
+        let (_, complete) = calls.recv().await.unwrap();
+        complete
+            .send(if native_succeeds {
+                Ok(())
+            } else {
+                Err(io::Error::other("native copy rejected"))
+            })
+            .unwrap();
+        let notice = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(notice) = clipboard.poll().await {
+                    break notice;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(notice.level, expected);
+    }
 }
 
 #[tokio::test]

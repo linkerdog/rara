@@ -26,7 +26,7 @@ use crate::tui::message_role::MessageRole;
 use crate::tui::runtime::RuntimeCommandProcessor;
 use crate::tui::runtime_port::{RuntimeCommand, RuntimeProjectionEvent};
 use crate::tui::state::{
-    PermissionMode, QuitShortcutKey, RunningTask, TaskCompletion, TaskKind, TuiApp,
+    NoticeLevel, PermissionMode, QuitShortcutKey, RunningTask, TaskCompletion, TaskKind, TuiApp,
 };
 use crate::tui::testing::FakeRuntimeClient;
 use crate::tui::testing::terminal_emulator::{EmulatedScreen, EmulatorBackend};
@@ -528,3 +528,51 @@ mod exit_tests;
 #[cfg(unix)]
 #[path = "event_loop_session_tests.rs"]
 mod session_tests;
+
+#[tokio::test]
+async fn notice_expiration_repaints_idle_status_without_terminal_input() {
+    let mut fixture = Fixture::new().await;
+    let screen = fixture.screen.clone();
+    tokio::time::pause();
+    fixture
+        .controller
+        .app_mut()
+        .push_notice(NoticeLevel::Warning, "Transient warning marker");
+    {
+        let future = fixture.run();
+        tokio::pin!(future);
+        assert!(poll!(&mut future).is_pending());
+        let initial = frame_count(&screen);
+        assert!(
+            screen
+                .borrow()
+                .parser
+                .screen()
+                .contents()
+                .contains("Warning")
+        );
+        advance(Duration::from_secs(8)).await;
+        assert!(poll!(&mut future).is_pending());
+        advance(Duration::from_millis(18)).await;
+        assert!(poll!(&mut future).is_pending());
+        assert!(frame_count(&screen) > initial);
+        assert!(
+            screen
+                .borrow()
+                .parser
+                .screen()
+                .contents()
+                .contains("waiting for input")
+        );
+    }
+    assert!(fixture.controller.app().notice().is_none());
+    assert!(
+        fixture
+            .controller
+            .app()
+            .active_turn
+            .entries
+            .iter()
+            .any(|entry| entry.message == "Transient warning marker")
+    );
+}

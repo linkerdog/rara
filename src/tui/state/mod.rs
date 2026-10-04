@@ -2,6 +2,8 @@ use bottom_pane_model::BottomPaneModel;
 mod approval_details;
 pub(crate) use approval_details::{ApprovalDetailNavigation, ApprovalDetailScroll};
 mod bottom_pane_model;
+mod notices;
+pub(crate) use notices::NoticeLevel;
 mod overlay_state;
 mod pending_interaction;
 mod persistence;

@@ -13,6 +13,7 @@ use crate::tui::render::bottom_pane::composer::{
     composer_hint, composer_hint_line, desired_composer_height, wrapped_text_cursor_position,
     wrapped_text_rows,
 };
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{
     InteractionKind, PendingInteractionSnapshot, RunningTask, RuntimePhase, RuntimeSnapshot,
     TaskCompletion, TaskKind, TuiApp,
@@ -93,6 +94,7 @@ fn activity_status_line_prefers_pending_interactions() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
+    app.push_notice(NoticeLevel::Error, "An unrelated request failed");
     app.snapshot
         .pending_interactions
         .push(PendingInteractionSnapshot {
@@ -149,9 +151,9 @@ fn activity_status_line_renders_warning_notice_in_yellow() {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.bottom_pane.notice = Some(
-        "Warning: openai-compatible is missing an API key. Use /model to configure the current provider."
-            .into(),
+    app.push_notice(
+        NoticeLevel::Warning,
+        "Warning: openai-compatible is missing an API key. Use /model to configure the current provider.",
     );
 
     let (label, color, detail) = activity_status_line(&app);
@@ -192,6 +194,8 @@ async fn busy_composer_hint_keeps_only_action_keys() {
         cancellation_token: None,
         query_control: None,
     });
+    app.push_notice(NoticeLevel::Error, "An unrelated request failed");
+    assert_eq!(activity_status_line(&app).0, "Working");
 
     assert_eq!(
         composer_hint(&app).to_string(),
@@ -670,18 +674,20 @@ fn composer_hint_shows_compact_queued_follow_up_when_idle() {
 }
 
 #[test]
-fn activity_status_line_hides_completed_prompt_notice() {
+fn activity_status_line_shows_completed_prompt_notice_until_expiry() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
     })
     .expect("build tui app");
-    app.bottom_pane.notice = Some("Prompt finished.".into());
+    app.push_notice(NoticeLevel::Info, "Prompt finished.");
 
     let (label, _, detail) = activity_status_line(&app);
 
     assert_eq!(label, "Ready");
-    assert_eq!(detail, "waiting for input");
+    assert_eq!(detail, "Prompt finished.");
+    assert!(app.expire_notice(tokio::time::Instant::now() + std::time::Duration::from_secs(8)));
+    assert_eq!(activity_status_line(&app).2, "waiting for input");
 }
 
 #[test]

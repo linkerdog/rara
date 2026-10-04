@@ -406,9 +406,7 @@ async fn accounting_failure_keeps_the_runtime_agent_and_stops_automatic_continua
         Some("Preserve completed runtime state.")
     );
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .expect("failure notice")
             .contains("continuation stopped")
     );

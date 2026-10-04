@@ -11,6 +11,7 @@ use crate::agent::{
 use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[cfg(test)]
 mod recovery_tests;
@@ -39,9 +40,10 @@ pub(super) fn apply_startup_resume(
     };
     if let Err(error) = result {
         log::warn!("Startup resume failed: {error:#}");
-        app.push_notice(format!(
-            "Could not resume thread; continuing with the current session: {error:#}"
-        ));
+        app.push_notice(
+            NoticeLevel::Error,
+            format!("Could not resume thread; continuing with the current session: {error:#}"),
+        );
     }
 }
 
@@ -78,6 +80,7 @@ pub(super) fn restore_thread_by_id(
     let runtime_state = state_db.load_session_runtime_state(thread_id)?;
     // Required thread reads succeed before rebinding optional goal state.
     let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let mut resume_level = NoticeLevel::Info;
     let restored_goal = match app
         .goal_handle
         .restore_for_thread(thread_id, state_db.clone())
@@ -89,6 +92,7 @@ pub(super) fn restore_thread_by_id(
             app.goal_handle
                 .disable_after_persistence_failure(reason.clone());
             resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            resume_level = NoticeLevel::Warning;
             None
         }
     };
@@ -302,7 +306,7 @@ pub(super) fn restore_thread_by_id(
 
     app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(resume_notice);
+    app.push_notice(resume_level, resume_notice);
     super::goal_resume::arm_after_restore(app);
     Ok(())
 }

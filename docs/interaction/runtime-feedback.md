@@ -250,6 +250,41 @@ Suspension does not issue a runtime cancellation or change goal policy.
 Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
 control are outside this keyboard-driven contract.
 
+### RUN-08: Typed, Redacted, Transient Notices
+
+All TUI notices enter through one application-owned publishing path with an
+explicit information, warning, or error level. Redaction occurs before both
+the current notice and its system transcript entry are created. Callers cannot
+assign arbitrary notice text to the bottom pane or construct mutable notice
+contents directly. Startup, setup, paste, restore, and runtime task feedback
+follow the same rule. A notice is recorded once; callers must not separately
+append an identical transcript entry.
+
+Recording retains the existing transcript presentation contract: routine system
+records do not create conversation cards, while classified diagnostic, bootstrap,
+OAuth, and compaction feedback remains renderable. Routine records alone must
+not hide the startup introduction or the pending planning prompt. Expiration
+does not remove records from either live or committed persistence.
+
+The current notice lasts eight seconds from publication, measured by a
+monotonic clock. Replacement starts a new deadline. Expiration removes only
+the transient notice, retains its transcript entry, and requests a repaint
+through the existing event loop, including while idle. No delayed callback may
+clear a newer notice. Clearing a composer removes its paste-owned notice while
+preserving a later unrelated notice, even if their text happens to match.
+
+Idle warnings and errors use the corresponding status label and semantic color;
+severity is never inferred from a message prefix. Information notices use the
+normal idle status with their text until expiry. Completion text follows this
+same lifetime instead of special-case string matching. Running work, backend
+rebuilds, and pending decisions retain their existing status priority; notices
+remain in the transcript when those surfaces take precedence. Warning/error
+notices take precedence over the idle planning-mode hint.
+
+This contract does not add a notification queue, persistent status overrides,
+new runtime events, or serialized notice state. Pending decisions remain in
+their owned interaction state and do not expire with their transient notice.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -261,6 +296,7 @@ control are outside this keyboard-driven contract.
 | RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 | RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
+| RUN-08 | Real settings dispatch redaction/recording regressions; injected-time expiry and replacement; typed buffer colors; paste ownership; paused-time production event-loop repaint |
 
 ## Open Risks
 
@@ -273,6 +309,7 @@ control are outside this keyboard-driven contract.
 
 ## Source Journals
 
+- [Transient notice lifecycle](../journal/2026-10-05-transient-notice-lifecycle.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)

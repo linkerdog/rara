@@ -84,9 +84,7 @@ async fn refused_or_failed_goal_admission_keeps_the_ready_agent() {
         assert!(app.pending_goal_resume.is_none());
         if status == GoalStatus::Pursuing {
             assert!(
-                app.bottom_pane
-                    .notice
-                    .as_deref()
+                app.notice_text()
                     .unwrap()
                     .contains("injected admission failure")
             );
@@ -304,7 +302,7 @@ async fn restored_command_rechecks_readiness_and_claims_only_once() {
         control
     );
     let app = fixture.controller.app();
-    let notice = app.bottom_pane.notice.as_deref().unwrap();
+    let notice = app.notice_text().unwrap();
     for text in [
         "Resuming goal: resume the saved objective",
         "/goal pause",
