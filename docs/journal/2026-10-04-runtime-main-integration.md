@@ -33,13 +33,20 @@ inherit workspace patches or its lockfile.
   external repositories. The local default build stops before compilation
   because the existing external cache lacks `platforms//host` package files.
   The exact-head remote default Bazel build/test remains a delivery gate.
-- Fresh Git core/runtime consumers run after the immutable revision is pushed
-  and independently verified. The PR records that full SHA and their results;
-  the previously published stacked revision is not evidence for this merge.
+- Fresh Git consumers pass at published implementation revision
+  `2cc2d850b12ed268ebd27cf03633299b4241d8c7`, after independent remote readback.
+  The runtime graph contains 27 production packages and all 6 public host tests
+  pass. The core/agent graphs contain 18 native and 33 browser packages; all 4
+  native fixture tests and browser test compilation pass. Both consumers use
+  `RUSTUP_TOOLCHAIN=nightly-2026-05-02`, inherit no patches or lockfile, and verify
+  project package source identity.
 
 ## Remaining Work
 
-The runtime PR targets main after publishing and verifying its exact head.
+The runtime PR now targets main. Retargeting alone did not create check runs for
+the implementation revision; publishing this acceptance record provides a new
+head update against the corrected base. Remote CI remains a separate gate from
+the local and external-consumer results above.
 The existing [downstream contract](../features/downstream-runtime.md) defines
 the acceptance gate. Provider/context extraction, browser HTTP/SSE, and browser
 session scheduling remain separate work under #871.
