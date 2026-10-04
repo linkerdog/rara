@@ -71,23 +71,6 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         Some(completion) => completion,
         None => task.handle.await,
     };
-    let completion = match completion {
-        Ok(completion) => completion,
-        Err(error) => {
-            if matches!(task.kind, TaskKind::Query) {
-                app.clear_pending_plan_approval();
-                app.finalize_active_turn();
-                app.set_runtime_phase(RuntimePhase::Failed, Some("query task failed".into()));
-            }
-            if let Some(mode) = app.pending_permission_mode.take() {
-                app.push_notice(format!(
-                    "Permissions not applied: {}. The task failed to return its runtime agent.",
-                    mode.label()
-                ));
-            }
-            return Err(error.into());
-        }
-    };
     if apply_compatibility_events {
         while let Ok(event) = task.receiver.try_recv() {
             apply_tui_event(app, event);
@@ -95,6 +78,34 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
     } else {
         while task.receiver.try_recv().is_ok() {}
     }
+    let completion = match completion {
+        Ok(completion) => completion,
+        Err(error) => {
+            log::warn!("Runtime task failed to join: {error}");
+            if agent_slot.is_none() {
+                app.snapshot.pending_interactions.clear();
+                app.clear_pending_planning_suggestion();
+                app.persist_runtime_state();
+            }
+            app.release_pending_follow_ups();
+            app.finalize_active_turn();
+            app.set_runtime_phase(RuntimePhase::Failed, Some("runtime task failed".into()));
+            let recovery = if agent_slot.is_none() {
+                "Submit another prompt to rebuild the backend, or change the model."
+            } else {
+                "The current backend is still available; retry the operation."
+            };
+            let message = format!("Runtime task failed: {error}. {recovery}");
+            app.push_notice(message);
+            if let Some(mode) = app.pending_permission_mode.take() {
+                app.push_notice(format!(
+                    "Permissions not applied: {}. The task failed to return its runtime agent.",
+                    mode.label()
+                ));
+            }
+            return Ok(());
+        }
+    };
     match completion {
         TaskCompletion::Query {
             mut agent,
@@ -401,7 +412,6 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.hook_registry = Some(rebuilt.hook_registry);
                 }
                 app.hook_runtime = Some(rebuilt.hook_runtime.clone());
-                RuntimeClient::persist_config(&app.config_manager, &app.config)?;
                 let is_bootstrap = app.setup_status.is_none();
                 app.setup_status = Some(format!(
                     "Applied {} / {}",
@@ -445,6 +455,13 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         format!("{warning_count} startup warnings added to transcript.")
                     };
                     app.bottom_pane.notice = Some(notice);
+                }
+                if let Err(error) = RuntimeClient::persist_config(&app.config_manager, &app.config)
+                {
+                    log::warn!("Backend applied but configuration was not saved: {error:#}");
+                    let message =
+                        format!("Backend applied, but configuration was not saved: {error:#}");
+                    app.push_notice(message);
                 }
                 app.finalize_active_turn();
                 try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());

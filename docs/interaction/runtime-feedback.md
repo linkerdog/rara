@@ -63,6 +63,11 @@ commands such as `/compact` can display their own lifecycle events.
 If the broadcast stream lags, retained task events recover the missing tail and
 terminal feedback in sequence without duplicating output. A task panic retains
 already-produced text, closes the live stream, and surfaces the task failure.
+It also clears busy state and pending decisions owned by the lost agent,
+without terminating the terminal session. Queued text remains available; the
+next submitted prompt uses the existing missing-agent rebuild path. A rebuild
+failure remains visible and retryable. The failed agent's in-memory state is
+not reused after a panic.
 
 ### RUN-03: Approval Focus And Scope
 
@@ -93,6 +98,17 @@ See [planning mode](../features/planning-mode.md),
 [thread goals](../features/thread-goals.md) for the underlying decisions.
 
 ### RUN-04: Transcript And Recovery
+
+A failed resume keeps the current session and resume picker available, with a
+visible error. Startup resume failure keeps the fresh session available.
+Credential synchronization failure keeps the model picker available and does
+not start a rebuild. Required resume reads complete before changing session
+identity, history, or goal binding.
+
+A successful backend rebuild installs the replacement agent even when saving
+configuration fails. The in-session backend remains usable, and a visible
+warning explains that the configuration was not saved. Terminal I/O and
+transport errors retain their own error contracts.
 
 Render live progress, committed turns, tool lifecycle, thinking visibility,
 and pending decisions from typed presentation state. Keep event chronology and

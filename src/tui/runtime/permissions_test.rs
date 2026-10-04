@@ -338,7 +338,7 @@ async fn lost_agent_rejects_pending_permission_change() {
         None,
     )
     .await;
-    assert!(result.is_err());
+    result.expect("task failure is recoverable");
     assert!(app.pending_permission_mode.is_none());
     assert_eq!(app.permission_mode_label(), "accept-edits");
     assert!(

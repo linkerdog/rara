@@ -12,14 +12,47 @@ use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::message_role::MessageRole;
 
+#[cfg(test)]
+mod recovery_tests;
+
+pub(super) fn apply_startup_resume(
+    target: &super::event_loop::StartupResumeTarget,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+) {
+    use super::event_loop::StartupResumeTarget;
+    let result = match target {
+        StartupResumeTarget::Fresh => return,
+        StartupResumeTarget::Picker => {
+            app.open_overlay(super::state::Overlay::ListPicker(
+                super::state::ListPickerKind::Resume,
+            ));
+            return;
+        }
+        StartupResumeTarget::Latest => match app.state_db.as_ref().cloned() {
+            Some(state_db) => restore_latest_thread(&state_db, app, agent_slot),
+            None => Err(anyhow::anyhow!("session storage is unavailable")),
+        },
+        StartupResumeTarget::ThreadId(thread_id) => {
+            restore_thread_by_id(thread_id, app, agent_slot)
+        }
+    };
+    if let Err(error) = result {
+        log::warn!("Startup resume failed: {error:#}");
+        app.push_notice(format!(
+            "Could not resume thread; continuing with the current session: {error:#}"
+        ));
+    }
+}
+
 pub(super) fn restore_latest_thread(
     state_db: &Arc<StateDb>,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
     let store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let Some(thread) = store.latest_thread_summary()? else {
         return Ok(());
@@ -32,12 +65,13 @@ pub(super) fn restore_thread_by_id(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_mut() else {
-        return Ok(());
-    };
-    let Some(state_db) = app.state_db.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
+    let state_db = app
+        .state_db
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("session storage is unavailable"))?;
     let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let thread = thread_store.load_thread(thread_id)?;
     let todo_state = agent.session_manager.load_todo_state(thread_id)?;
