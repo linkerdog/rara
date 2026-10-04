@@ -42,9 +42,10 @@ service credential policy is added by this integration.
   generator packages. The generated changes add `sse-stream`, rmcp HTTP/SSE
   features, direct dependency aliases, and input hashes only; existing package
   versions remain unchanged.
-- The local default MCP Bazel test stops before compilation because the existing
-  external cache lacks `platforms//host` package files. Exact-head remote default
-  Bazel build/test remains required; no Bazel configuration was changed.
+- The local default MCP/runtime Bazel test stops before compilation because the
+  external cache lacks `protobuf//bazel/common` package files; the first
+  integration had stopped at `platforms//host`. Exact-head remote default Bazel
+  build/test remains required; no Bazel configuration was changed.
 - The PR records the published full revision, fresh downstream Git acceptance,
   and remote CI. The older branch's green checks are not integration evidence.
 
