@@ -24,7 +24,8 @@ members = [
     "crates/rara-core",
     "crates/rara-agent",
 ]
-resolver = "2"
+default-members = ["."]
+resolver = "3"
 
 [workspace.lints.clippy]
 expect_used = "deny"

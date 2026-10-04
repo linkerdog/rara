@@ -38,7 +38,8 @@ mod tests {
 
     struct HostTool;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl Tool for HostTool {
         fn name(&self) -> &str {
             "host_echo"
@@ -56,7 +57,7 @@ mod tests {
             &self,
             input: Value,
             context: ToolCallContext,
-            report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+            report: &mut rara_core::tool::ToolProgressCallback<'async_trait>,
         ) -> Result<Value, ToolError> {
             if context.is_cancelled() {
                 return Err(ToolError::ExecutionFailed("cancelled".into()));
@@ -74,7 +75,8 @@ mod tests {
 
     struct HostBackend;
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl LlmBackend for HostBackend {
         async fn ask(&self, _messages: &[Message], _tools: &[Value]) -> Result<LlmResponse> {
             bail!("streaming context required")
@@ -87,7 +89,7 @@ mod tests {
             messages: &[Message],
             tools: &[Value],
             metadata: LlmTurnMetadata,
-            on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+            on_event: &mut rara_core::llm::backend::LlmStreamCallback<'async_trait>,
         ) -> Result<LlmResponse> {
             metadata.ensure_not_cancelled()?;
             if messages.len() > 1 {
@@ -187,7 +189,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl LoopEffects for HostEffects {
         fn budget(&self) -> IterationBudget {
             IterationBudget::default()
@@ -256,7 +259,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+    #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
     impl ToolBatchEffects for HostEffects {
         async fn prepare_call(&mut self, call: &ToolCall) -> Result<ToolAdmission> {
             if call.name != "host_echo" {

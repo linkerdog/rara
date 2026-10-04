@@ -51,7 +51,7 @@ pub struct ModelTurnOutput {
 /// cancellation cleanup remains with the owning `LoopEffects` adapter. Text and
 /// tool input policy may fail; no later block or completion callback then runs.
 /// These callbacks must not execute the collected tools or commit the transcript.
-pub trait ModelTurnPolicy: Send {
+pub trait ModelTurnPolicy: rara_core::PlatformSend {
     fn event(&mut self, event: ModelTurnEvent);
 
     fn observe_response(&mut self, _response: &Result<LlmResponse>) {}

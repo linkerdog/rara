@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+
+use crate::Instant;
 
 /// Disjoint cache categories within the inclusive input token count.
 /// `None` is unknown; adapters must use `Some(0)` for verified absent categories.
