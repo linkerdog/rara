@@ -16,6 +16,8 @@ not bound a single long line.
 - Canonical visual rows and content-sensitive selection snapshots.
 - Grapheme-safe display-column truncation of diagnostic rows, startup labels,
   paths, and session titles.
+- Visible annotations for bidirectional controls, with source-offset-aware
+  editing and unchanged submitted input.
 
 ## Non-Goals
 
@@ -23,9 +25,9 @@ not bound a single long line.
 - Emulating a terminal, interpreting cursor movement, or retaining ANSI colors.
 - Bounding complete assistant responses or the entire conversation history.
 - Distinguishing concurrent legacy events that have no invocation identity.
-- A general Unicode spoofing detector or visible annotations for invisible
-  formatting. Physical rows follow the zero-width projection contract below;
-  visible clusters retain their joiners and variation selectors.
+- A general Unicode spoofing detector, normalization, or annotations for every
+  invisible character. Physical rows follow the zero-width projection contract
+  below; visible clusters retain their joiners and variation selectors.
 
 ## Architecture
 
@@ -70,6 +72,21 @@ does not first allocate a huge sanitized or formatted display string.
   even when it arrives in a later delta. Ordinary explicit newlines remain.
 - Display tabs expand to four spaces. Paste preserves tabs and normalizes CRLF
   before routing; escape/control removal precedes any burst placeholder.
+- The twelve Unicode `Bidi_Control` characters (`U+061C`, `U+200E..U+200F`,
+  `U+202A..U+202E`, and `U+2066..U+2069`) become visible code-point labels such
+  as `⟦U+202E⟧` in display text, before Markdown or width calculation. Labels
+  have no Markdown delimiter semantics and repeated sanitization is stable.
+  Escape payloads remain discarded rather than exposing labels from them.
+  This set follows [Unicode 17.0 PropList](https://www.unicode.org/Public/17.0.0/ucd/PropList.txt).
+- Paste, draft/history editing, submission, runtime events, and tool artifacts
+  retain these Unicode characters. Editors project the same visible labels
+  while mapping cursor positions and navigation to original character offsets;
+  a label is one source character and deletion removes that character. Transcript
+  selection copies the displayed label, not a hidden directional instruction.
+  Masked credential editors continue to show one mask per source character.
+- Other format characters are not blanket-filtered or normalized. Visible
+  clusters retain ZWJ/ZWNJ, variation selectors, combining marks, and emoji tags.
+  Standalone zero-width clusters still follow the physical-row rule below.
 - Every tool-progress message, including its bounded label and truncation
   marker, is at most 16 KiB and 16 logical lines. Eviction preserves UTF-8 and
   the newest visible output. Empty/control-only output creates no visible card
@@ -113,6 +130,7 @@ does not first allocate a huge sanitized or formatted display string.
 | Selection identity | Production rows and drag/copy after a same-sized middle replacement |
 | Unicode columns | Diagnostic chrome/prefix/message and startup/path/title matrices at zero, narrow, and wide widths; styled cross-span clusters and halfwidth sound marks |
 | Visible projection | Standalone zero-width removal, cross-style combining/ZWJ preservation, idempotent re-segmentation, and buffer/highlight/copy agreement |
+| Bidi annotations | All twelve controls across chunk boundaries, styled rows, Markdown, bounded progress, and selection; paste/submission preserve source, editor cursor/wrapping/deletion use source offsets; legitimate joining and emoji survive |
 | Final terminal diff | Halfwidth sound-mark widths agree with Ratatui cells, including escaped legacy symbols; trailing erase starts after the complete cluster |
 
 ## Operational Notes
@@ -126,9 +144,10 @@ large chunk still requires work proportional to its input size.
 
 - Tests do not prove physical-terminal latency or native clipboard acceptance.
 - Legacy progress without a call/terminal ID cannot separate same-name calls.
-- Column normalization is not a general Unicode spoofing detector. Raw source
-  and visually confusable Unicode require a separate inspection/annotation
-  policy that preserves legitimate text and emoji.
+- Bidi labels expose explicit direction controls, not all visually confusable
+  text or invisible payloads. A literal label can look identical to an annotation;
+  source inspection belongs to raw runtime/tool artifacts, not transcript copy.
+  Natural RTL text still depends on terminal shaping and ordering support.
 - Streams containing internal blocks or DeepSeek evidence replay canonical
   control cleanup on each later nonempty delta. A future incremental replacement
   must preserve transformation order, delayed separators, retrospective leading
@@ -139,3 +158,4 @@ large chunk still requires work proportional to its input size.
 - [Display text boundary](../journal/2026-10-03-display-text-boundary.md)
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [Streaming control-token cleanup](../journal/2026-10-04-streaming-control-cleanup.md)
+- [Bidirectional control annotations](../journal/2026-10-04-bidi-display-annotations.md)

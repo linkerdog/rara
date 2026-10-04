@@ -89,9 +89,11 @@ Active backlog only. Keep this file small and current.
       concurrent same-name calls. Assistant control-token cleanup now agrees
       across chunk boundaries, including delayed separators and DSML evidence;
       see [the control-cleanup checkpoint](journal/2026-10-04-streaming-control-cleanup.md).
-      Define a Unicode formatting/annotation policy
-      for bidi overrides and invisible text without breaking joiners or emoji;
-      terminal-control filtering alone does not prevent visual spoofing. See
+      Explicit bidi controls now use visible code-point labels, while paste and
+      submission retain source text and editing maps labels to source offsets.
+      Joiners and emoji retain the existing visible-cluster policy; this does
+      not detect general Unicode confusables or invisible payloads. See
+      [the bidi checkpoint](journal/2026-10-04-bidi-display-annotations.md) and
       [the display checkpoint](journal/2026-10-03-display-text-boundary.md).
 - [ ] Finish [#924](https://github.com/linkerdog/rara/issues/924) delivery gates:
       exact-head remote CI/review/merge and bounded real-terminal acceptance.
