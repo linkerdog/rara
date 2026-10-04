@@ -93,3 +93,30 @@ No implementation work is deferred from #975. Replay remains bounded by event
 count; an exhausted window cannot reconstruct lost transient output. TUI
 migration to the public session actor and broader transcript memory bounds
 remain separate tracked work.
+
+## Review Follow-Up
+
+PR #1024 review asks for current-main integration and stronger evidence around
+receipt/stream ordering. Main is merged without rewriting the feature branch.
+Rechecked the same Codex lag-marker and Claude Code sequence-cursor references.
+
+- Rejected zero-sequence transport records before projection, with a diagnostic.
+- Replaced the millisecond quiescence check with an immediate poll. A new
+  controller fixture parks later query receipts behind the current stream
+  boundary and verifies both intervening background events appear exactly once
+  in publication order before query completion.
+- Coalesced loss notices while one authoritative refresh remains pending;
+  additional gaps extend its cursor target. The regression initially produced
+  two notices and now requires one while the agent remains owned by execution.
+- The lightweight rendering harness rejects scripted resync markers because it
+  lacks query receipts and runtime ownership. Recovery coverage uses production
+  controller fixtures, avoiding a synthetic loss notice with different semantics.
+- Inspected non-TUI subscribers: hooks consume the raw event channel and still
+  drop lag. Memory/protocol control subscriptions found here are test fixtures.
+  Hook delivery/replay is tracked in `docs/todo.md`; replaying side effects needs
+  a separate idempotency contract and is outside the TUI recovery scope.
+
+The merged-branch TUI suite reports 1028 passed and 4 existing ignored tests.
+The original #1024 head passed all 11 remote checks; the new head must pass them
+again. `cargo clippy --locked --workspace --all-targets --no-deps -- -D warnings`,
+`cargo fmt --all`, and `git diff --check` pass on the merged branch.

@@ -321,10 +321,9 @@ impl TuiHarness {
                     .set_runtime_phase(RuntimePhase::Failed, Some(reason));
             }
             RuntimeProjectionEvent::ResyncRequired(gap) => {
-                self.app.push_notice(format!(
-                    "Runtime events missing after sequence {}",
-                    gap.requested
-                ));
+                // This rendering harness has no query receipt queue or owned
+                // agent. Recovery belongs in production-controller fixtures.
+                panic!("Use a TuiController recovery fixture for ResyncRequired: {gap:?}");
             }
             RuntimeProjectionEvent::Reconnected => {
                 self.app.set_runtime_phase(RuntimePhase::Idle, None);

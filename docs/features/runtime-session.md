@@ -357,13 +357,16 @@ channel. Explicit session event-capacity settings still supply the same requeste
 size to broadcast and retention. Broadcast lag and sequence gaps trigger replay before a
 later event can be projected. Subscription captures a cursor before subscribing
 and replays from it, closing the publication race; cancelled receives retain
-the cursor and pending replay.
+the cursor and pending replay. Zero-sequence transport records are invalid and
+are rejected with a diagnostic before projection.
 
 An exhausted replay window becomes an explicit projection recovery gap. Query
 receipts can fill that missing range without duplicating text. Missing events
 outside those receipts produce a visible warning and a refresh from the owned
 runtime, goal store, and agent activity state; an agent snapshot refresh waits
 until the retained event tail is applied and the running task returns its agent.
+Additional gaps extend that pending refresh without appending another loss
+notice; a new recovery episode can produce a new warning.
 Old replay must not overwrite a fresh snapshot. Idle recovery retires stale
 live progress without inventing tool results. The UI's cached snapshot is not an
 authoritative recovery source. A refresh cannot recreate lost transient text
@@ -375,7 +378,9 @@ capacity up.
 
 Verification compares lagged and uninterrupted non-query projections, exercises
 exhausted windows with and without complete query receipts, checks completion
-interleaving and stale-event fencing, and cancels/resumes stream receives.
+interleaving and stale-event fencing, and cancels/resumes stream receives. Recovery
+tests use the production controller, including its receipt queue; the lightweight
+rendering harness must reject scripted recovery markers it cannot model.
 
 Thinking, assistant output, and tool lifecycle events for a turn precede its
 terminal event because the actor publishes that boundary only after the root

@@ -97,7 +97,8 @@ impl Stream for ReplayingEventStream {
             match this.live.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(event))) => {
                     if event.sequence == 0 {
-                        return Poll::Ready(Some(RuntimeProjectionEvent::Runtime(Box::new(event))));
+                        log::warn!("Rejected runtime transport event with sequence zero");
+                        continue;
                     }
                     if event.sequence <= this.cursor {
                         continue;
@@ -157,5 +158,25 @@ mod tests {
             );
         }
         assert!(stream.next().now_or_never().is_none());
+    }
+
+    #[tokio::test]
+    async fn zero_sequence_records_cannot_bypass_transport_ordering() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let mut stream = ReplayingEventStream::new(bus.clone(), 0);
+        bus.publish_control_event(crate::runtime_control::wrap_agent_event(
+            "invalid",
+            0,
+            RuntimeProvenance::local_tui("test"),
+            AgentEvent::Status("unsequenced".into()),
+        ));
+        assert!(stream.next().now_or_never().is_none());
+        bus.send_with_provenance(
+            AgentEvent::Status("valid".into()),
+            RuntimeProvenance::local_tui("test"),
+        );
+        assert!(
+            matches!(stream.next().await, Some(RuntimeProjectionEvent::Runtime(event)) if event.sequence == 1)
+        );
     }
 }

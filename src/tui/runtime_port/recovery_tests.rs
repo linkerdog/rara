@@ -69,11 +69,7 @@ async fn broadcast_overflow_replays_every_event_once_without_a_warning() {
             matches!(stream.next().await, Some(RuntimeProjectionEvent::Runtime(event)) if event.sequence == sequence)
         );
     }
-    assert!(
-        tokio::time::timeout(Duration::from_millis(1), stream.next())
-            .await
-            .is_err()
-    );
+    assert!(stream.next().now_or_never().is_none());
     bus.send_with_provenance(
         AgentEvent::Status("after cancellation".into()),
         RuntimeProvenance::local_tui("test"),

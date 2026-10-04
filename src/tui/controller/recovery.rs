@@ -46,6 +46,18 @@ impl TuiController {
         if expected >= gap.oldest_available {
             return false;
         }
+        let already_pending = self.runtime_resync_through.is_some();
+        self.runtime_resync_through = Some(
+            self.runtime_resync_through
+                .map_or(gap.latest, |through| through.max(gap.latest)),
+        );
+        if already_pending {
+            log::debug!(
+                "Runtime recovery still pending: also missing {expected}..{}",
+                gap.oldest_available - 1
+            );
+            return false;
+        }
         log::warn!(
             "Runtime event replay exhausted: missing {expected}..{}",
             gap.oldest_available - 1
@@ -54,10 +66,6 @@ impl TuiController {
             "Some runtime events in {expected}..{} could not be recovered. Refreshing current state; some output may be missing.",
             gap.oldest_available - 1,
         ));
-        self.runtime_resync_through = Some(
-            self.runtime_resync_through
-                .map_or(gap.latest, |through| through.max(gap.latest)),
-        );
         self.needs_redraw = true;
         true
     }

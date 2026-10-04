@@ -76,7 +76,8 @@ lost and state is being refreshed. The refresh uses the owned runtime state,
 including goals and background agent activity; a busy agent is refreshed when
 it returns. Retained transcript text remains visible, but missing transient
 output is not presented as recovered. Recovery does not signal turn completion
-or reset the fence for terminal or foreign-session events.
+or reset the fence for terminal or foreign-session events. Repeated gaps while
+the same state refresh remains pending share one transcript notice.
 
 ### RUN-03: Approval Focus And Scope
 

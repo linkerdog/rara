@@ -203,6 +203,15 @@ async fn exhausted_window_refreshes_owned_state_and_defers_busy_agent() {
     fixture.pump_available().await;
     assert!(fixture.controller.runtime_resync_through.is_some());
     assert_eq!(fixture.controller.app.goal, Some(goal));
+    // The agent is still owned by execution, so another overflow belongs to
+    // the same pending refresh and must not append a second loss notice.
+    for n in 0..8 {
+        fixture.bus.send_with_provenance(
+            AgentEvent::Status(format!("second burst {n}")),
+            RuntimeProvenance::local_tui(agent.session_id.clone()),
+        );
+    }
+    fixture.pump_available().await;
     assert_eq!(
         fixture
             .messages()
@@ -259,6 +268,115 @@ async fn exhausted_window_refreshes_owned_state_and_defers_busy_agent() {
             .controller
             .resync_after_event_loss(&mut fixture.processor)
     );
+}
+
+#[tokio::test]
+async fn completion_respects_stream_boundary_with_later_query_receipts_pending() {
+    use crate::tui::runtime::QueryTaskControl;
+    use crate::tui::state::{RunningTask, TaskKind};
+
+    let mut fixture = Fixture::new(
+        RuntimeEventCapacity {
+            broadcast: 8,
+            replay: 8,
+        },
+        Arc::new(MockLlm),
+    )
+    .await;
+    let initial_cursor = fixture.controller.runtime_cursor;
+    let agent = fixture.processor.agent_mut().take().unwrap();
+    let control = QueryTaskControl::new(agent.session_id.clone());
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    fixture.controller.app.begin_running_turn();
+    fixture.controller.app.bottom_pane.running_task = Some(RunningTask {
+        kind: TaskKind::Query,
+        receiver,
+        handle: tokio::spawn(async move {
+            TaskCompletion::Query {
+                agent,
+                result: Ok(()),
+                goal_turn: None,
+            }
+        }),
+        started_at: std::time::Instant::now(),
+        next_heartbeat_after_secs: 2,
+        cancellation_token: None,
+        query_control: Some(control.clone()),
+    });
+    for label in [
+        "boundary query one",
+        "boundary background one",
+        "boundary query two",
+        "boundary background two",
+    ] {
+        let event = RuntimeEvent::Warning(WarningEvent::RuntimeWarning {
+            message: label.into(),
+        });
+        if label.contains("query") {
+            control.publish_event(
+                &fixture.bus,
+                &sender,
+                RuntimeControlEvent {
+                    event_id: String::new(),
+                    sequence: 0,
+                    turn_id: None,
+                    provenance: RuntimeProvenance::local_tui(control.session_id.clone()),
+                    event,
+                },
+            );
+        } else {
+            fixture.publish(event);
+        }
+    }
+    control
+        .publish_finished(&fixture.bus, &sender, Ok(()))
+        .unwrap();
+    let published = fixture.bus.current_sequence();
+    let first = fixture.controller.runtime_events.next().await.unwrap();
+    fixture.controller.apply_runtime_event(first);
+    assert_eq!(fixture.controller.runtime_cursor, initial_cursor + 1);
+    assert_eq!(
+        fixture
+            .controller
+            .pending_query_receipt
+            .as_ref()
+            .unwrap()
+            .sequence,
+        initial_cursor + 3,
+        "a future receipt must stay parked behind the stream boundary"
+    );
+    let completion = (&mut fixture
+        .controller
+        .app
+        .bottom_pane
+        .running_task
+        .as_mut()
+        .unwrap()
+        .handle)
+        .await;
+    fixture
+        .controller
+        .receive_runtime_task_completion(&mut fixture.processor, Box::new(completion))
+        .await
+        .unwrap();
+    assert_eq!(fixture.controller.runtime_cursor, published);
+    let messages = fixture.messages();
+    let boundary_messages = messages
+        .iter()
+        .filter(|text| text.starts_with("boundary "))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        boundary_messages,
+        [
+            "boundary query one",
+            "boundary background one",
+            "boundary query two",
+            "boundary background two"
+        ]
+    );
+    assert!(!fixture.controller.app.is_busy());
+    assert!(fixture.processor.agent().is_some());
 }
 
 #[derive(Default)]
