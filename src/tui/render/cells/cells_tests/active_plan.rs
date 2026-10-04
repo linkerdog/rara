@@ -214,11 +214,11 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Responding via dock"));
-    // Detail text (Command:, Working directory:, options) now rendered in dock panel.
-    assert!(!rendered.contains("Command:"));
-    assert!(!rendered.contains("bash ./scripts/migrate.sh"));
-    assert!(!rendered.contains("1. Allow once"));
+    assert!(!rendered.contains("Responding via dock"));
+    assert!(rendered.contains("Command:"));
+    assert!(rendered.contains("Working directory:"));
+    assert!(rendered.contains("bash ./scripts/migrate.sh"));
+    assert!(rendered.contains("1. Allow once"));
     assert!(
         !rendered
             .contains("approval required  1 allow once  2 allow prefix  3 allow session  4 deny")
@@ -270,7 +270,8 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Responding via dock"));
+    assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
+    assert!(rendered.contains("Working directory:"));
     assert!(rendered.contains("# Queued"));
     assert!(rendered.contains("after turn"));
     assert!(!rendered.contains("Queued follow-up messages"));

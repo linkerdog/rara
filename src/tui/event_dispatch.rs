@@ -231,6 +231,18 @@ async fn dispatch_event_inner(
             };
             kind.set_idx(app, idx);
         }
+        AppEvent::ScrollApprovalDetails(direction) => {
+            if let Some(request_id) = app
+                .active_pending_interaction()
+                .filter(|pending| pending.kind == ActivePendingInteractionKind::ShellApproval)
+                .and_then(|pending| pending._snapshot.approval.as_ref())
+                .map(|approval| approval.tool_use_id.clone())
+            {
+                app.bottom_pane
+                    .approval_details
+                    .navigate(&request_id, direction);
+            }
+        }
         AppEvent::MoveApprovalSelection(delta) => {
             if app.active_pending_interaction().is_some_and(|interaction| {
                 matches!(
