@@ -19,6 +19,8 @@ Active backlog only. Keep this file small and current.
       host-compatible accounting clocks and future bounds, and browser runtime
       tests. The [contract](features/portable-llm-contracts.md) currently proves
       browser-target compilation only.
+      Workspace resolver 3 and explicit root default-member selection are in
+      place; see [the workspace checkpoint](journal/2026-10-04-workspace-resolution.md).
 
 ## Prefix Cache Cost Evaluation
 

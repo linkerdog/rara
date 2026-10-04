@@ -499,7 +499,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "FILE:@@//Cargo.lock eec10c20bafebb72ef71ae5bdbcbc87c8b844556ddaef39a34449f7d13cd2cc2",
-          "FILE:@@//Cargo.toml ce77d9d8f2d7bbbb7413912027654708186834d830e540cbb59444a54961fcb6",
+          "FILE:@@//Cargo.toml 1143ce5be594ee815221703990253c1c9c0b6995a77e662087400d965375d607",
           "FILE:@@//crates/rara-agent/Cargo.toml d7d3f50be4bbc2266e70e6cb80357185c1761ebbd5d41d586abb3cf60ce7bc5d",
           "FILE:@@//crates/rara-core/Cargo.toml b2c645f7255cde0fd7d2f96188c1347fee68337c15b85adde57febe9b1497a56",
           "FILE:@@//crates/rara-observability/Cargo.toml 0c825f97ffa2fbbb9e9406e4bfb0054025dc0b139c5ebe23ff7a74b89c55a296",
