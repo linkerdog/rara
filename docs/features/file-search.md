@@ -49,6 +49,8 @@ crate.
 
 - `list_files(root, options)` for bounded file listing.
 - `search_files(query, roots, options)` for fuzzy path search.
+- `FileSearchIndex` for bounded, reusable, cancellable file discovery and Top-K
+  ranking, with separate index and result truncation metadata.
 - structured results with relative path, root, match type, total count, and
   truncation status.
 
@@ -63,6 +65,20 @@ The crate defaults to:
 - following symlinks;
 - returning stable path ordering for plain listing;
 - sorting fuzzy matches by score descending, then path ascending.
+
+### Composer Index Policy
+
+The composer file picker builds a workspace snapshot on its background worker.
+The generic index accepts explicit file-count/path-byte bounds and cancellation,
+retains UTF-8 file paths, and reuses discovery for subsequent fuzzy queries.
+Cancellation returns no partial result. Discovery failures remain errors;
+non-UTF-8 paths are counted as omissions. Score ordering matches `search_files`.
+The original list/search APIs and their traversal semantics remain unchanged.
+
+The TUI adapter owns build-directory exclusions, disables directory symlink
+following, and sets its index/result limits. It rebuilds after popup dismissal
+or workspace changes. See [Composer File Mentions](file-mentions.md) for input,
+worker ownership, and inline submission contracts.
 
 ### Tool Adapter Policy
 
@@ -110,8 +126,8 @@ stability until an explicit excerpt-selection step exists.
 
 ## Open Risks
 
-- The current crate performs a fresh walk per call. Large-workspace TUI pickers
-  should use a session-style incremental search surface instead.
+- The original list/search APIs perform a fresh walk per call. Index consumers
+  must explicitly rebuild to observe filesystem changes; there is no watcher.
 - `glob` and `grep` still have their own traversal paths. They should move to
   the shared crate only when their output contracts and ignore semantics are
   updated deliberately.
@@ -120,11 +136,11 @@ stability until an explicit excerpt-selection step exists.
 
 ## Follow-Up
 
-Future work should add a session-style incremental search surface for TUI
-pickers. File-content injection should wait for an explicit excerpt-selection
-contract that preserves budget and cache-prefix stability.
+File-content injection should wait for an explicit excerpt-selection contract
+that preserves budget and cache-prefix stability.
 
 ## Source Journals
 
 - `docs/journal/2026-05-07-file-search-crate.md`
 - `docs/journal/2026-07-29-file-search-memory-selection.md`
+- `docs/journal/2026-10-05-file-mentions.md`

@@ -23,7 +23,7 @@ projection must be shared by row rendering, navigation bounds, and selection.
 ### INPUT-01: Active Surface Owns The Key
 
 Priority is the top overlay, then a pending interaction's shortcuts with the
-scope described below, then ordinary composer and transcript handling. One key
+scope described below, then file completion, then ordinary composer and transcript handling. One key
 must not both dismiss an overlay and cancel a turn or approve a request.
 
 | Active surface | Keys | Result |
@@ -35,6 +35,7 @@ must not both dismiss an overlay and cancel a turn or approve a request.
 | Prompt history search | Printable characters, cursor keys, Backspace/Delete, paste | Edit the separate query; query edits select the newest match |
 | Prompt history search | Ctrl+R/Up; Down/Ctrl+S | Select an older/newer unique match without wrapping |
 | Prompt history search | Enter; Esc/Ctrl+C | Load the selected prompt without submitting; restore the unchanged draft and cursor |
+| File completion | Up/Down; Tab/Enter; Esc/Ctrl+C | Select a file; insert the reference without submitting; dismiss and preserve the draft |
 | Non-search list or permission picker | Up/Down or j/k | Move selection; Enter applies |
 | Resume picker | Printable characters | Search recent threads; Up/Down selects; Tab cycles sort |
 | General help | 1/2/3 | Choose General/Commands/Runtime tab |
@@ -48,7 +49,21 @@ not inherit the plain-list j/k shortcuts.
 
 ### INPUT-02: Composer Submission And Editing
 
-- Enter submits; Shift+Enter and Ctrl+J insert a newline.
+- Enter submits unless file completion owns the key; Shift+Enter and Ctrl+J
+  insert a newline.
+- `@` at a token boundary opens asynchronous fuzzy file completion. Loading,
+  empty, and failed completion states consume Enter/Tab without submitting.
+  Acceptance replaces the current query token with a JSON-quoted inline path
+  such as `@"src/main.rs"`. No file content is attached. Esc/Ctrl+C preserve
+  the draft and dismiss the unchanged query. Other overlays and pending
+  interactions take priority; Ctrl+R can open history search.
+- Encoded file mentions and owned paste placeholders share atomic movement,
+  deletion, and wrapping. Overwide labels are clipped for display only. History
+  reconstructs encoded mentions without filesystem access; Up/Down preserves
+  the current draft's paste ownership. Submission expands only owned paste
+  ranges, so literal duplicate labels and labels inside payloads are unchanged.
+  See [Composer File Mentions](../features/file-mentions.md) for limits and
+  stale-result ownership.
 - Ctrl+C closes the top overlay without cancelling underlying work or arming
   quit. Without an overlay, the first press clears an idle composer or requests
   cancellation while running, preserving the running draft. It also shows
@@ -65,7 +80,7 @@ not inherit the plain-list j/k shortcuts.
   subject to their own key encoding. `/quit` remains an explicit direct exit.
 - Unix Ctrl+Z suspends the foreground process group through RUN-07. It never
   edits the active input field; platforms without job control ignore it.
-- With no overlay, Esc requests cancellation while running and is otherwise a
+- With no overlay or file completion, Esc requests cancellation while running and is otherwise a
   no-op, except for the explicit shell-approval rejection action in RUN-03.
 - Up/Down first follow the existing input-history boundary rules, otherwise
   move inside multiline input or scroll when the composer is empty.
@@ -90,7 +105,7 @@ not inherit the plain-list j/k shortcuts.
   Submission expands and consumes the complete draft through the same cleanup
   boundary, including whitespace-only input; submitted paste notices do not
   linger after their content is sent or discarded.
-  Outside the command palette, Esc retains its existing cancellation/no-op
+  Outside the command palette and file completion, Esc retains cancellation/no-op
   behavior and preserves the draft. Palette dismissal discards its draft as
   specified in INPUT-03; no paste may appear later in a cleared or submitted
   composer.

@@ -28,6 +28,7 @@ impl TuiApp {
                 ..Default::default()
             },
             input_history: Vec::new(),
+            file_mentions: Default::default(),
             prompt_history: Default::default(),
             input_history_cursor: None,
             input_history_draft: None,

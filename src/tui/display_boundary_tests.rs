@@ -107,7 +107,10 @@ fn paste_burst_and_editable_overlays_receive_only_sanitized_text() {
     let expected = format!("{}\n\tEND", "x".repeat(1200));
     super::terminal_ui::handle_paste(text.clone(), harness.app_mut());
     harness.app_mut().bottom_pane.flush_paste_burst();
-    assert_eq!(harness.app().bottom_pane.large_paste_pending[0].1, expected);
+    assert_eq!(
+        harness.app().bottom_pane.large_paste_pending[0].content,
+        expected
+    );
     harness.app_mut().bottom_pane.expand_large_paste();
     assert_eq!(harness.app().bottom_pane.input, expected);
     harness

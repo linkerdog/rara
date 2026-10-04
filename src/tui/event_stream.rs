@@ -45,6 +45,7 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 if app.composer_input_is_active() && !discarding_palette {
                     app.flush_composer_paste();
                 }
+                app.refresh_file_mentions();
                 Some(UiEvent::App(super::map_key_to_event(key_event, app)))
             } else {
                 None
@@ -69,6 +70,9 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
 }
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
+    if app.file_mention_open() {
+        return AppEvent::Noop;
+    }
     match mouse_event.kind {
         MouseEventKind::Down(MouseButton::Left) if app.overlay.is_none() => {
             AppEvent::StartTranscriptSelection(ScreenPosition::new(

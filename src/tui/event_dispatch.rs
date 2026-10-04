@@ -39,7 +39,9 @@ pub(crate) async fn dispatch_event(
     agent_slot: &mut Option<Agent>,
     oauth_manager: &Arc<OAuthManager>,
 ) -> anyhow::Result<bool> {
-    dispatch_event_inner(event, app, agent_slot, oauth_manager, None).await
+    let result = dispatch_event_inner(event, app, agent_slot, oauth_manager, None).await;
+    app.refresh_file_mentions();
+    result
 }
 
 pub(crate) async fn dispatch_event_with_runtime(
@@ -49,7 +51,10 @@ pub(crate) async fn dispatch_event_with_runtime(
     oauth_manager: &Arc<OAuthManager>,
     runtime_port: &dyn RuntimeClientPort,
 ) -> anyhow::Result<bool> {
-    dispatch_event_inner(event, app, agent_slot, oauth_manager, Some(runtime_port)).await
+    let result =
+        dispatch_event_inner(event, app, agent_slot, oauth_manager, Some(runtime_port)).await;
+    app.refresh_file_mentions();
+    result
 }
 
 async fn dispatch_event_inner(
@@ -84,6 +89,7 @@ async fn dispatch_event_inner(
         AppEvent::Goal(action) => {
             super::runtime::apply_goal_dialog_action(action, app, agent_slot, runtime_port).await;
         }
+        AppEvent::FileMention(action) => app.apply_file_mention(action),
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {

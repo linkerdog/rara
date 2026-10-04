@@ -1,0 +1,23 @@
+---
+source: src/tui/file_mentions/tests.rs
+assertion_line: 219
+expression: "tui.screen_text(70, 18)"
+---
+── RARA ──────────────────────────────────────────────────
+
+model · -                               /model to change
+dir   · <CWD>
+Ready.
+──
+Type a message to start a task or run a local command.
+
+Files
+> @"src/main.rs"
+  @"src/a b.rs"
+  @"src/⟦U+202E⟧unsafe.rs"
+↑/↓ select  Tab/Enter insert  Esc back
+  Ready  perm=custom   waiting for input
+› inspect @src
+
+
+                                       perm=custom approval=suggestion

@@ -248,6 +248,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
         needs_redraw |= maintainer.app_mut().poll_prompt_history();
+        needs_redraw |= maintainer.app_mut().poll_file_mentions();
         needs_redraw |= maintainer.queue_restored_goal(processor).await;
         if maintainer.poll_repo_context().await {
             needs_redraw = true;

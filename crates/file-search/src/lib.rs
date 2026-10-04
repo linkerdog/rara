@@ -18,6 +18,9 @@ use nucleo::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo::{Config, Matcher, Utf32Str};
 use serde::Serialize;
 
+mod index;
+pub use index::{FileSearchIndex, IndexLimits, IndexedSearchResults, SearchCancellation};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MatchType {
@@ -151,7 +154,7 @@ pub fn list_files(root: impl Into<PathBuf>, options: FileSearchOptions) -> Resul
     })
 }
 
-fn collect_entries(roots: &[PathBuf], options: &FileSearchOptions) -> Result<Vec<FileEntry>> {
+fn build_walk(roots: &[PathBuf], options: &FileSearchOptions) -> Result<WalkBuilder> {
     let Some(first_root) = roots.first() else {
         anyhow::bail!("at least one search root is required");
     };
@@ -176,6 +179,12 @@ fn collect_entries(roots: &[PathBuf], options: &FileSearchOptions) -> Result<Vec
         walk_builder.overrides(override_matcher);
     }
 
+    Ok(walk_builder)
+}
+
+fn collect_entries(roots: &[PathBuf], options: &FileSearchOptions) -> Result<Vec<FileEntry>> {
+    let walk_builder = build_walk(roots, options)?;
+    let first_root = &roots[0];
     let mut entries = Vec::new();
     for entry in walk_builder.build() {
         let entry = entry?;

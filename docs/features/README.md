@@ -30,6 +30,7 @@ Each active feature spec should include:
 ## Current Persistence Specs
 
 - `session-transcript.md`: typed session and sub-agent transcript storage.
+- `file-mentions.md`: asynchronous file completion and atomic composer references.
 - `prompt-history.md`: bounded per-user composer recall, privacy, and lazy search.
 
 ## Control-Plane Readiness
