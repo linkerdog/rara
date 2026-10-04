@@ -8999,6 +8999,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "two-face",
+ "unicase",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "url",

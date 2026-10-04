@@ -45,8 +45,20 @@ Retained source offsets include indentation that the parser may skip. The
 canonical writer resumes with the stable prefix's root formatting state;
 separator rows are not reconstructed with independent block-joining rules.
 Confirmed tables and following source are held until canonical finalization;
-reference definitions require explicit source-wide invalidation. Source
-replacement resets source and row boundaries together.
+reference definitions appearing in a mutable tail require explicit source-wide
+invalidation. After that replay, an owned reference context lets later blocks
+resolve prior definitions without parsing retained source. Resolution preserves
+the parser's Unicode case folding and first-definition precedence. Source
+replacement resets source, references, and row boundaries together.
+
+Reference reuse is conservative about the parser's expansion budget. The
+number of closing brackets multiplied by the largest decoded destination-plus-
+title size bounds possible expansion. Check this bound against each parser's
+`max(source bytes, 100,000)` budget, for both the whole document and each mutable
+suffix or stable-prefix pass. The document count is accumulated from new source
+only; fragment checks scan source already subject to parsing. If any bound can
+reach its budget, use canonical full-source parsing until reset. This preserves
+resource-limit behavior without imposing a fixed document-length cutoff.
 
 Visual-row reuse separates immutable committed blocks from the replaceable
 active tail. Viewport counting, visible rendering, and selection share the same
@@ -170,6 +182,7 @@ boundaries for issue #921:
 | Active prefix | Production assembly counts stay flat on unchanged paints, scrolling, composer-only edits, and response appends; nested same-length changes, replacement, interaction/queue state, thinking source/duration, theme, and width match uncached rendering |
 | Thinking slot | Growing thinking and duration ticks retain both static sections; production wrapping touches only the selected window and chrome; empty/visible transitions, spacing, history dividers, and cross-section copy match uncached rendering |
 | Table boundary | Tables interrupting mutable paragraphs preserve the canonical preceding prose at every chunk split and finalize to complete-message rows |
+| Reference context | Appends after early/late definitions avoid retained-source parsing; Unicode labels, duplicate precedence, late definitions/titles, images, and expansion-budget fallback match canonical styled rows |
 | Replay epoch | Same-length replacement; finalization without appended source; fence closer/normalization/highlight-limit and reference replay retain no stale styled rows |
 | Persistent index | Thousands of variable-size blocks with retained snapshots; logarithmic roots, balanced subtree order, exact indexing, and joined-boundary copy |
 | Correctness | Production renderer and copy/selection agreement after streaming, finalization, resize, and reset |
@@ -203,8 +216,11 @@ on a slow output device.
 - Arbitrary markdown may have a long mutable suffix. Work bounds must distinguish
   new source, unstable structure, and one-time full finalization/reflow.
 - Unindented top-level open fences reuse syntax state for completed code lines.
-  Quoted/indented fences, normalization, closer candidates, and source-wide
-  references conservatively use canonical mutable-tail or full-source replay.
+  Quoted/indented fences, normalization, closer candidates, newly parsed reference
+  definitions, and potential reference-expansion exhaustion conservatively use
+  canonical mutable-tail or full-source replay. Ordinary blocks after retained
+  definitions reuse the reference context; replay is not permanent merely
+  because a document contains references.
   Long single paragraphs/lists still require mutable-tail work; this is not
   an unconditional O(new-delta) guarantee for every Markdown document.
 - Source-cache work counters exclude the display sanitizer and control-token
@@ -220,6 +236,7 @@ on a slow output device.
 
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
+- [Streaming reference context](../journal/2026-10-04-streaming-reference-context.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)
 - [Bounded thinking window](../journal/2026-10-03-bounded-thinking-window.md)
