@@ -261,7 +261,7 @@ Examples:
     already performed explicit recall.
 - TUI inspection loads filesystem inputs in the background and shows an explicit
   loading state until its first matching result. It refreshes workspace inputs
-  every two seconds while idle; changes to session, workspace, prompt config, or
+  every two seconds; changes to session, workspace, prompt config, or
   execution mode invalidate older replies. Shared-task scans refresh separately.
   This display cache never supplies a model request: request assembly continues
   to load current inputs, preserving source order, budgets, and cache prefixes.

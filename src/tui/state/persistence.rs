@@ -53,7 +53,10 @@ impl TuiApp {
     }
 
     pub(crate) fn persist_runtime_state(&mut self) {
-        if self.storage.is_none() || self.snapshot.session_id.is_empty() {
+        if self.storage.is_none()
+            || self.snapshot.session_id.is_empty()
+            || self.pending_restore.is_some()
+        {
             return;
         }
         let mut checkpoint = RuntimeCheckpoint {

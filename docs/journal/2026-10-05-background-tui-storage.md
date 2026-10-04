@@ -59,6 +59,8 @@ agent stays owned by the runtime throughout preparation. Failure and cancellatio
 preserve it. Applying a successful result clears old session-local interactions
 without deleting live data. Draft submission waits; deferred permissions apply
 after the outcome, and startup plugin rebuilding waits for the restored binding.
+Provisional snapshots do not enqueue checkpoints while a restore is pending,
+preventing an unused fresh session from becoming the next latest-thread target.
 
 The event loop waits for an explicit write acknowledgement on quit and keeps
 rendering. Esc cancels the exit but retains accepted writes. Save failure leaves
@@ -97,7 +99,7 @@ sleeps. Fresh display projection is compared with model-context assembly.
 
 Local validation:
 
-- `cargo test --lib tui:: -- --nocapture`: 1,055 passed, four existing ignored after merging current main.
+- `cargo test --lib tui:: -- --nocapture`: 1,056 passed, four existing ignored after merging current main.
 - `cargo test --lib context:: -- --nocapture`: 67 passed.
 - `cargo test --lib thread_io:: -- --nocapture`: five passed, including read/write panic isolation.
 - `cargo test --lib runtime_goals -- --nocapture`: 11 passed.

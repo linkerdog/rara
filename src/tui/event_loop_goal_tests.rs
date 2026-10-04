@@ -544,3 +544,41 @@ async fn startup_plugin_rebuild_waits_for_prepared_restore() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn startup_resume_does_not_index_the_unused_fresh_session() {
+    let mut fixture = Fixture::new().await;
+    seed_thread(&mut fixture, GoalStatus::Paused);
+    let fresh_id = fixture.processor.agent().unwrap().session_id.clone();
+    let db = fixture.controller.app().state_db.clone().unwrap();
+    crate::tui::session_restore::apply_startup_resume(
+        &crate::tui::event_loop::StartupResumeTarget::Latest,
+        fixture.controller.app_mut(),
+        fixture.processor.agent_mut(),
+    );
+    fixture
+        .processor
+        .sync_snapshot(fixture.controller.app_mut());
+    fixture.controller.app_mut().flush_storage().await.unwrap();
+    assert!(
+        db.load_session_runtime_state(&fresh_id).unwrap().is_none(),
+        "the provisional snapshot must not become a more recent empty thread"
+    );
+    crate::tui::session_restore::finish_restore_for_test(
+        fixture.controller.app_mut(),
+        fixture.processor.agent_mut(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        fixture.processor.agent().unwrap().session_id,
+        "resumed-thread"
+    );
+    fixture
+        .controller
+        .app_mut()
+        .shutdown_storage()
+        .await
+        .unwrap();
+    assert!(db.load_session_runtime_state(&fresh_id).unwrap().is_none());
+}
