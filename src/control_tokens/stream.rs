@@ -1,12 +1,13 @@
 use super::{DEEPSEEK_EOS, INTERNAL_BLOCK_TAGS};
+use crate::llm::deepseek_dsml::DSML_TOKENS;
 
 const CONTEXT_TOKENS: [&str; 6] = [
     INTERNAL_BLOCK_TAGS[0].open,
     INTERNAL_BLOCK_TAGS[1].open,
     INTERNAL_BLOCK_TAGS[2].open,
     DEEPSEEK_EOS,
-    "｜DSML｜",
-    "|DSML|",
+    DSML_TOKENS[0],
+    DSML_TOKENS[1],
 ];
 const CONTEXT_WINDOW: usize = {
     let mut longest = 0;
@@ -91,5 +92,73 @@ impl ControlTokenReplay {
             };
         }
         legacy_completed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::control_tokens::scrub_internal_control_tokens;
+
+    #[test]
+    fn every_canonical_context_token_selects_replay_across_splits() {
+        let tokens = INTERNAL_BLOCK_TAGS
+            .iter()
+            .map(|tag| tag.open)
+            .chain([DEEPSEEK_EOS])
+            .chain(DSML_TOKENS);
+        for token in tokens {
+            for split in token
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain([token.len()])
+            {
+                let mut recognizer = ControlTokenReplay::default();
+                let first = recognizer.requires_replay(&token[..split]);
+                let second = recognizer.requires_replay(&token[split..]);
+                assert!(
+                    first || second,
+                    "missing context token {token:?} at {split}"
+                );
+                assert!(recognizer.requires_replay("following text"));
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_recognition_matches_canonical_grammar_across_splits() {
+        let sources = (0_u8..=127)
+            .flat_map(|byte| {
+                let ch = char::from(byte);
+                [format!("<{ch}|>"), format!("<a{ch}b|>")]
+            })
+            .chain(
+                [
+                    "<|>",
+                    "<\u{e9}|>",
+                    "<\u{540d}|>",
+                    "<a\u{e9}z|>",
+                    "<name_-09|>",
+                ]
+                .into_iter()
+                .map(str::to_owned),
+            );
+        for source in sources {
+            let expected = scrub_internal_control_tokens(&source) != source;
+            for split in source
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain([source.len()])
+            {
+                let mut recognizer = ControlTokenReplay::default();
+                let first = recognizer.requires_replay(&source[..split]);
+                let second = recognizer.requires_replay(&source[split..]);
+                assert_eq!(
+                    first || second,
+                    expected,
+                    "legacy source {source:?} at {split}"
+                );
+            }
+        }
     }
 }

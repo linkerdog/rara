@@ -87,6 +87,11 @@ not inherit the plain-list j/k shortcuts.
   Editable overlays receive sanitized text with line breaks converted to
   spaces; read-only ownership remains unchanged. See
   [display text boundary](../features/display-text-boundary.md).
+- Unicode bidirectional controls remain in pasted and submitted source, but
+  appear as code-point labels such as `⟦U+202E⟧` while editing. Cursor motion and
+  deletion treat each label as its original single character, including when a
+  label wraps. Joiners, variation selectors, and emoji retain their normal form.
+  Credential editors remain masked.
 
 An ordinary composer accepts j/k as text even when empty. Transcript scrolling
 uses arrows, PageUp/PageDown, or the mouse. An empty approval composer retains

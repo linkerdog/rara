@@ -81,19 +81,10 @@ fn task_result_lifecycle_event<T>(result: &anyhow::Result<T>) -> AgentEvent {
         Ok(_) => AgentEvent::AgentStop {
             reason: "turn complete".to_string(),
         },
-        Err(err) => {
-            let message = format_error_chain(err);
-            if message.contains("cancelled by user") {
-                AgentEvent::AgentStop {
-                    reason: "cancelled by user".to_string(),
-                }
-            } else {
-                AgentEvent::AgentError {
-                    message,
-                    recoverable: false,
-                }
-            }
-        }
+        Err(err) => AgentEvent::AgentError {
+            message: format_error_chain(err),
+            recoverable: false,
+        },
     }
 }
 

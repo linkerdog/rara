@@ -13,6 +13,9 @@
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
+mod bidi;
+pub(crate) use bidi::{annotate_bidi_text, bidi_annotation};
+
 #[derive(Clone, Copy, Debug, Default)]
 enum EscapeState {
     #[default]
@@ -25,10 +28,10 @@ enum EscapeState {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-enum Tabs {
+enum TextMode {
     #[default]
-    Expand,
-    Preserve,
+    Display,
+    Paste,
 }
 
 /// Removes terminal side effects with constant-size state across text deltas.
@@ -36,7 +39,7 @@ enum Tabs {
 pub(crate) struct StreamSanitizer {
     escape: EscapeState,
     after_cr: bool,
-    tabs: Tabs,
+    mode: TextMode,
 }
 
 impl StreamSanitizer {
@@ -72,16 +75,24 @@ impl StreamSanitizer {
                     '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}' => {
                         self.escape = EscapeState::StringControl;
                     }
-                    '\t' => match self.tabs {
-                        Tabs::Expand => {
+                    '\t' => match self.mode {
+                        TextMode::Display => {
                             for _ in 0..4 {
                                 emit(' ');
                             }
                         }
-                        Tabs::Preserve => emit('\t'),
+                        TextMode::Paste => emit('\t'),
                     },
                     ch if ch.is_control() => {}
-                    ch => emit(ch),
+                    ch => {
+                        if matches!(self.mode, TextMode::Display)
+                            && let Some(label) = bidi_annotation(ch)
+                        {
+                            label.chars().for_each(&mut emit);
+                        } else {
+                            emit(ch);
+                        }
+                    }
                 },
                 EscapeState::Escape => {
                     self.escape = match ch {
@@ -126,7 +137,7 @@ pub(crate) fn sanitize_display_text(input: &str) -> String {
 
 pub(crate) fn sanitize_paste_text(input: &str) -> String {
     StreamSanitizer {
-        tabs: Tabs::Preserve,
+        mode: TextMode::Paste,
         ..StreamSanitizer::default()
     }
     .push_delta(input)
