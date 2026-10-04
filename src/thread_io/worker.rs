@@ -35,6 +35,7 @@ impl WriteStore for DatabaseStore {
 enum Request {
     Write(WriteOperation),
     Read(Box<dyn FnOnce(Result<()>) + Send>),
+    Execute(Box<dyn FnOnce(Result<()>) + Send>),
     Shutdown(oneshot::Sender<Result<()>>),
 }
 
@@ -124,6 +125,27 @@ impl ThreadIo {
         self.read(|| Ok(()))?
             .await
             .context("storage worker stopped before flush acknowledgement")?
+    }
+
+    /// Admit an ordered mutation that still runs if its UI receipt is dropped.
+    /// Unlike a cancellable read, an accepted command must not disappear on quit.
+    pub(crate) fn execute<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<oneshot::Receiver<Result<T>>> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(Request::Execute(Box::new(move |flushed| {
+                let result = flushed.and_then(|()| {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))
+                        .unwrap_or_else(|_| Err(anyhow::anyhow!("storage command panicked")))
+                });
+                if let Err(Err(error)) = sender.send(result) {
+                    log::warn!("Unobserved storage command failed: {error:#}");
+                }
+            })))
+            .map_err(|_| anyhow::anyhow!("storage worker is unavailable"))?;
+        Ok(receiver)
     }
 
     pub(crate) fn status(&self) -> StorageStatus {
@@ -220,7 +242,7 @@ fn run(
                 }
                 can_merge = true;
             }
-            Ok(Request::Read(read)) => {
+            Ok(Request::Read(read) | Request::Execute(read)) => {
                 can_merge = false;
                 let flushed = flush_pending(&*store, &mut pending, status);
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read(flushed))).is_err()

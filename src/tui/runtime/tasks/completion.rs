@@ -121,6 +121,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         }
     };
     match completion {
+        TaskCompletion::ThreadCommand { result } => {
+            super::super::thread_commands::finish(app, agent_slot, result);
+        }
         TaskCompletion::ReviewPrepared { result } => {
             super::super::review::finish(app, agent_slot, result);
         }

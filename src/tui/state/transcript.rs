@@ -257,6 +257,11 @@ impl TuiApp {
     }
 
     pub fn reset_transcript(&mut self) {
+        self.finalize_active_turn();
+        if !self.active_turn.entries.is_empty() {
+            self.push_notice("Could not save the current turn; the transcript was not cleared.");
+            return;
+        }
         self.bottom_pane.approval_details = Default::default();
         self.committed_turns.clear();
         self.active_turn.entries.clear();
@@ -339,13 +344,14 @@ impl TuiApp {
         }
         self.active_turn.thinking_duration =
             self.active_live.thinking_started_at.map(|s| s.elapsed());
-        let ordinal = self.committed_turns.len();
+        let ordinal = self.next_turn_ordinal.max(self.committed_turns.len());
         let turn_to_persist = self.active_turn.clone();
         if !self.persist_turn(ordinal, &turn_to_persist) {
             self.clear_active_live_sections();
             return;
         }
         let turn = std::mem::take(&mut self.active_turn).into_inner();
+        self.next_turn_ordinal = ordinal.saturating_add(1);
         self.committed_turns.push(turn);
         // The writer clears the live log only after this turn is durable.
         // Append preserves prior immutable render blocks; layout sees the new count.
@@ -357,6 +363,7 @@ impl TuiApp {
     }
 
     pub fn restore_committed_turns(&mut self, turns: Vec<TranscriptTurn>) {
+        self.next_turn_ordinal = turns.len();
         self.bottom_pane.approval_details = Default::default();
         self.committed_turns = turns;
         self.active_turn.entries.clear();

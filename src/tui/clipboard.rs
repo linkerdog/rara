@@ -68,7 +68,7 @@ impl Clipboard {
             "Clipboard copy queued.".into()
         } else {
             self.start(request);
-            "Copying transcript selection to clipboard...".into()
+            "Copying text to clipboard...".into()
         }
     }
 
@@ -111,10 +111,10 @@ impl Clipboard {
             return None;
         }
         Some(match result {
-            Ok(()) => "Copied transcript selection to clipboard.".into(),
+            Ok(()) => "Copied text to clipboard.".into(),
             Err(error) => match task.terminal {
                 Ok(()) => {
-                    format!("Sent selection to terminal clipboard; native copy failed: {error}")
+                    format!("Sent text to terminal clipboard; native copy failed: {error}")
                 }
                 Err(terminal) => {
                     format!("Failed to copy transcript selection: {terminal}; {error}")
@@ -134,9 +134,7 @@ impl Drop for Clipboard {
 
 fn terminal_notice(result: io::Result<()>) -> String {
     match result {
-        Ok(()) => {
-            "Sent selection to terminal clipboard (acceptance depends on terminal policy).".into()
-        }
+        Ok(()) => "Sent text to terminal clipboard (acceptance depends on terminal policy).".into(),
         Err(error) => format!("Failed to copy transcript selection: {error}"),
     }
 }

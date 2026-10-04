@@ -329,6 +329,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 changed |= super::goal_ui::update_elapsed(app, crate::runtime_goals::current_unix_timestamp_secs());
                 changed |= app.poll_shared_task_files();
                 changed |= app.poll_storage();
+                changed |= super::diff_view::poll(app).await;
                 changed |= app.poll_resume_queries();
                 changed |= super::session_restore::poll_restore(app, processor.agent_mut());
                 if app.poll_context_files() {

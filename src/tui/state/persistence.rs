@@ -66,6 +66,7 @@ impl TuiApp {
             provider: self.config.provider.clone(),
             model: self.current_model_label().to_owned(),
             base_url: self.config.base_url.clone(),
+            agent_mode: self.agent_execution_mode_label().to_owned(),
             bash_approval: self.bash_approval_mode_label().to_owned(),
             plan_explanation: self.snapshot.plan_explanation.clone(),
             prompt_runtime: PersistedPromptRuntimeState {

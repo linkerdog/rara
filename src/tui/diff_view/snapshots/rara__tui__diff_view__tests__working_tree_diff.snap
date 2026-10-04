@@ -1,0 +1,29 @@
+---
+source: src/tui/diff_view/tests.rs
+assertion_line: 88
+expression: screen
+---
+ Working tree diff
+ +row 0: a long line with Unicode text: café and a complete tail
+ +row 1: a long line with Unicode text: café and a complete tail
+ +row 2: a long line with Unicode text: café and a complete tail
+ +row 3: a long line with Unicode text: café and a complete tail
+ +row 4: a long line with Unicode text: café and a complete tail
+ +row 5: a long line with Unicode text: café and a complete tail
+ +row 6: a long line with Unicode text: café and a complete tail
+ +row 7: a long line with Unicode text: café and a complete tail
+ +row 8: a long line with Unicode text: café and a complete tail
+ +row 9: a long line with Unicode text: café and a complete tail
+ +row 10: a long line with Unicode text: café and a complete tail
+ +row 11: a long line with Unicode text: café and a complete tail
+ +row 12: a long line with Unicode text: café and a complete tail
+ +row 13: a long line with Unicode text: café and a complete tail
+ +row 14: a long line with Unicode text: café and a complete tail
+ +row 15: a long line with Unicode text: café and a complete tail
+ +row 16: a long line with Unicode text: café and a complete tail
+ +row 17: a long line with Unicode text: café and a complete tail
+ +row 18: a long line with Unicode text: café and a complete tail
+ +row 19: a long line with Unicode text: café and a complete tail
+ +row 20: a long line with Unicode text: café and a complete tail
+ +row 21: a long line with Unicode text: café and a complete tail
+ Esc close | arrows / PgUp PgDn / Home End scroll

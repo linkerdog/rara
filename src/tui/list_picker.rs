@@ -473,7 +473,12 @@ fn render_resume_summary_lines(
 }
 
 fn normalized_resume_preview(summary: &ThreadSummary) -> String {
-    let preview = summary.preview.replace('\n', " ");
+    let preview = summary
+        .metadata
+        .title
+        .as_deref()
+        .unwrap_or(&summary.preview)
+        .replace('\n', " ");
     let preview = preview.trim();
     if preview.is_empty() {
         "(no transcript preview)".to_string()
@@ -744,6 +749,7 @@ mod tests {
         let summary = ThreadSummary {
             metadata: ThreadMetadata {
                 session_id: "thread-123".to_string(),
+                title: None,
                 cwd: "/Users/test/projects/rara".to_string(),
                 branch: "feature/resume-picker".to_string(),
                 provider: "codex".to_string(),
@@ -854,6 +860,7 @@ mod tests {
         ThreadSummary {
             metadata: ThreadMetadata {
                 session_id: session_id.to_string(),
+                title: None,
                 cwd: cwd.to_string(),
                 branch: "main".to_string(),
                 provider: "codex".to_string(),
@@ -871,5 +878,15 @@ mod tests {
             preview: format!("User: {session_id}"),
             compaction: CompactionRecord::default(),
         }
+    }
+
+    #[test]
+    fn resume_preview_prefers_the_persisted_title() {
+        let mut thread = thread_summary("named", "/workspace");
+        thread.metadata.title = Some("Investigate persistence".into());
+        assert_eq!(
+            normalized_resume_preview(&thread),
+            "Investigate persistence"
+        );
     }
 }

@@ -109,6 +109,18 @@ impl<'a> ThreadRecorder<'a> {
         state: &ThreadRuntimeState<'_>,
         lineage: &ThreadRuntimeLineage,
     ) -> Result<()> {
+        thread_metadata::with_thread_record_lock(
+            &self.state_db.rollout_root(),
+            state.session_id,
+            || self.persist_locked_runtime_state(state, lineage),
+        )
+    }
+
+    fn persist_locked_runtime_state(
+        &self,
+        state: &ThreadRuntimeState<'_>,
+        lineage: &ThreadRuntimeLineage,
+    ) -> Result<()> {
         let now = crate::utils::epoch_seconds();
         let existing_metadata = match thread_metadata::load_thread_record(
             &self.state_db.rollout_root(),
@@ -123,6 +135,9 @@ impl<'a> ThreadRecorder<'a> {
             .unwrap_or(now);
         let record = PersistedThreadRecord {
             session_id: state.session_id.to_string(),
+            title: existing_metadata
+                .as_ref()
+                .and_then(|record| record.title.clone()),
             cwd: state.cwd.to_string(),
             branch: state.branch.to_string(),
             provider: state.provider.to_string(),
@@ -159,7 +174,37 @@ impl<'a> ThreadRecorder<'a> {
             state.history_len,
             state.transcript_len,
             &state.compact_state,
-        )
+        )?;
+        if let Some(title) = record.title.as_deref() {
+            self.state_db.set_thread_title(state.session_id, title)?;
+        }
+        Ok(())
+    }
+
+    pub fn rename_thread(&self, session_id: &str, title: &str) -> Result<()> {
+        anyhow::ensure!(
+            !title.chars().any(char::is_control),
+            "thread names cannot contain control characters"
+        );
+        let title = title.trim();
+        anyhow::ensure!(
+            !title.is_empty() && title.chars().count() <= 256,
+            "thread names must contain 1 to 256 characters"
+        );
+        let root = self.state_db.rollout_root();
+        thread_metadata::with_thread_record_lock(&root, session_id, || {
+            let mut record = match thread_metadata::load_thread_record(&root, session_id)? {
+                Some(record) => record,
+                None => self
+                    .state_db
+                    .load_thread_record(session_id)?
+                    .ok_or_else(|| anyhow::anyhow!("thread {session_id} does not exist"))?,
+            };
+            record.title = Some(title.to_owned());
+            record.updated_at = crate::utils::epoch_seconds();
+            thread_metadata::write_thread_record(&root, &record)?;
+            self.state_db.set_thread_title(session_id, title)
+        })
     }
 
     fn current_lineage(&self, session_id: &str) -> Result<ThreadRuntimeLineage> {

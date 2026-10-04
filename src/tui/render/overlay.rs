@@ -1,4 +1,5 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
+mod diff;
 mod goal;
 mod setup;
 
@@ -29,6 +30,12 @@ use crate::tui::status_display::render_status_lines;
 
 pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
     match overlay {
+        Overlay::Diff => {
+            let popup = f.area();
+            f.render_widget(Clear, popup);
+            diff::render(f, app, popup);
+            None
+        }
         Overlay::Goal => {
             let popup = popup_rect(f.area(), 85, 70);
             render_dimmer(f, f.area());

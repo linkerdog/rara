@@ -24,6 +24,7 @@ mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
+mod diff_view;
 #[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;

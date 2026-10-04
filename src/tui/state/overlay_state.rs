@@ -120,7 +120,7 @@ impl TuiApp {
         if matches!(overlay, Overlay::SkillsPicker) {
             self.skill_picker_idx = 0;
         }
-        if matches!(overlay, Overlay::Context) {
+        if matches!(overlay, Overlay::Context | Overlay::Diff) {
             // Auto-hide the command palette when opening a full-screen modal
             // so Esc dismisses only the modal, not the stale palette underneath.
             if matches!(self.overlay, Some(Overlay::CommandPalette)) {
@@ -137,6 +137,9 @@ impl TuiApp {
     /// overlay becomes irrelevant due to an input change rather than an
     /// explicit user action.
     fn hide_overlay(&mut self) {
+        if self.overlay == Some(Overlay::Diff) {
+            self.diff_view.close();
+        }
         self.overlay_stack.pop();
         self.overlay = self.overlay_stack.last().copied();
         self.command_palette_idx = 0;

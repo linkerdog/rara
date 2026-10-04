@@ -170,6 +170,7 @@ impl TuiApp {
 fn matches_query(thread: &ThreadSummary, query: &str) -> bool {
     let metadata = &thread.metadata;
     [
+        metadata.title.as_deref().unwrap_or_default(),
         thread.preview.as_str(),
         &metadata.session_id,
         &metadata.cwd,

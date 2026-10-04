@@ -9,6 +9,8 @@ pub(crate) fn command_unavailable_reason(
     }
     let allowed = match command.kind {
         LocalCommandKind::Help
+        | LocalCommandKind::Copy
+        | LocalCommandKind::Diff
         | LocalCommandKind::Status
         | LocalCommandKind::Context
         | LocalCommandKind::Permissions
@@ -22,6 +24,10 @@ pub(crate) fn command_unavailable_reason(
             .is_none_or(|arg| arg.trim() == "pause"),
         LocalCommandKind::Approval
         | LocalCommandKind::Clear
+        | LocalCommandKind::New
+        | LocalCommandKind::Init
+        | LocalCommandKind::Export
+        | LocalCommandKind::Rename
         | LocalCommandKind::Compact
         | LocalCommandKind::Connect
         | LocalCommandKind::Model
