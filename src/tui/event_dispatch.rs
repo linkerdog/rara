@@ -78,7 +78,9 @@ async fn dispatch_event_inner(
         app.flush_composer_paste();
     }
     match event {
-        AppEvent::QuitShortcut(_) => unreachable!("quit shortcut was resolved before dispatch"),
+        AppEvent::QuitShortcut(_) => {
+            anyhow::bail!("quit shortcut reached dispatch without resolution");
+        }
         AppEvent::Goal(action) => {
             super::runtime::apply_goal_dialog_action(action, app, agent_slot, runtime_port).await;
         }
@@ -423,7 +425,9 @@ async fn dispatch_event_inner(
             } else {
                 let codex_is_active = app.config.provider == "codex";
                 match target {
-                    ApiKeyTarget::Registry => unreachable!("registry credential handled above"),
+                    ApiKeyTarget::Registry => {
+                        anyhow::bail!("registry credential reached the legacy key editor");
+                    }
                     ApiKeyTarget::Codex => app.config.set_provider_api_key("codex", value),
                     ApiKeyTarget::DeepSeek => app.config.set_provider_api_key("deepseek", value),
                     ApiKeyTarget::Kimi => app.config.set_provider_api_key("kimi", value),

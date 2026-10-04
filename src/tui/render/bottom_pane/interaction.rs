@@ -55,8 +55,11 @@ pub(super) fn render(
         let preview_budget = usize::from(preview_area.height.saturating_sub(2));
         let clipped = details.len() > preview_budget;
         preview.extend(details.into_iter().take(preview_budget));
-        if clipped && preview_budget > 0 {
-            *preview.last_mut().expect("preview row") = Line::styled(
+        if clipped
+            && preview_budget > 0
+            && let Some(last) = preview.last_mut()
+        {
+            *last = Line::styled(
                 "  … (details truncated)",
                 Style::default().fg(TEXT_SECONDARY),
             );

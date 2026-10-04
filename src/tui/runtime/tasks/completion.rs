@@ -33,16 +33,10 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
     apply_compatibility_events: bool,
     mut runtime: Option<&mut RuntimeTaskServices>,
 ) -> anyhow::Result<()> {
-    if app.bottom_pane.running_task.is_none() {
-        return Ok(());
-    }
-
     let (pending_events, is_finished) = {
-        let task = app
-            .bottom_pane
-            .running_task
-            .as_mut()
-            .expect("task should exist");
+        let Some(task) = app.bottom_pane.running_task.as_mut() else {
+            return Ok(());
+        };
         let mut pending_events = Vec::new();
         while let Ok(event) = task.receiver.try_recv() {
             pending_events.push(event);
@@ -66,7 +60,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         .bottom_pane
         .running_task
         .take()
-        .expect("task should exist");
+        .ok_or_else(|| anyhow::anyhow!("running task disappeared during event projection"))?;
     let completion = match completion {
         Some(completion) => completion,
         None => task.handle.await,
@@ -202,8 +196,6 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                                 ),
                             );
                             app.finalize_active_turn();
-                            *agent_slot = Some(agent);
-                            let agent = agent_slot.take().expect("agent");
                             if let Some(services) = runtime.as_deref().cloned() {
                                 start_goal_continuation_task_with_services(
                                     app, prompt, agent, services,
