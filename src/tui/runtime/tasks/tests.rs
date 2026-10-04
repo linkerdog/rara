@@ -38,6 +38,8 @@ use crate::tui::state::{
 };
 use crate::workspace::WorkspaceMemory;
 
+mod recovery;
+
 struct PlainAnswerBackend;
 
 #[path = "continuity_tests.rs"]

@@ -20,7 +20,7 @@ use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand,
 };
-use super::session_restore::{restore_latest_thread, restore_thread_by_id};
+use super::session_restore::apply_startup_resume;
 use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
@@ -118,22 +118,7 @@ async fn run_tui_session(
             let app = maintainer.app_mut();
             let agent_slot = processor.agent_mut();
             app.attach_state_db(state_db);
-            match &startup.resume {
-                StartupResumeTarget::Fresh => {
-                    let _ = agent_slot;
-                }
-                StartupResumeTarget::Latest => {
-                    if let Some(state_db) = app.state_db.as_ref().cloned() {
-                        restore_latest_thread(&state_db, app, agent_slot)?;
-                    }
-                }
-                StartupResumeTarget::ThreadId(thread_id) => {
-                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
-                }
-                StartupResumeTarget::Picker => {
-                    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
-                }
-            }
+            apply_startup_resume(&startup.resume, app, agent_slot);
         }
         Err(err) => maintainer.app_mut().set_state_db_error(err.to_string()),
     }
