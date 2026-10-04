@@ -128,6 +128,9 @@ materialize changed source on presentation access and reuse unchanged rows.
 Assistant/thinking text is sanitized before source ingestion, with independent
 escape and CRLF state across deltas. Logical newlines end unfinished controls
 and remain visible, so malformed metadata cannot hide later transcript lines.
+Explicit Unicode bidirectional controls appear as `⟦U+XXXX⟧` labels before
+Markdown layout. Transcript selection copies those visible labels; raw runtime
+and tool payloads retain their original text.
 Tool progress keeps a bounded tail per
 invocation and stdout/stderr identity, including interleaved same-name calls.
 Every progress entry, including its label and truncation marker, is at most
