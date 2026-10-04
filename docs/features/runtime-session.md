@@ -296,6 +296,20 @@ remain fenced. A task join failure closes live output while preserving its
 partial transcript and surfaces an explicit error rather than waiting for a
 producer that no longer exists.
 
+### Review Preparation
+
+The TUI compatibility processor handles local review preparation as a separate
+maintenance task. It retains the current agent while an owned asynchronous Git
+capture runs, and consumes its typed result before starting a review query.
+Clean, failed, and cancelled preparation never enter the query completion
+barrier or invoke the model. Cancellation is recorded before aborting the owned
+capture task; a concurrently completed result cannot start a query after that
+stop has been admitted. The helper's cancellation boundary terminates and reaps
+its child. The processor rejects competing maintenance and interaction
+continuations while preparation owns the task slot; queued prompts and pending
+permission changes retain their existing behavior. Review preparation does not
+change the public session or wire API.
+
 ### Shutdown Receipts
 
 Closing a session stops admission, cancels active work, and waits for the root
@@ -474,6 +488,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
 | Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
 | TUI stop bridge | delivered | Task-return/terminal-event interleavings retain trailing output; typed stop admission rejects finished tasks; session/turn fencing rejects stale output and terminal events before the completion barrier. |
+| Review preparation | delivered | Bounded Git capture leaves the agent available on clean/error/cancel; competing maintenance cannot replace it; a stop wins over an unconsumed successful result. |
 | Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
@@ -539,3 +554,5 @@ model-generated tool arguments.
 - [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
 - [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)
 - [Lightweight session ownership](../journal/2026-10-04-lightweight-session-runtime.md)
+
+- [Bounded review preparation](../journal/2026-10-04-review-diff-capture.md)

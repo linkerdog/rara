@@ -78,6 +78,26 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
     } else {
         while task.receiver.try_recv().is_ok() {}
     }
+    let completion = if matches!(task.kind, TaskKind::ReviewPreparation)
+        && task
+            .cancellation_token
+            .as_ref()
+            .is_some_and(|token| token.load(std::sync::atomic::Ordering::SeqCst))
+    {
+        if let Err(error) = &completion
+            && !error.is_cancelled()
+        {
+            log::warn!("Review preparation failed while stopping: {error}");
+        }
+        if let Ok(TaskCompletion::ReviewPrepared { result: Err(error) }) = &completion {
+            log::warn!("Review preparation failed while stopping: {error:#}");
+        }
+        Ok(TaskCompletion::ReviewPrepared {
+            result: Ok(super::super::review::ReviewPreparation::Cancelled),
+        })
+    } else {
+        completion
+    };
     let completion = match completion {
         Ok(completion) => completion,
         Err(error) => {
@@ -107,6 +127,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         }
     };
     match completion {
+        TaskCompletion::ReviewPrepared { result } => {
+            super::super::review::finish(app, agent_slot, result);
+        }
         TaskCompletion::Query {
             mut agent,
             result,
