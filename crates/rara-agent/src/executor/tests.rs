@@ -40,6 +40,16 @@ struct Effects {
     final_outcome: Option<LoopEnd>,
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[test]
+fn native_loop_future_remains_send() {
+    fn assert_send(_: impl Future + Send) {}
+    assert_send(execute_loop(
+        &mut Effects::default(),
+        &mut LoopProgress::default(),
+    ));
+}
+
 impl Effects {
     async fn step(&mut self, step: Step, progress: LoopProgress) -> Result<()> {
         let index = {
@@ -69,7 +79,8 @@ impl Effects {
     }
 }
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl LoopEffects for Effects {
     fn budget(&self) -> IterationBudget {
         self.budget

@@ -31,11 +31,13 @@ Core contains the registry and invocation contract; native implementations stay
 in `rara-tools` and the application. Existing application call sites consume
 the same trait and registry through re-exports, with no conversion layer.
 
-The core's production dependency closure is limited to error, async-trait,
+The core's native production dependency closure is limited to error, async-trait,
 serialization, procedural macro support, and inference context types. It has
 no Tokio, transport, filesystem implementation, provider, TUI, ACP, OAuth,
 database, or local model dependency. `PathBuf` remains an inert context value;
 it does not make filesystem access portable to a browser.
+The browser target additionally includes `web-time` and its JavaScript binding
+dependencies. Downstream graph checks audit native and browser targets separately.
 
 ## Contracts
 
@@ -58,8 +60,9 @@ it does not make filesystem access portable to a browser.
   must map the two patch error variants explicitly; neither portable core nor
   the independent patch parser takes a reverse adapter dependency.
 - Native `Send + Sync` and `async_trait` future bounds are unchanged. Browser
-  target compilation alone does not promise compatibility with non-Send fetch
-  futures or working inference clocks.
+  tools and progress callbacks may retain local state across promise suspension;
+  see [browser effects](browser-agent-effects.md) for target selection, real
+  browser tests, and the remaining HTTP/SSE/session boundary.
 
 ## Validation Matrix
 
