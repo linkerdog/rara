@@ -69,6 +69,16 @@ next submitted prompt uses the existing missing-agent rebuild path. A rebuild
 failure remains visible and retryable. The failed agent's in-memory state is
 not reused after a panic.
 
+Broadcast lag is repaired from the bounded runtime replay window before later
+events are shown. Successful recovery is silent. If replay and query receipts
+cannot recover a missing range, the transcript shows that runtime events were
+lost and state is being refreshed. The refresh uses the owned runtime state,
+including goals and background agent activity; a busy agent is refreshed when
+it returns. Retained transcript text remains visible, but missing transient
+output is not presented as recovered. Recovery does not signal turn completion
+or reset the fence for terminal or foreign-session events. Repeated gaps while
+the same state refresh remains pending share one transcript notice.
+
 ### RUN-03: Approval Focus And Scope
 
 Pending interaction priority is plan approval, shell approval, then requested

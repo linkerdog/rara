@@ -45,6 +45,15 @@ Active backlog only. Keep this file small and current.
 - [x] `tools/pty.rs` — split into real submodules (15-line facade; largest child 617 lines)
 - [x] `tui/runtime/tasks.rs` — completion orchestration split into `tasks/completion.rs` (747 + 545 lines)
 
+## Runtime Event Consumers
+
+- [ ] Define bounded delivery/replay policy for non-TUI hook subscribers.
+      `hook_runtime.rs` consumes the raw event broadcast and still continues on lag; recovery must avoid
+      replaying hook side effects twice. Memory/protocol subscriptions currently
+      found in their test fixtures do not establish a production delivery
+      contract. Keep this separate from the completed TUI replay work in
+      [the recovery checkpoint](journal/2026-10-04-runtime-event-resync.md).
+
 ## TUI / UX
 
 - [ ] Complete [#921](https://github.com/linkerdog/rara/issues/921) transcript
