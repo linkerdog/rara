@@ -309,13 +309,11 @@ Active backlog only. Keep this file small and current.
       handle and add a non-global multi-session `RuntimeHost`.
 - [ ] Move the TUI rebuild, approval, goal, and maintenance pipeline from its
       compatibility `RuntimeClient` owner into `RuntimeSession` commands.
-- [ ] Extract the minimal runtime dependency graph so external Rust hosts do
-      not pull TUI, local-model, ACP, or OAuth implementations
-      ([#860](https://github.com/linkerdog/rara/issues/860)). The Git fixture
-      validates portable contracts and the shared asynchronous executor; extend
-      it to portable context/policy assembly and the
-      real `RuntimeSession` with cancellation and transcript readback before
-      closing the issue. Follow the [extraction sequence](features/portable-tool-contracts.md#runtime-extraction-sequence).
+- [x] Extract the minimal `rara-runtime` dependency graph and shared session
+      owner for external Rust hosts ([#860](https://github.com/linkerdog/rara/issues/860)).
+      The [downstream runtime contract](features/downstream-runtime.md) defines
+      the fresh Git consumer gate for deltas, tool identity, cancellation,
+      transcript readback, and exclusion of native application integrations.
 - [ ] Add a Nowledge Mem compatibility harness for provider, tool, event,
       transcript, usage, cancellation, and MCP parity before replacing Rig in
       production lanes.

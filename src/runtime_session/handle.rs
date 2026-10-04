@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use rara_runtime::{SessionHandle, TurnStopKind};
+use tokio::sync::{broadcast, watch};
 
-use super::actor::SessionActor;
-use super::command::{SessionCommand, TurnStopKind};
+use super::command::NativeControl;
+use super::driver::{NativeInput, NativeSessionDriver};
 use super::input::TurnInput;
-use super::shutdown::ShutdownOutcome;
 use super::subscription::replay_gap_error;
 use super::{
     RuntimeEventStream, RuntimeInput, RuntimeSessionBuilder, RuntimeSessionError, RuntimeSessionId,
-    RuntimeSessionPhase, RuntimeSessionSnapshot, RuntimeSessionSubscription, RuntimeTurn,
-    RuntimeTurnId, RuntimeTurnOutcome,
+    RuntimeSessionSnapshot, RuntimeSessionSubscription, RuntimeTurn, RuntimeTurnId,
+    RuntimeTurnOutcome,
 };
 use crate::agent::{AgentEvent, AgentOutputMode};
 use crate::llm::{LlmBackend, Message};
@@ -30,11 +30,10 @@ use crate::tools::agent::{AgentTreeConfig, AgentTreeControl};
 pub struct RuntimeSession {
     id: RuntimeSessionId,
     workspace_root: Arc<PathBuf>,
-    commands: mpsc::Sender<SessionCommand>,
+    inner: SessionHandle<NativeSessionDriver>,
     snapshot: watch::Receiver<RuntimeSessionSnapshot>,
     event_bus: Arc<RuntimeEventBus>,
     agent_tree_control: Arc<AgentTreeControl>,
-    shutdown_outcome: Arc<OnceLock<ShutdownOutcome>>,
 }
 
 impl RuntimeSession {
@@ -60,40 +59,18 @@ impl RuntimeSession {
         let agent_tree_control = agent
             .agent_tree_control()
             .unwrap_or_else(|| Arc::new(AgentTreeControl::new(AgentTreeConfig::default())));
-        let actor_agent_tree_control = agent_tree_control.clone();
         let event_bus = client.event_bus.clone();
-        let snapshot = RuntimeSessionSnapshot {
-            session_id: id.clone(),
-            phase: RuntimeSessionPhase::Idle,
-            generation: 0,
-            last_sequence: event_bus.current_sequence(),
-            pending_input: None,
-        };
-        let (snapshot_sender, snapshot_receiver) = watch::channel(snapshot);
-        let (commands, command_receiver) = mpsc::channel(command_capacity.max(1));
-        let shutdown_outcome = Arc::new(OnceLock::new());
-        let session = Self {
-            id: id.clone(),
+        let driver = NativeSessionDriver::new(id.clone(), client, agent_tree_control.clone());
+        let inner = SessionHandle::start(id.clone(), driver, command_capacity);
+        let snapshot = inner.subscribe_snapshots();
+        Ok(Self {
+            id,
             workspace_root: Arc::new(workspace_root),
-            commands,
-            snapshot: snapshot_receiver,
-            event_bus: event_bus.clone(),
+            inner,
+            snapshot,
+            event_bus,
             agent_tree_control,
-            shutdown_outcome: shutdown_outcome.clone(),
-        };
-        tokio::spawn(async move {
-            SessionActor::new(
-                id,
-                client,
-                command_receiver,
-                snapshot_sender,
-                actor_agent_tree_control,
-                shutdown_outcome,
-            )
-            .run()
-            .await;
-        });
-        Ok(session)
+        })
     }
 
     /// Return the stable session identity.
@@ -102,7 +79,7 @@ impl RuntimeSession {
     }
 
     pub(super) fn same_actor(&self, other: &Self) -> bool {
-        self.commands.same_channel(&other.commands)
+        self.inner.same_actor(&other.inner)
     }
 
     /// Return the workspace owned by this session.
@@ -157,11 +134,7 @@ impl RuntimeSession {
 
     /// Publish session state through the canonical ordered control stream.
     pub async fn query_runtime_state(&self) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::QueryState { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
+        self.inner.query_runtime_state().await
     }
 
     /// Replay after an exclusive cursor, then follow the same ordered live stream.
@@ -182,7 +155,7 @@ impl RuntimeSession {
             .replay_after(after_sequence)
             .map_err(replay_gap_error)?;
         Ok(RuntimeEventStream::new(
-            self.event_bus.clone(),
+            self.event_bus.control_log(),
             live,
             self.snapshot.clone(),
             replay,
@@ -248,21 +221,9 @@ impl RuntimeSession {
         output_mode: AgentOutputMode,
         accounting: rara_observability::InferenceTask,
     ) -> Result<RuntimeTurn, RuntimeSessionError> {
-        let turn_id = RuntimeTurnId::generate();
-        let (accepted_sender, accepted_receiver) = oneshot::channel();
-        let (completion_sender, completion_receiver) = oneshot::channel();
-        self.try_send(SessionCommand::StartTurn {
-            turn_id: turn_id.clone(),
-            input,
-            output_mode,
-            accepted: accepted_sender,
-            completed: completion_sender,
-            inference_agent: accounting.start_agent(None),
-        })?;
-        accepted_receiver
+        self.inner
+            .submit(NativeInput { input, output_mode }, accounting)
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)??;
-        Ok(RuntimeTurn::new(turn_id, completion_receiver, accounting))
     }
 
     /// Execute a prompt and stream its typed events to the caller.
@@ -377,24 +338,12 @@ impl RuntimeSession {
         expected_turn: Option<RuntimeTurnId>,
         kind: TurnStopKind,
     ) -> Result<RuntimeTurnId, RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::StopTurn {
-            expected_turn,
-            kind,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
+        self.inner.stop_turn(expected_turn, kind).await
     }
 
     /// Return a consistent transcript snapshot while the session is idle.
     pub async fn transcript(&self) -> Result<Vec<Message>, RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::GetTranscript { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
+        self.inner.transcript().await
     }
 
     /// Replace the transcript while idle, for host-controlled hydration.
@@ -402,14 +351,7 @@ impl RuntimeSession {
         &self,
         transcript: Vec<Message>,
     ) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::ReplaceTranscript {
-            transcript,
-            response: sender,
-        })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
+        self.inner.replace_transcript(transcript).await
     }
 
     /// Apply a bounded prompt source while idle, keeping its authority session-scoped.
@@ -426,15 +368,12 @@ impl RuntimeSession {
             return Err(RuntimeSessionError::InvalidSource);
         }
         provenance.session_id = Some(self.id.to_string());
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::PromptSource {
-            request,
-            provenance,
-            response: sender,
-        })?;
-        receiver
+        self.inner
+            .control(NativeControl::PromptSource {
+                request,
+                provenance,
+            })
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
     }
 
     /// Apply bounded inline skills to the session-owned native tool catalogue.
@@ -451,47 +390,17 @@ impl RuntimeSession {
             return Err(RuntimeSessionError::InvalidSource);
         }
         provenance.session_id = Some(self.id.to_string());
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::SkillSource {
-            request,
-            provenance,
-            response: sender,
-        })?;
-        receiver
+        self.inner
+            .control(NativeControl::SkillSource {
+                request,
+                provenance,
+            })
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
     }
 
     /// Drain the session-owned memory lifecycle and stop the actor.
     pub async fn shutdown(&self) -> Result<(), RuntimeSessionError> {
-        if matches!(self.snapshot().phase, RuntimeSessionPhase::Closed) {
-            return self.shutdown_result();
-        }
-        if matches!(self.snapshot().phase, RuntimeSessionPhase::Closing) {
-            return self.wait_until_closed().await;
-        }
-        let (sender, receiver) = oneshot::channel();
-        if self
-            .commands
-            .send(SessionCommand::Shutdown { response: sender })
-            .await
-            .is_err()
-        {
-            return if self.is_closing_or_closed() {
-                self.wait_until_closed().await
-            } else {
-                Err(RuntimeSessionError::ActorStopped)
-            };
-        }
-        match receiver.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(RuntimeSessionError::Closed)) if self.is_closing_or_closed() => {
-                self.wait_until_closed().await
-            }
-            Ok(Err(error)) => Err(error),
-            Err(_) if self.is_closing_or_closed() => self.wait_until_closed().await,
-            Err(_) => Err(RuntimeSessionError::ActorStopped),
-        }
+        self.inner.shutdown().await
     }
 
     /// Replace the provider backend while the session is idle.
@@ -499,89 +408,32 @@ impl RuntimeSession {
         &self,
         backend: Arc<dyn LlmBackend>,
     ) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::ReplaceBackend {
-            backend,
-            response: sender,
-        })?;
-        receiver
+        self.inner
+            .control(NativeControl::ReplaceBackend { backend })
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
     }
 
     /// Set the maximum number of model turns allowed for each submitted turn.
     pub async fn set_max_turns(&self, max_turns: usize) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::SetMaxTurns {
-            max_turns,
-            response: sender,
-        })?;
-        receiver
+        self.inner
+            .control(NativeControl::SetMaxTurns { max_turns })
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
     }
 
     pub(crate) async fn disable_tools(&self) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::DisableTools { response: sender })?;
-        receiver
-            .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
+        self.inner.control(NativeControl::DisableTools).await
     }
 
     pub(crate) async fn disable_extension_execution(&self) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::DisableExtensionExecution { response: sender })?;
-        receiver
+        self.inner
+            .control(NativeControl::DisableExtensionExecution)
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
     }
 
     /// Change the local tool-approval policy while the session is idle.
     pub async fn set_full_access_mode(&self, enabled: bool) -> Result<(), RuntimeSessionError> {
-        let (sender, receiver) = oneshot::channel();
-        self.try_send(SessionCommand::SetFullAccess {
-            enabled,
-            response: sender,
-        })?;
-        receiver
+        self.inner
+            .control(NativeControl::SetFullAccess { enabled })
             .await
-            .map_err(|_| RuntimeSessionError::ActorStopped)?
-    }
-
-    fn try_send(&self, command: SessionCommand) -> Result<(), RuntimeSessionError> {
-        self.commands
-            .try_send(command)
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => RuntimeSessionError::Overloaded,
-                mpsc::error::TrySendError::Closed(_) => RuntimeSessionError::Closed,
-            })
-    }
-
-    async fn wait_until_closed(&self) -> Result<(), RuntimeSessionError> {
-        let mut snapshot = self.snapshot.clone();
-        loop {
-            if matches!(snapshot.borrow().phase, RuntimeSessionPhase::Closed) {
-                return self.shutdown_result();
-            }
-            snapshot
-                .changed()
-                .await
-                .map_err(|_| RuntimeSessionError::ActorStopped)?;
-        }
-    }
-
-    fn is_closing_or_closed(&self) -> bool {
-        matches!(
-            self.snapshot().phase,
-            RuntimeSessionPhase::Closing | RuntimeSessionPhase::Closed
-        )
-    }
-
-    fn shutdown_result(&self) -> Result<(), RuntimeSessionError> {
-        self.shutdown_outcome
-            .get()
-            .ok_or(RuntimeSessionError::ActorStopped)?
-            .result()
     }
 }

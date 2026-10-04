@@ -8994,6 +8994,7 @@ dependencies = [
  "rara-persistence",
  "rara-plugins",
  "rara-provider-catalog",
+ "rara-runtime",
  "rara-sandbox",
  "rara-skills",
  "rara-state",
@@ -9207,6 +9208,23 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "rara-runtime"
+version = "0.0.22"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "rara-agent",
+ "rara-core",
+ "rara-observability",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

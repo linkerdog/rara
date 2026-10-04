@@ -178,3 +178,9 @@ impl TurnInput {
         }
     }
 }
+
+impl rara_runtime::PendingInteraction for RuntimePendingInput {
+    fn turn_id(&self) -> &RuntimeTurnId {
+        &self.turn_id
+    }
+}

@@ -27,9 +27,8 @@ runtime. The host still owns transcript content, in-flight model/tool results,
 tools, cancellation tokens, permissions, context projection, hooks, stores, and
 event publication. Restoring control state alone must not replay an external
 effect or claim durable recovery. Store/effect coordination, provider adapters,
-browser execution, and lightweight `RuntimeSession` packaging remain open in
-[#860](https://github.com/linkerdog/rara/issues/860) and
-[#871](https://github.com/linkerdog/rara/issues/871).
+and browser provider/session execution remain #871 work. Native and host session
+ownership is provided by the [lightweight runtime package](downstream-runtime.md).
 
 ## Architecture
 
@@ -203,12 +202,11 @@ claim browser execution.
 Control-state serialization is narrower than durable agent recovery. Hosts
 must pair it with their own transcript and effect ledger. The application still
 owns native execution facilities; this crate alone does not make the existing
-`RuntimeSessionBuilder` lightweight. Extracting model/tool effects and session
-assembly must keep these decisions and preserve host authority instead of
+application builder lightweight. The separate `rara-runtime` host builder and
+native session adapter share the extracted actor, loop/model/tool effects, and
+ordered event log. Native context/provider assembly and browser provider/session
+execution remain distinct work; host policy must preserve authority without
 growing another loop.
-
-Session actor extraction begins after these gates and must preserve the
-existing ownership and cancellation-return barriers.
 
 ## Source Journals
 

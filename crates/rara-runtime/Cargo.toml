@@ -1,0 +1,24 @@
+[package]
+name = "rara-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+log = "0.4"
+rara-core = { path = "../rara-core" }
+rara-agent = { path = "../rara-agent" }
+rara-observability = { path = "../rara-observability" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+
+[lints]
+workspace = true
