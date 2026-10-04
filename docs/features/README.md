@@ -96,6 +96,8 @@ future appserver integrations can use.
   paste/transcript ingestion, bounded tool display tails, and selection identity.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
+- `browser-agent-effects.md`: browser-local shared model/tool/loop effects,
+  accounting clocks, native thread-safety compatibility, and browser execution tests.
 
 ## App Server Architecture
 

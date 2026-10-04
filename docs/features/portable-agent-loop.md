@@ -63,8 +63,9 @@ effect later fails. Approval pauses retain their explicit finalization reason;
 the adapter preserves the distinction from session-end cleanup.
 
 The executor requires no async runtime, spawning facility, clock, filesystem, or
-transport. It uses the existing Send-future convention; browser-specific future
-bounds remain part of provider/transport work. Cancellation is cooperative:
+transport. Native effects retain Send futures; the browser target accepts local
+effects and callbacks under [the browser effects contract](browser-agent-effects.md).
+Cancellation is cooperative:
 hosts finish cancellation cleanup before returning an error. Dropping an
 executor future does not imply cleanup or session completion.
 

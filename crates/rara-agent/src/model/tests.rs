@@ -18,7 +18,27 @@ struct Backend {
     fail: bool,
 }
 
-#[async_trait]
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[test]
+fn native_model_contracts_and_futures_remain_thread_safe() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send(_: impl Future + Send) {}
+    assert_send_sync::<Box<dyn LlmBackend>>();
+    let backend = backend(Vec::new());
+    assert_send(backend.ask(&[], &[]));
+    assert_send(execute_model_turn(
+        &backend,
+        &ModelRequest {
+            messages: &[],
+            tools: &[],
+            metadata: LlmTurnMetadata::execute(),
+        },
+        &mut Policy::default(),
+    ));
+}
+
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
 impl LlmBackend for Backend {
     async fn ask(&self, _: &[Message], _: &[Value]) -> Result<LlmResponse> {
         anyhow::bail!("context-aware streaming required")
@@ -33,7 +53,7 @@ impl LlmBackend for Backend {
         messages: &[Message],
         tools: &[Value],
         metadata: LlmTurnMetadata,
-        event: &mut (dyn FnMut(LlmStreamEvent) + Send),
+        event: &mut rara_core::llm::backend::LlmStreamCallback<'async_trait>,
     ) -> Result<LlmResponse> {
         self.called.store(true, Ordering::SeqCst);
         assert_eq!(messages[0].content, json!("prepared prefix"));

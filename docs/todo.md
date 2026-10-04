@@ -16,9 +16,10 @@ Active backlog only. Keep this file small and current.
 - [ ] Continue [#871](https://github.com/linkerdog/rara/issues/871) after the
       LLM/tool contracts and the [shared loop machine](features/portable-agent-loop.md):
       provider crates, portable context/policy assembly, browser HTTP/SSE transport,
-      host-compatible accounting clocks and future bounds, and browser runtime
-      tests. The [contract](features/portable-llm-contracts.md) currently proves
-      browser-target compilation only.
+      and browser session scheduling. Shared model/tool/loop effects now accept
+      browser-local futures and use working browser accounting clocks, with
+      real Chrome execution under [the browser effects contract](features/browser-agent-effects.md).
+      This does not yet deliver a complete browser provider/session stack.
 
 ## Prefix Cache Cost Evaluation
 

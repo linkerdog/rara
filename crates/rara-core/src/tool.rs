@@ -33,6 +33,14 @@ pub enum ToolProgressEvent {
     },
 }
 
+/// Tool progress observer using the host target's threading convention.
+/// In `async_trait` methods, use the generated `'async_trait` alias lifetime.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub type ToolProgressCallback<'a> = dyn FnMut(ToolProgressEvent) + Send + 'a;
+/// Browser progress observers may retain JavaScript-owned local state.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub type ToolProgressCallback<'a> = dyn FnMut(ToolProgressEvent) + 'a;
+
 #[derive(Clone, Debug, Default)]
 pub struct ToolCallContext {
     cancellation: Option<Arc<AtomicBool>>,
@@ -106,8 +114,9 @@ impl ToolCallContext {
 /// Implementors keep their schema and executable behavior consistent. Trusted
 /// identity belongs in `ToolCallContext`, separately from model arguments.
 /// Cancellation is cooperative: context-aware tools must observe the token.
-#[async_trait]
-pub trait Tool: Send + Sync {
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+pub trait Tool: crate::PlatformSend + crate::PlatformSync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn input_schema(&self) -> Value;
@@ -115,7 +124,7 @@ pub trait Tool: Send + Sync {
     async fn call_with_events(
         &self,
         input: Value,
-        _report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+        _report: &mut ToolProgressCallback<'async_trait>,
     ) -> Result<Value, ToolError> {
         self.call(input).await
     }
@@ -124,7 +133,7 @@ pub trait Tool: Send + Sync {
         &self,
         input: Value,
         _context: ToolCallContext,
-        report: &mut (dyn FnMut(ToolProgressEvent) + Send),
+        report: &mut ToolProgressCallback<'async_trait>,
     ) -> Result<Value, ToolError> {
         self.call_with_events(input, report).await
     }

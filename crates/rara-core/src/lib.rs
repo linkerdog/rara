@@ -4,3 +4,6 @@
 
 pub mod llm;
 pub mod tool;
+
+mod platform;
+pub use platform::{PlatformSend, PlatformSync};
