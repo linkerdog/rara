@@ -16,7 +16,7 @@ use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
-use crate::tui::render::diff::render_patch_preview;
+use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
     display_width, formatted_message_lines, prefixed_message_lines, section_label,
     startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
@@ -44,26 +44,14 @@ impl SummaryCell {
 impl HistoryCell for SummaryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines = vec![Line::from(section_label(self.title, self.color))];
-        let mut summary_lines = self.summary.lines();
-        while let Some(line) = summary_lines.next() {
-            if line.trim_start() == "diff:" {
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        "diff:",
-                        Style::default()
-                            .fg(PHASE_PLANNING)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                let diff = summary_lines
-                    .map(|line| line.trim_start())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                lines.extend(render_patch_preview(diff.as_str(), width));
-                break;
-            }
-            lines.push(Line::from(format!("  {line}")));
+        if let Some(preview) = render_message_diff_preview(None, &self.summary, width) {
+            lines.extend(preview);
+        } else {
+            lines.extend(
+                self.summary
+                    .lines()
+                    .map(|line| Line::from(format!("  {line}"))),
+            );
         }
         lines
     }
