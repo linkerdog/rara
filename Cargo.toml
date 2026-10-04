@@ -148,6 +148,9 @@ tempfile = "3.17"
 insta = "1.43"
 vt100 = "0.16.2"
 
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
 [target.'cfg(all(target_os = "linux", any(target_arch = "aarch64", target_env = "musl")))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
 
