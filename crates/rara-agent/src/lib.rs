@@ -1,12 +1,17 @@
 //! Shared agent-loop transitions and runtime-independent effect execution.
 
 mod executor;
+mod history;
 mod machine;
 mod model;
 mod tools;
 mod types;
 
 pub use executor::{LoopEffects, StopHookContext, execute_loop};
+pub use history::{
+    has_tool_result_block, keep_or_drop_tool_results, repair_tool_result_history,
+    synthetic_tool_result_blocks, tool_use_ids_in_blocks,
+};
 pub use machine::LoopMachine;
 pub use model::{
     ModelRequest, ModelTurnEvent, ModelTurnOutput, ModelTurnPolicy, StreamEvidence, ToolCall,

@@ -6,6 +6,13 @@ Bring the reviewed streamable-HTTP discovery branch forward to main. Source,
 configuration, and documentation merge without changing the discovery contract;
 only the generated Bazel dependency lock requires reconciliation.
 
+The first integration at `84b929425149139eb26f66b70c13791eb897bfce` passed all
+10 remote checks, including 24 default Bazel test targets. The shared session
+runtime then landed on main at `09de85c461944afc8dd4cbcf82a1bdf1228465e0`.
+A second normal merge combines its runtime mappings with the HTTP/SSE graph;
+the generated lock is the only conflict again. Validate the combined revision
+and both downstream consumers before treating this branch as ready.
+
 ## Preserved Contracts
 
 Retain the [review checkpoint](2026-10-03-mcp-http-review.md): normalized cloud
@@ -22,11 +29,15 @@ service credential policy is added by this integration.
 ## Validation
 
 - Cargo checks pass: 64 configuration tests, 9 MCP client tests with real local
-  HTTP/proxy fixtures, 37 application MCP tests, 23 plugin tests, and 8 status
-  display tests. The five review fixes retain their existing implementation and
-  fixture coverage.
-- Strict workspace/all-target Clippy, formatting, whitespace checks, 42 native
-  core/agent tests, and browser all-target compilation pass.
+  HTTP/proxy fixtures, 37 application MCP tests, 47 plugin-filtered tests, and
+  8 status display tests. The runtime integration also retains 12 session and
+  12 event-bus tests. The five review fixes retain their existing implementation
+  and fixture coverage.
+- Strict workspace/all-target Clippy, formatting, whitespace checks, 48 native
+  core/agent tests, 6 public host tests, and browser all-target compilation pass.
+  The initial combined-tree run exhausted disk space before application test
+  compilation; removing old generated incremental caches allowed those checks
+  to complete. This was not a source or fixture failure.
 - Default Bazel index generation succeeds after targeted recovery of missing
   generator packages. The generated changes add `sse-stream`, rmcp HTTP/SSE
   features, direct dependency aliases, and input hashes only; existing package
