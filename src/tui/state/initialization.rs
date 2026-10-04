@@ -162,21 +162,15 @@ impl TuiApp {
     }
 
     pub async fn finish_repo_context_task_if_ready(&mut self) {
-        let should_finish = self
-            .repo_context_task
-            .as_ref()
-            .is_some_and(tokio::task::JoinHandle::is_finished);
-        if !should_finish {
+        let Some(handle) = self.repo_context_task.take_if(|task| task.is_finished()) else {
             return;
-        }
-
-        let handle = self
-            .repo_context_task
-            .take()
-            .expect("repo context task should exist");
-        if let Ok((repo_slug, current_pr_url)) = handle.await {
-            self.repo_slug = repo_slug;
-            self.current_pr_url = current_pr_url;
+        };
+        match handle.await {
+            Ok((repo_slug, current_pr_url)) => {
+                self.repo_slug = repo_slug;
+                self.current_pr_url = current_pr_url;
+            }
+            Err(error) => log::warn!("Repository context task failed: {error}"),
         }
     }
 

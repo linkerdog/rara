@@ -92,8 +92,8 @@ function-level lint expectations; surrounding helpers retain the print gate.
 
 These gates use the existing strict Clippy job. A real renderer stderr write
 must fail the print gate; a temporary raw-color/shortcut insertion must fail
-the color gate. The legacy monolith panic-lint allows are separate from this
-printing and color baseline.
+the color gate. The printing and color baseline is independent of the production panic-lint
+boundary below.
 
 ### Existing Regression Surfaces
 
@@ -140,6 +140,27 @@ The private I/O seam is not a public extension API. These loop tests complement
 the isolated PTY tests; a fake suspend callback cannot establish OS job-control
 or physical-terminal reflow correctness.
 
+### QUALITY-07: Reject Unguarded Production Panic Sites
+
+Production code in the TUI module tree denies `clippy::unwrap_used`,
+`clippy::expect_used`, `clippy::panic`, `clippy::todo`,
+`clippy::unimplemented`, and `clippy::unreachable`, overriding the root crate's
+legacy exemptions. Keep these attributes in the source module so Cargo and
+Bazel consume the same policy. The existing strict Cargo Clippy job enforces
+it; ordinary Bazel compilation is not itself a Clippy run.
+
+Prefer pattern matching and error propagation for ordinary optional state.
+Unavoidable assembly invariants require an item-level `#[expect]` with a
+specific reason and must not broaden into file/module allowances. Test builds
+retain assertion and panic-injection helpers; this exemption must not disable
+the normal production-library Clippy target in an all-targets invocation.
+
+Verification must inject each prohibited construct into a temporary production
+TUI function and observe its named Clippy error, then remove the probe and
+validate the clean production and test targets. Root-crate lint migration is
+tracked separately by #871. These gates do not prove absence of all panics,
+including indexing, allocation failure, or dependency code.
+
 ## Follow-Up Quality Gates
 
 These are proposed follow-ups, not installed gates:
@@ -166,3 +187,4 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 - [Permission controls and approval layout](../journal/2026-09-17-tui-permission-controls.md)
 - [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)
 - [Production event-loop verification](../journal/2026-10-03-tui-event-loop-verification.md)
+- [Scoped TUI panic lints](../journal/2026-10-04-tui-panic-lints.md)

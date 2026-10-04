@@ -158,6 +158,13 @@ fn sync_bash_prefixes_from_config(app: &TuiApp, agent: &mut Agent) {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::panic,
+        reason = "Production commands and completions must supply processor-owned services; only compatibility tests assemble services from TuiApp (runtime-task-service-ownership journal)."
+    )
+)]
 fn legacy_task_services(app: &TuiApp) -> RuntimeTaskServices {
     #[cfg(test)]
     {
@@ -199,6 +206,13 @@ pub(super) fn start_input_control_task(
     );
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "run_tui_session installs the session event bus, MCP manager, and memory handler before accepting input; compatibility fixtures install the same handles."
+    )
+)]
 pub(crate) fn start_input_control_task_with_services(
     app: &mut TuiApp,
     agent: Agent,
@@ -396,6 +410,13 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     });
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "run_tui_session installs the session event bus before dispatching review commands; compatibility fixtures install the same handle."
+    )
+)]
 pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     use crate::agent::{AgentExecutionMode, BashApprovalMode};
     let (sender, receiver) = mpsc::unbounded_channel();

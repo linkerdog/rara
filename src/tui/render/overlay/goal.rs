@@ -31,46 +31,6 @@ pub(super) fn render_goal_dialog(f: &mut Frame, app: &TuiApp, area: Rect) -> Opt
         return None;
     }
     let [body, footer] = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).areas(inner);
-    if matches!(dialog, GoalDialog::Edit(_)) {
-        let display = sanitize_display_text(&app.goal_ui.input);
-        let cursor = app
-            .goal_ui
-            .cursor
-            .unwrap_or_else(|| app.goal_ui.input.chars().count());
-        let prefix: String = app.goal_ui.input.chars().take(cursor).collect();
-        let layout = wrapped_text(
-            &display,
-            WrapConfig {
-                width: body.width,
-                initial_indent: "",
-                subsequent_indent: "",
-            },
-        );
-        let cursor = layout.cursor_position(sanitize_display_text(&prefix).chars().count());
-        let scroll = cursor
-            .row
-            .saturating_sub(body.height.saturating_sub(1) as usize);
-        let rows: Vec<Line<'_>> = layout
-            .rows()
-            .iter()
-            .skip(scroll)
-            .map(|row| Line::from(row.as_str()))
-            .collect();
-        f.render_widget(Paragraph::new(rows), body);
-        f.render_widget(
-            Paragraph::new(wrap_lines(
-                &[Line::from(
-                    "Enter save · Esc cancel; budget and usage are preserved",
-                )],
-                footer.width,
-            )),
-            footer,
-        );
-        return (body.height > 0).then_some((
-            body.x + cursor.column as u16,
-            body.y + (cursor.row - scroll) as u16,
-        ));
-    }
     let mut rows = Vec::new();
     match dialog {
         GoalDialog::Summary => {
@@ -149,7 +109,46 @@ pub(super) fn render_goal_dialog(f: &mut Frame, app: &TuiApp, area: Rect) -> Opt
                 footer,
             );
         }
-        GoalDialog::Edit(_) => unreachable!("editor rendered above"),
+        GoalDialog::Edit(_) => {
+            let display = sanitize_display_text(&app.goal_ui.input);
+            let cursor = app
+                .goal_ui
+                .cursor
+                .unwrap_or_else(|| app.goal_ui.input.chars().count());
+            let prefix: String = app.goal_ui.input.chars().take(cursor).collect();
+            let layout = wrapped_text(
+                &display,
+                WrapConfig {
+                    width: body.width,
+                    initial_indent: "",
+                    subsequent_indent: "",
+                },
+            );
+            let cursor = layout.cursor_position(sanitize_display_text(&prefix).chars().count());
+            let scroll = cursor
+                .row
+                .saturating_sub(body.height.saturating_sub(1) as usize);
+            let rows: Vec<Line<'_>> = layout
+                .rows()
+                .iter()
+                .skip(scroll)
+                .map(|row| Line::from(row.as_str()))
+                .collect();
+            f.render_widget(Paragraph::new(rows), body);
+            f.render_widget(
+                Paragraph::new(wrap_lines(
+                    &[Line::from(
+                        "Enter save · Esc cancel; budget and usage are preserved",
+                    )],
+                    footer.width,
+                )),
+                footer,
+            );
+            return (body.height > 0).then_some((
+                body.x + cursor.column as u16,
+                body.y + (cursor.row - scroll) as u16,
+            ));
+        }
     }
     f.render_widget(Paragraph::new(wrap_lines(&rows, body.width)), body);
     None
