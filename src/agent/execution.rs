@@ -9,9 +9,15 @@ impl Agent {
     where
         F: FnMut(AgentEvent) + Send,
     {
+        // Approval resolved only the paused call; later calls in its batch were abandoned.
+        let repaired_history = repair_tool_result_history(&self.history);
+        let history_repaired = repaired_history != self.history;
+        if history_repaired {
+            self.replace_history(repaired_history);
+        }
         // Native approval helpers have appended their tool result and continuation.
         // Persist refreshed sources on that new context before the next model call.
-        if self.persist_model_context_for_latest_user_message() {
+        if self.persist_model_context_for_latest_user_message() || history_repaired {
             self.recompute_history_token_estimate();
             self.checkpoint_session()?;
         }
