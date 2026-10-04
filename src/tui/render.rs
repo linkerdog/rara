@@ -47,7 +47,7 @@ use self::bottom_pane::desired_bottom_pane_height;
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
 pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;
-pub(crate) use self::overlay::popup_block;
+pub(crate) use self::overlay::{navigate_overlay, popup_block};
 pub(crate) use self::stream_rows::{ResponseView, StreamRowCache};
 pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;

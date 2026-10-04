@@ -95,7 +95,7 @@ impl TuiApp {
             transcript_selection: crate::tui::selection::TranscriptSelection::default(),
             clipboard: None,
             scroll_acceleration: super::ScrollAcceleration::default(),
-            context_scroll: 0,
+            overlay_scroll: Default::default(),
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,

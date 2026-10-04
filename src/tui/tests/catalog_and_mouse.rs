@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::state::OverlayNavigation;
 
 #[tokio::test]
 async fn deepseek_model_picker_shows_dynamic_models_after_list_load() {
@@ -97,7 +98,7 @@ fn left_mouse_drag_routes_to_transcript_selection_without_overlay() {
 }
 
 #[test]
-fn mouse_wheel_with_status_overlay_routes_to_noop() {
+fn mouse_wheel_with_status_overlay_routes_to_body_navigation() {
     let temp = tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),
@@ -127,7 +128,9 @@ fn mouse_wheel_with_status_overlay_routes_to_noop() {
     app.overlay = Some(Overlay::Status(StatusTab::Overview));
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
-        Some(UiEvent::App(AppEvent::Noop)) => {}
+        Some(UiEvent::App(AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta)))) => {
+            assert!(delta < 0)
+        }
         event => panic!("unexpected event: {event:?}"),
     }
 }
@@ -163,7 +166,7 @@ fn mouse_wheel_with_context_overlay_routes_to_scroll_context() {
     app.open_overlay(Overlay::Context);
 
     match translate_event(mouse_scroll(MouseEventKind::ScrollUp), &mut app) {
-        Some(UiEvent::App(AppEvent::ScrollContext(delta))) => {
+        Some(UiEvent::App(AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta)))) => {
             assert!((-15..=0).contains(&delta), "delta {delta} out of range");
         }
         event => panic!("unexpected event: {event:?}"),

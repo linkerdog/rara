@@ -6,7 +6,7 @@ use crossterm::event::{
 
 use super::app_event::AppEvent;
 use super::selection::ScreenPosition;
-use super::state::{Overlay, TuiApp};
+use super::state::{Overlay, OverlayNavigation, TuiApp};
 
 const MOUSE_WHEEL_SCROLL_LINES: i32 = 3;
 
@@ -101,7 +101,9 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
                 MOUSE_WHEEL_SCROLL_LINES as f64 * app.scroll_acceleration.factor(Instant::now());
             let delta = (direction * lines.round() as i32).clamp(-15, 15);
             match &app.overlay {
-                Some(Overlay::Context) => AppEvent::ScrollContext(delta),
+                Some(Overlay::Context | Overlay::Help(_) | Overlay::Status(_)) => {
+                    AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta))
+                }
                 Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
                     AppEvent::MoveCommandSelection(delta)
                 }

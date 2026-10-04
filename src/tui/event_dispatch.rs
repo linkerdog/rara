@@ -196,7 +196,7 @@ async fn dispatch_event_inner(
                 app.push_notice(notice);
             }
         }
-        AppEvent::ScrollContext(delta) => app.scroll_context(delta),
+        AppEvent::NavigateOverlay(navigation) => super::render::navigate_overlay(app, navigation),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 let count = matching_model_presets(app).len();
