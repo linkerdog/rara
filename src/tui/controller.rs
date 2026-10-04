@@ -19,6 +19,9 @@ use super::state::{TaskCompletion, TuiApp, TuiEvent};
 use crate::oauth::OAuthManager;
 use crate::runtime_control::RuntimeControlEvent;
 mod event_fence;
+mod recovery;
+#[cfg(test)]
+mod recovery_tests;
 use event_fence::{RuntimeEventFence, is_terminal_turn_event};
 
 pub(super) enum RuntimeActivity {
@@ -27,6 +30,7 @@ pub(super) enum RuntimeActivity {
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
 }
 
+#[derive(Clone, Copy)]
 enum QueryReceiptBoundary {
     BroadcastSequence(u64),
     ExecutionReturned,
@@ -85,6 +89,8 @@ pub(super) struct TuiController {
     runtime_event_fence: RuntimeEventFence,
     query_completion_barrier: QueryCompletionBarrier,
     pending_query_receipt: Option<Box<RuntimeControlEvent>>,
+    runtime_resync_through: Option<u64>,
+    runtime_cursor: u64,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
@@ -95,7 +101,8 @@ impl TuiController {
         runtime_port: std::sync::Arc<dyn RuntimeClientPort>,
         runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     ) -> Self {
-        let runtime_events = runtime_port.subscribe();
+        let runtime_cursor = runtime_port.current_sequence();
+        let runtime_events = runtime_port.subscribe_after(runtime_cursor);
         Self {
             app,
             runtime_port,
@@ -105,6 +112,8 @@ impl TuiController {
             runtime_event_fence: RuntimeEventFence::default(),
             query_completion_barrier: QueryCompletionBarrier::default(),
             pending_query_receipt: None,
+            runtime_resync_through: None,
+            runtime_cursor,
             needs_redraw: true,
         }
     }
@@ -163,6 +172,15 @@ impl TuiController {
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<bool> {
         if self.running_task_is_query() {
+            // Consume the published transport prefix first: its live buffer
+            // may still own records already evicted from the replay window.
+            let published = self.runtime_port.current_sequence();
+            while self.runtime_cursor < published {
+                let Some(event) = self.runtime_events.next().await else {
+                    break;
+                };
+                self.apply_runtime_event(event);
+            }
             self.drain_query_receipts(QueryReceiptBoundary::ExecutionReturned);
             self.query_completion_barrier.defer(completion);
             return self.complete_query_if_ready(processor).await;
@@ -260,18 +278,27 @@ impl TuiController {
             RuntimeProjectionEvent::Snapshot(_)
             | RuntimeProjectionEvent::Completed { .. }
             | RuntimeProjectionEvent::Disconnected { .. }
-            | RuntimeProjectionEvent::Reconnected => None,
+            | RuntimeProjectionEvent::Reconnected
+            | RuntimeProjectionEvent::ResyncRequired(_) => None,
         };
         let recovered = boundary.is_some_and(|boundary| self.drain_query_receipts(boundary));
         self.project_runtime_event(event) || recovered
     }
 
-    fn drain_query_receipts(&mut self, boundary: QueryReceiptBoundary) -> bool {
-        let mut changed = false;
-        while let Some(task) = self.app.bottom_pane.running_task.as_mut() {
-            if task.query_control.is_none() {
-                break;
-            }
+    fn collect_query_receipts(
+        &mut self,
+        boundary: QueryReceiptBoundary,
+    ) -> Vec<RuntimeControlEvent> {
+        std::iter::from_fn(|| self.next_query_receipt(boundary).map(|event| *event)).collect()
+    }
+
+    fn next_query_receipt(
+        &mut self,
+        boundary: QueryReceiptBoundary,
+    ) -> Option<Box<RuntimeControlEvent>> {
+        loop {
+            let task = self.app.bottom_pane.running_task.as_mut()?;
+            task.query_control.as_ref()?;
             let event = match self.pending_query_receipt.take() {
                 Some(event) => event,
                 None => match task.receiver.try_recv() {
@@ -285,24 +312,24 @@ impl TuiController {
                     Err(
                         tokio::sync::mpsc::error::TryRecvError::Empty
                         | tokio::sync::mpsc::error::TryRecvError::Disconnected,
-                    ) => break,
+                    ) => return None,
                 },
             };
             if let QueryReceiptBoundary::BroadcastSequence(sequence) = boundary
                 && event.sequence > sequence
             {
                 self.pending_query_receipt = Some(event);
-                break;
+                return None;
             }
-            changed |= self.project_runtime_event(RuntimeProjectionEvent::Runtime(event));
+            return Some(event);
         }
-        changed
     }
 
     fn project_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
         let mut terminal_event = is_terminal_projection_event(&event);
         match event {
             RuntimeProjectionEvent::Runtime(event) => {
+                self.runtime_cursor = self.runtime_cursor.max(event.sequence);
                 let query = self
                     .app
                     .bottom_pane
@@ -322,6 +349,7 @@ impl TuiController {
                     super::state::TuiEvent::Runtime(event),
                 );
             }
+            RuntimeProjectionEvent::ResyncRequired(gap) => return self.recover_event_gap(gap),
             RuntimeProjectionEvent::Snapshot(snapshot) => {
                 self.app.snapshot = (*snapshot).into();
                 let catalogs = self.app.snapshot.model_catalogs.clone();
@@ -369,6 +397,7 @@ impl TuiController {
         processor: &mut RuntimeCommandProcessor,
     ) -> anyhow::Result<()> {
         processor.sync_snapshot(&mut self.app);
+        self.publish_snapshot_projection();
         self.app.snapshot = self.runtime_port.snapshot().await?.into();
         Ok(())
     }
@@ -392,7 +421,9 @@ fn is_terminal_projection_event(event: &RuntimeProjectionEvent) -> bool {
         RuntimeProjectionEvent::Completed { .. } | RuntimeProjectionEvent::Disconnected { .. } => {
             true
         }
-        RuntimeProjectionEvent::Snapshot(_) | RuntimeProjectionEvent::Reconnected => false,
+        RuntimeProjectionEvent::Snapshot(_)
+        | RuntimeProjectionEvent::Reconnected
+        | RuntimeProjectionEvent::ResyncRequired(_) => false,
     }
 }
 
