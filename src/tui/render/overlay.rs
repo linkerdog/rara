@@ -27,7 +27,11 @@ use crate::tui::context_display::render_context_lines;
 use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::status_display::render_status_lines;
 
-pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
+pub(super) fn render_overlay(
+    f: &mut Frame,
+    app: &mut TuiApp,
+    overlay: Overlay,
+) -> Option<(u16, u16)> {
     match overlay {
         Overlay::Goal => {
             let popup = popup_rect(f.area(), 85, 70);
@@ -75,8 +79,7 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             };
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            super::super::list_picker::render_list_picker(f, app, kind, popup);
-            None
+            super::super::list_picker::render_list_picker(f, app, kind, popup)
         }
         Overlay::PermissionPicker => {
             let popup = popup_rect(f.area(), 72, 60);

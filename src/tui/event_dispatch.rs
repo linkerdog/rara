@@ -141,26 +141,12 @@ async fn dispatch_event_inner(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
-            if matches!(
-                app.overlay,
-                Some(Overlay::ListPicker(ListPickerKind::Resume))
-            ) {
-                app.push_resume_search_char(c);
-                return Ok(false);
-            }
             if app.composer_input_is_active() && app.bottom_pane.input.is_empty() {
                 app.transcript_scroll.follow_tail();
             }
             app.insert_active_input_char(c);
         }
         AppEvent::Backspace => {
-            if matches!(
-                app.overlay,
-                Some(Overlay::ListPicker(ListPickerKind::Resume))
-            ) {
-                app.pop_resume_search_char();
-                return Ok(false);
-            }
             app.backspace_active_input();
         }
         AppEvent::DeleteForward => {
@@ -230,6 +216,10 @@ async fn dispatch_event_inner(
             let Some(Overlay::ListPicker(kind)) = app.overlay else {
                 return Ok(false);
             };
+            if kind == ListPickerKind::Resume {
+                app.move_resume_selection(delta);
+                return Ok(false);
+            }
             let max = kind.item_count(app).saturating_sub(1) as i32;
             let next = (kind.idx(app) as i32 + delta).clamp(0, max);
             kind.set_idx(app, next as usize);
@@ -600,6 +590,14 @@ async fn dispatch_event_inner(
         }
         AppEvent::SelectStatusTab(tab) => {
             app.open_overlay(Overlay::Status(tab));
+        }
+        AppEvent::ToggleResumeScope => app.toggle_resume_scope(),
+        AppEvent::RefreshResume => app.refresh_recent_threads_for_resume_picker(),
+        AppEvent::ResumePageUp => {
+            app.move_resume_selection(-(app.resume_query.page_items.max(1) as i32))
+        }
+        AppEvent::ResumePageDown => {
+            app.move_resume_selection(app.resume_query.page_items.max(1) as i32)
         }
         AppEvent::CycleResumeSort => {
             app.cycle_resume_sort();
