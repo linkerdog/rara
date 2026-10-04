@@ -31,6 +31,10 @@ Each active feature spec should include:
 
 - `session-transcript.md`: typed session and sub-agent transcript storage.
 
+## Terminal Specs
+
+- `terminal-feedback.md`: terminal title ownership and focus-gated notifications.
+
 ## Control-Plane Readiness
 
 Features that affect skills, memory, prompt sources, hooks, planning, approvals,

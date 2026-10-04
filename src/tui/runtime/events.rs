@@ -373,7 +373,16 @@ fn apply_runtime_control_event(app: &mut TuiApp, event: RuntimeControlEvent) {
                 .collect();
             app.snapshot.plan_explanation = explanation;
         }
-        RuntimeEvent::Plan(_) | RuntimeEvent::Approval(_) | RuntimeEvent::Mcp(_) => {}
+        RuntimeEvent::Approval(crate::runtime_control::ApprovalEvent::Requested {
+            approval_id,
+            ..
+        }) => {
+            app.notify_terminal_approval(approval_id);
+        }
+        RuntimeEvent::Approval(crate::runtime_control::ApprovalEvent::Answered { .. }) => {
+            app.clear_terminal_attention();
+        }
+        RuntimeEvent::Plan(_) | RuntimeEvent::Mcp(_) => {}
         RuntimeEvent::Warning(crate::runtime_control::WarningEvent::RuntimeWarning { message }) => {
             app.push_system(message, SystemMessageKind::Other);
         }

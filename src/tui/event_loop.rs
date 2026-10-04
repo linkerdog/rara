@@ -25,6 +25,8 @@ use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
+use super::terminal_control::TerminalTarget;
+use super::terminal_feedback::{TerminalFeedback, TitleMode};
 use super::terminal_modes::TerminalModeGuard;
 use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
@@ -50,7 +52,8 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
-    let mut terminal_modes = TerminalModeGuard::start()?;
+    let mut terminal_modes =
+        TerminalModeGuard::start(TitleMode::configured(&startup.config.tui.terminal))?;
     let result = TerminalModeGuard::run_owner(run_tui_session(
         runtime,
         oauth_manager,
@@ -244,6 +247,10 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     let mut frames = FrameScheduler::default();
     let mut exit_flush: Option<tokio::sync::oneshot::Receiver<anyhow::Result<()>>> = None;
     let mut input_closed = false;
+    let mut feedback = TerminalFeedback::new(
+        TitleMode::configured(&maintainer.app().config.tui.terminal),
+        TerminalTarget::from_environment(),
+    );
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
@@ -267,6 +274,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
             }
             needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
         }
+        feedback.update(maintainer.app_mut(), terminal.control_writer())?;
         if needs_redraw {
             frames.request(Instant::now());
         }
@@ -416,6 +424,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                         #[cfg(unix)]
                         Some(UiEvent::Suspend) => {
                             events.suspend(terminal)?;
+                            feedback.resumed();
                             needs_redraw = true;
                         }
                         None => {}

@@ -81,7 +81,9 @@ pub(crate) mod state;
 mod status_display;
 mod sub_agent_display;
 mod submit;
+mod terminal_control;
 mod terminal_event;
+mod terminal_feedback;
 mod terminal_modes;
 mod terminal_ui;
 #[cfg(test)]

@@ -21,6 +21,19 @@ runtime extension registries.
 
 ## Contracts
 
+### Terminal Window Feedback
+
+The window title identifies the workspace/thread and whether work is running,
+idle or awaiting approval/input. It follows rename/new/resume and restores the
+previous title on exit and suspend on xterm-compatible terminals. Title output
+can be disabled with `tui.terminal.title = false`.
+
+Notifications default off. Set `tui.terminal.notifications` to `bell` or `osc9`
+to request an unfocused-only signal when a query finishes or needs approval.
+Repeated redraws, focus changes and restored sessions do not repeat signals.
+See [terminal feedback](../features/terminal-feedback.md) for configuration,
+ownership, sanitization and terminal compatibility details.
+
 ### RUN-01: Submission And Queueing
 
 | State | User action | Visible/runtime outcome |

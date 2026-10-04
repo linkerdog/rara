@@ -129,6 +129,7 @@ pub(super) fn finish(
             }
             ThreadCommandOutcome::Renamed { title } => {
                 app.push_notice(format!("Thread renamed to: {title}"));
+                app.set_terminal_thread_title(Some(title));
             }
             ThreadCommandOutcome::Created { session_id, goal } => {
                 // Runtime services are unchanged; reuse their projection rather
@@ -155,6 +156,7 @@ pub(super) fn finish(
                 app.goal = None;
                 app.approval_picker_idx = 0;
                 app.apply_runtime_snapshot(agent, extensions);
+                app.terminal_feedback = Default::default();
                 app.push_notice(format!("Started thread {}.", agent.session_id));
             }
         }

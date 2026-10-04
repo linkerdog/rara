@@ -1,9 +1,11 @@
 use std::io;
 
 use super::{RestoreAction, restore_all};
+use crate::tui::terminal_feedback::TitleMode;
 
-const RESTORE_ACTIONS: [RestoreAction; 7] = [
+const RESTORE_ACTIONS: [RestoreAction; 8] = [
     RestoreAction::SynchronizedOutput,
+    RestoreAction::Title,
     RestoreAction::Keyboard,
     RestoreAction::Mouse,
     RestoreAction::BracketedPaste,
@@ -46,6 +48,7 @@ fn cleanup_returns_first_error_when_multiple_modes_fail() {
 fn failed_guard_restoration_is_not_retried() {
     let mut guard = super::TerminalModeGuard {
         active: true,
+        title_mode: TitleMode::Disabled,
         #[cfg(unix)]
         resumed_tty: None,
     };
@@ -85,16 +88,16 @@ mod pty {
         Flush,
     }
 
-    struct FailingKeyboardOutput {
+    struct FailingControlOutput {
         failure: OutputFailure,
         wrote_prefix: bool,
     }
 
-    impl Write for FailingKeyboardOutput {
+    impl Write for FailingControlOutput {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             if matches!(self.failure, OutputFailure::Write) && !bytes.is_empty() {
                 if self.wrote_prefix {
-                    return Err(std::io::Error::other("injected keyboard write failure"));
+                    return Err(std::io::Error::other("injected control write failure"));
                 }
                 self.wrote_prefix = true;
                 return std::io::stdout().write(&bytes[..1]);
@@ -104,7 +107,7 @@ mod pty {
 
         fn flush(&mut self) -> std::io::Result<()> {
             std::io::stdout().flush()?;
-            Err(std::io::Error::other("injected keyboard flush failure"))
+            Err(std::io::Error::other("injected control flush failure"))
         }
     }
 
@@ -118,6 +121,10 @@ mod pty {
             "before_keyboard",
             "push_write",
             "push_flush",
+            "title_write",
+            "title_flush",
+            "title_off",
+            "title_dumb",
             "panic",
             "init_panic",
             "caught",
@@ -139,6 +146,9 @@ mod pty {
                 "--nocapture",
             ]);
             command.env(SCENARIO_ENV, scenario);
+            if scenario == "title_dumb" {
+                command.env("TERM", "dumb");
+            }
             let mut child = pair.slave.spawn_command(command).expect("spawn PTY child");
             drop(pair.slave);
             let mut reader = pair.master.try_clone_reader().expect("PTY output");
@@ -184,7 +194,7 @@ mod pty {
             assert_eq!(after, before, "{scenario}: kernel terminal modes");
             assert!(output.contains("raw_after=false"), "{scenario}: {output}");
             let entries = match scenario {
-                "pipe" | "before_keyboard" | "push_write" => 0,
+                "pipe" | "before_keyboard" | "push_write" | "title_write" | "title_flush" => 0,
                 "repeat" => 2,
                 _ => 1,
             };
@@ -196,6 +206,22 @@ mod pty {
             assert_eq!(
                 output.matches("\x1b[<1u").count(),
                 entries,
+                "{scenario}: {output}"
+            );
+            let titles = match scenario {
+                "pipe" | "before_keyboard" | "push_write" | "push_flush" | "title_write"
+                | "title_off" | "title_dumb" => 0,
+                "repeat" => 2,
+                _ => 1,
+            };
+            assert_eq!(
+                output.matches("\x1b[22;2t").count(),
+                titles,
+                "{scenario}: {output}"
+            );
+            assert_eq!(
+                output.matches("\x1b[23;2t").count(),
+                titles,
                 "{scenario}: {output}"
             );
             assert!(
@@ -227,6 +253,7 @@ mod pty {
             }
             if matches!(scenario, "panic" | "init_panic" | "caught") {
                 let before_hook = output.split("previous_hook_raw=").next().unwrap();
+                assert!(before_hook.contains("\x1b[23;2t"));
                 assert_eq!(
                     before_hook.matches("\x1b[<1u").count(),
                     1,
@@ -306,13 +333,14 @@ mod pty {
                 );
             }
             "pipe_child" => {
-                let error = TerminalModeGuard::start()
+                let error = TerminalModeGuard::start(super::TitleMode::Enabled)
                     .err()
                     .expect("non-TTY startup error");
                 assert_eq!(error.to_string(), "stdout is not a terminal");
             }
             "normal" => {
-                let mut guard = TerminalModeGuard::start().expect("start terminal modes");
+                let mut guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                    .expect("start terminal modes");
                 execute!(std::io::stdout(), Hide).expect("hide cursor");
                 assert!(is_raw_mode_enabled().expect("raw mode state"));
                 guard.restore().expect("restore terminal modes");
@@ -320,7 +348,7 @@ mod pty {
             }
             "error" => {
                 let error = (|| -> std::io::Result<()> {
-                    let _guard = TerminalModeGuard::start()?;
+                    let _guard = TerminalModeGuard::start(super::TitleMode::Enabled)?;
                     Err(std::io::Error::other("injected loop error"))
                 })()
                 .expect_err("loop error");
@@ -332,6 +360,10 @@ mod pty {
                     execute!(std::io::stdout(), EnableBracketedPaste, Hide)?;
                     if scenario == "partial" {
                         super::super::enable_keyboard_enhancement(std::io::stdout())?;
+                        super::super::save_title(
+                            crate::tui::terminal_control::TerminalTarget::Direct,
+                            &mut std::io::stdout(),
+                        )?;
                     }
                     Err(std::io::Error::other("injected startup error"))
                 })
@@ -346,7 +378,8 @@ mod pty {
                 assert!(
                     std::panic::catch_unwind(|| {
                         runtime.block_on(async {
-                            let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                            let _guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                                .expect("start terminal modes");
                             TerminalModeGuard::run_owner(async {
                                 tokio::task::yield_now().await;
                                 let (_, rows) = crossterm::terminal::size().expect("TTY size");
@@ -372,6 +405,10 @@ mod pty {
                         TerminalModeGuard::acquire_with(|| {
                             enable_raw_mode()?;
                             super::super::enable_keyboard_enhancement(std::io::stdout())?;
+                            super::super::save_title(
+                                crate::tui::terminal_control::TerminalTarget::Direct,
+                                &mut std::io::stdout(),
+                            )?;
                             panic!("injected initializer panic");
                         })
                     })
@@ -379,7 +416,8 @@ mod pty {
                 );
             }
             "caught" => {
-                let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                let _guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                    .expect("start terminal modes");
                 let error = futures::executor::block_on(TerminalModeGuard::run_owner(async {
                     assert!(std::panic::catch_unwind(|| panic!("caught owner panic")).is_err());
                     std::future::pending::<()>().await;
@@ -393,7 +431,8 @@ mod pty {
                     .build()
                     .expect("current-thread runtime");
                 runtime.block_on(async {
-                    let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                    let _guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                        .expect("start terminal modes");
                     TerminalModeGuard::run_owner(async {
                         let worker = tokio::spawn(async { panic!("injected worker panic") });
                         assert!(worker.await.expect_err("worker panic").is_panic());
@@ -405,21 +444,51 @@ mod pty {
             }
             "repeat" => {
                 for _ in 0..2 {
-                    let guard = TerminalModeGuard::start().expect("start terminal modes");
+                    let guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                        .expect("start terminal modes");
                     assert!(is_raw_mode_enabled().expect("raw mode state"));
                     drop(guard);
                 }
             }
             "enhanced" | "legacy" => {
-                let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                let _guard = TerminalModeGuard::start(super::TitleMode::Enabled)
+                    .expect("start terminal modes");
                 println!("KEYS_READY");
                 std::io::stdout().flush().expect("flush keyboard readiness");
                 keyboard::check_input(&scenario);
             }
+            "title_off" | "title_dumb" => {
+                let config = crate::config::TuiTerminalConfig {
+                    title: scenario != "title_off",
+                    ..Default::default()
+                };
+                let mode = super::TitleMode::configured(&config);
+                assert!(mode == super::TitleMode::Disabled);
+                let _guard = TerminalModeGuard::start(mode).expect("start without title");
+            }
+            "title_write" | "title_flush" => {
+                let error = TerminalModeGuard::acquire_with(|| {
+                    enable_raw_mode()?;
+                    super::super::save_title(
+                        crate::tui::terminal_control::TerminalTarget::Direct,
+                        &mut FailingControlOutput {
+                            failure: if scenario == "title_write" {
+                                OutputFailure::Write
+                            } else {
+                                OutputFailure::Flush
+                            },
+                            wrote_prefix: false,
+                        },
+                    )
+                })
+                .err()
+                .expect("title setup failure");
+                assert!(error.to_string().contains("injected control"));
+            }
             "push_write" | "push_flush" => {
                 let error = TerminalModeGuard::acquire_with(|| {
                     enable_raw_mode()?;
-                    super::super::enable_keyboard_enhancement(FailingKeyboardOutput {
+                    super::super::enable_keyboard_enhancement(FailingControlOutput {
                         failure: if scenario == "push_write" {
                             OutputFailure::Write
                         } else {
@@ -430,7 +499,7 @@ mod pty {
                 })
                 .err()
                 .expect("keyboard setup failure");
-                assert!(error.to_string().contains("injected keyboard"));
+                assert!(error.to_string().contains("injected control"));
             }
             other => panic!("unknown PTY scenario: {other}"),
         }

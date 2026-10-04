@@ -198,13 +198,25 @@ async fn new_preserves_config_and_old_durable_state_but_clears_thread_state() {
     f.app.push_entry(MessageRole::Agent, "old answer");
     f.enter("/rename original thread").await;
     f.finish().await;
+    let mut feedback = crate::tui::terminal_feedback::TerminalFeedback::new(
+        crate::tui::terminal_feedback::TitleMode::Enabled,
+        crate::tui::terminal_control::TerminalTarget::Direct,
+    );
+    let mut title = Vec::new();
+    feedback.update(&mut f.app, &mut title).unwrap();
+    assert!(
+        String::from_utf8(title)
+            .unwrap()
+            .contains("original thread")
+    );
     f.enter("/new").await;
     assert_eq!(f.processor.session_id().as_deref(), Some(old_id.as_str()));
     f.app.bottom_pane.input = "draft typed while preparing".into();
     f.app.snapshot.extension_hook_count = 7;
     f.finish().await;
     let agent = f.processor.agent().unwrap();
-    assert_ne!(agent.session_id, old_id);
+    let new_id = agent.session_id.clone();
+    assert_ne!(new_id, old_id);
     assert!(agent.history.is_empty());
     assert!(agent.current_plan.is_empty());
     assert!(agent.pending_user_input.is_none());
@@ -265,6 +277,11 @@ async fn new_preserves_config_and_old_durable_state_but_clears_thread_state() {
             .iter()
             .all(|thread| thread.metadata.title.as_deref() == Some("original thread"))
     );
+    let mut title = Vec::new();
+    feedback.update(&mut f.app, &mut title).unwrap();
+    let title = String::from_utf8(title).unwrap();
+    assert!(!title.contains("original thread"));
+    assert!(title.contains(&new_id[..8]));
     f.shutdown().await;
 }
 
