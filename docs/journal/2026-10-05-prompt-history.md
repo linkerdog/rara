@@ -122,3 +122,10 @@ a history flush error.
 Validation against `54ce33e6`: 1,131 TUI tests and eight focused history
 persistence tests passed. Seven TUI child fixtures and one persistence writer
 fixture remain invoked by their parent tests.
+
+Main `50a6d864` adds indexed resume-query editing. The shared editor retains
+separate exhaustive cases for `HistorySearch` and `ResumeSearch`; each query
+keeps its own text and cursor, while composer input and search lifecycle hooks
+remain unchanged. All other indexed-search integration merged additively.
+The integrated TUI suite passed 1,139 tests, with seven child fixtures driven
+by parent tests.
