@@ -576,3 +576,64 @@ async fn notice_expiration_repaints_idle_status_without_terminal_input() {
             .any(|entry| entry.message == "Transient warning marker")
     );
 }
+
+#[test]
+fn background_diagnostics_repaint_an_idle_loop_without_stderr() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "tui::event_loop::loop_tests::diagnostic_idle_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+#[ignore = "isolated event loop owns global logger"]
+async fn diagnostic_idle_child() {
+    let mut fixture = Fixture::new().await;
+    let diagnostics = crate::diagnostics::TerminalDiagnostics::start().unwrap();
+    fixture.controller.app_mut().diagnostics = Some(diagnostics.reader());
+    let screen = fixture.screen.clone();
+    tokio::time::pause();
+    {
+        let future = fixture.run();
+        tokio::pin!(future);
+        assert!(poll!(&mut future).is_pending());
+        let initial = frame_count(&screen);
+        std::thread::spawn(|| log::warn!("idle diagnostic token=synthetic-secret-value"))
+            .join()
+            .unwrap();
+        advance(Duration::from_millis(166)).await;
+        assert!(poll!(&mut future).is_pending());
+        advance(Duration::from_millis(18)).await;
+        assert!(poll!(&mut future).is_pending());
+        assert!(frame_count(&screen) > initial);
+        let text = screen.borrow().parser.screen().contents();
+        assert!(text.contains("idle diagnostic"), "{text}");
+        assert!(text.contains("Warning"), "{text}");
+        assert!(!text.contains("synthetic-secret-value"));
+    }
+    assert!(
+        fixture
+            .controller
+            .app()
+            .active_turn
+            .entries
+            .iter()
+            .any(|entry| { entry.message == "idle diagnostic token=[REDACTED_SECRET]" })
+    );
+    assert!(diagnostics.reader().drain().is_empty());
+}

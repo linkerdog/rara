@@ -25,6 +25,8 @@ mod context_display;
 mod controller;
 mod custom_terminal;
 #[cfg(test)]
+mod diagnostics_tests;
+#[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
 mod display_sanitize;

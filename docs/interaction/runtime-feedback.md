@@ -285,6 +285,31 @@ This contract does not add a notification queue, persistent status overrides,
 new runtime events, or serialized notice state. Pending decisions remain in
 their owned interaction state and do not expire with their transient notice.
 
+### RUN-09: Runtime Diagnostics Respect Terminal Ownership
+
+Library and background runtime diagnostics use the logging facade, never direct
+stdout/stderr prints. The CLI installs a warning/error receiver before runtime
+assembly. While the terminal belongs to the TUI, an application-owned bounded
+queue captures diagnostics from all process threads; the UI drains it into
+classified transcript records and typed notices through its normal event loop.
+The process logger holds only a weak reference to that queue, not runtime handles.
+
+Redact messages before queueing. Bound message size and pending record count,
+coalesce consecutive duplicate diagnostics, and report queue overflow visibly.
+Do not replace a current recovery notice with a same-severity diagnostic already
+contained in that notice; retain the complete summary and its single record.
+Recording a persistence diagnostic must not create an endless logging loop when
+the diagnostic's own transcript write fails. The capture lifetime encloses raw
+mode and terminal restoration, including errors and panic unwinding. Remaining
+messages may reach stderr only after terminal restoration. Outside TUI ownership,
+the CLI's receiver writes redacted diagnostics to stderr; protocol stdout stays
+reserved for protocol output. Embedders retain their own logging initialization.
+
+An incomplete live-log restore retains valid entries and a warning in the resume
+notice and history. An index failure must distinguish a saved canonical turn
+from its unavailable index. Workspace Clippy rejects library print macros;
+exceptions are limited to explicit CLI/protocol consumers and test fixtures.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -297,6 +322,7 @@ their owned interaction state and do not expire with their transient notice.
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 | RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
 | RUN-08 | Real settings dispatch redaction/recording regressions; injected-time expiry and replacement; typed buffer colors; paste ownership; paused-time production event-loop repaint |
+| RUN-09 | Isolated TUI harness stderr capture, bounded diagnostic queue tests, logger handoff, partial live-log recovery, and terminal-owner lifecycle tests |
 
 ## Open Risks
 
@@ -309,6 +335,7 @@ their owned interaction state and do not expire with their transient notice.
 
 ## Source Journals
 
+- [Runtime diagnostics](../journal/2026-10-05-runtime-diagnostics.md)
 - [Transient notice lifecycle](../journal/2026-10-05-transient-notice-lifecycle.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)

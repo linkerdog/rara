@@ -9292,6 +9292,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "glob",
+ "log",
  "rara-apply-patch",
  "rara-core",
  "rara-file-search",

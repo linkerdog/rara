@@ -51,12 +51,14 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
+    let diagnostics = crate::diagnostics::TerminalDiagnostics::start()?;
     let mut terminal_modes = TerminalModeGuard::start()?;
     let result = TerminalModeGuard::run_owner(run_tui_session(
         runtime,
         oauth_manager,
         startup,
         &mut terminal_modes,
+        diagnostics.reader(),
     ))
     .await?;
     if let Err(error) = terminal_modes.restore() {
@@ -80,9 +82,11 @@ async fn run_tui_session(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
     terminal_modes: &mut TerminalModeGuard,
+    diagnostics: crate::diagnostics::DiagnosticReader,
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
+    app.diagnostics = Some(diagnostics);
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
@@ -236,6 +240,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.app_mut().poll_diagnostics();
         needs_redraw |= maintainer.queue_restored_goal(processor).await;
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
