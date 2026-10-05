@@ -99,6 +99,23 @@ The long-term target is:
 
 ## Contracts
 
+### Interrupted Rollout Appends
+
+`events.jsonl` recovers complete records before an unterminated final JSON
+record when parsing ends at unexpected EOF. Recovery logs a warning with the
+file and line number. Invalid complete records, unknown event shapes, and
+corruption before the final record remain errors with file and line context.
+Reads do not rewrite the log. Before another append, the writer preserves the
+original bytes in a sibling recovery file and removes only the incomplete
+tail. A complete final record without a newline receives a separator before
+the new record. Recovery must not turn a truncated tail into mid-file damage.
+Readers and appenders coordinate through advisory file locks so a recovery
+cannot truncate another cooperating writer's completed append.
+
+Verification covers interrupted strings (including UTF-8), valid records with
+and without final newlines, middle corruption, schema errors, and append after
+recovery with the original bytes retained.
+
 ### Entry Types
 
 All transcript files are JSONL: one typed JSON object per line.

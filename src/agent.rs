@@ -5,17 +5,21 @@ mod compact;
 mod context_view;
 mod control_handler;
 mod execution;
+mod loop_driver;
 mod memory_retrieval;
+mod model_policy;
 mod planning;
 mod prompting;
 mod runtime;
 #[cfg(test)]
 mod tests;
+mod tool_effects;
 mod trace;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
 use anyhow::{Context, Result};
+use rara_agent::ToolCall;
 use rara_instructions::HookLifecycle;
 use rara_memory::memory_handle::MemoryHandle;
 use rara_persistence::redaction::redact_secrets;
@@ -37,7 +41,9 @@ use crate::hooks::HookDefinition;
 use crate::hooks::HookParseStatus;
 use crate::hooks::HookRegistry;
 use crate::hooks::{HookOutcome, HookSandbox, run_sandboxed_hook};
-use crate::llm::{ContentBlock, LlmBackend, LlmStreamEvent, LlmTurnMetadata};
+#[cfg(test)]
+use crate::llm::ContentBlock;
+use crate::llm::{LlmBackend, LlmStreamEvent, LlmTurnMetadata};
 use crate::lsp_manager::LspManager;
 use crate::mcp_status::McpStatusSnapshot;
 use crate::memory_notice::memory_notice;
@@ -60,21 +66,14 @@ use crate::tools::todo::TODO_WRITE_TOOL_NAME;
 use crate::workspace::WorkspaceMemory;
 
 const MAX_RUNTIME_ERROR_RECOVERY_ATTEMPTS: usize = 1;
-const MAX_PLAN_EXIT_REPAIR_ATTEMPTS: usize = 1;
-const MAX_STOP_HOOK_CONTINUATIONS: usize = 8;
+
+pub use rara_agent::ExecutionMode as AgentExecutionMode;
 
 pub use self::compact::{CompactBoundaryMetadata, CompactState, latest_compact_boundary_metadata};
 pub use self::planning::{
     CompletedInteraction, PendingApproval, PendingUserInput, PlanStep, PlanStepStatus,
 };
 use self::planning::{InspectionProgress, RuntimeContinuationPhase, tool_result_message};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AgentExecutionMode {
-    Execute,
-    Plan,
-    Review,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BashApprovalMode {
@@ -176,13 +175,6 @@ pub enum AgentEvent {
         summary: String,
         recent_files: Vec<String>,
     },
-}
-
-#[derive(Debug)]
-struct ToolCall {
-    id: String,
-    name: String,
-    input: Value,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -389,21 +381,6 @@ fn hook_output_candidate(text: &str, index: usize, session_id: &str) -> Retrieva
         not_selected_reason: "already injected as direct system context".to_string(),
         selectable: false,
     }
-}
-
-fn assistant_turn_history_message(content: Vec<ContentBlock>) -> Result<Option<Message>> {
-    let has_visible_payload = content.iter().any(|block| match block {
-        ContentBlock::Text { text } => !text.trim().is_empty(),
-        ContentBlock::ToolUse { .. } => true,
-        ContentBlock::ProviderMetadata { .. } => false,
-    });
-    if !has_visible_payload {
-        return Ok(None);
-    }
-    Ok(Some(Message {
-        role: "assistant".to_string(),
-        content: serde_json::to_value(&content)?,
-    }))
 }
 
 fn missing_proposed_plan_error() -> String {

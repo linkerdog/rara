@@ -1,4 +1,7 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
+mod goal;
+mod read_only;
+pub(crate) use read_only::navigate_overlay;
 mod setup;
 
 use ratatui::{
@@ -6,7 +9,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Padding,
-    widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use self::setup::{
@@ -14,24 +17,29 @@ use self::setup::{
     render_openai_profile_label_editor_modal, render_permission_picker_modal,
     render_skills_picker_modal,
 };
-use super::super::command::{
-    general_help_text, matching_commands, model_help_text, palette_commands,
-    recent_transcript_preview, status_metrics_text, status_prompt_sources_text,
-    status_runtime_text, status_workspace_text,
-};
+use super::super::command::{matching_commands, palette_commands};
 use super::super::custom_terminal::Frame;
-use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
+use super::super::state::{CommandSpec, Overlay, TuiApp};
 use super::bottom_pane::desired_bottom_pane_height;
-use crate::tui::context_display::render_context_lines;
-use crate::tui::status_display::render_status_lines;
+use crate::tui::pane_geometry::PaneColumns;
 
-pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
+pub(super) fn render_overlay(
+    f: &mut Frame,
+    app: &mut TuiApp,
+    overlay: Overlay,
+) -> Option<(u16, u16)> {
     match overlay {
-        Overlay::Help(tab) => {
+        Overlay::Goal => {
+            let popup = popup_rect(f.area(), 85, 70);
+            render_dimmer(f, f.area());
+            f.render_widget(Clear, popup);
+            goal::render_goal_dialog(f, app, popup)
+        }
+        Overlay::Help(_) | Overlay::Status(_) | Overlay::Context => {
             let popup = popup_rect(f.area(), 80, 60);
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_help_modal(f, app, popup, tab);
+            read_only::render_modal(f, app, popup, overlay);
             None
         }
         Overlay::CommandPalette => {
@@ -43,22 +51,7 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
         Overlay::ModelSearch => {
             let popup = command_palette_rect(f.area(), app);
             f.render_widget(Clear, popup);
-            render_model_search(f, app, popup);
-            None
-        }
-        Overlay::Status(tab) => {
-            let popup = popup_rect(f.area(), 80, 60);
-            render_dimmer(f, f.area());
-            f.render_widget(Clear, popup);
-            render_status_modal(f, app, popup, tab);
-            None
-        }
-        Overlay::Context => {
-            let popup = popup_rect(f.area(), 80, 60);
-            render_dimmer(f, f.area());
-            f.render_widget(Clear, popup);
-            render_context_modal(f, app, popup);
-            None
+            render_model_search(f, app, popup)
         }
         Overlay::ListPicker(kind) => {
             let popup = if kind == super::super::state::ListPickerKind::Resume {
@@ -120,118 +113,6 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             None
         }
     }
-}
-
-fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Min(10),
-            Constraint::Length(2),
-        ])
-        .split(inner);
-    let titles = ["General", "Commands", "Runtime"]
-        .into_iter()
-        .map(Line::from)
-        .collect::<Vec<_>>();
-    let selected = match tab {
-        HelpTab::General => 0,
-        HelpTab::Commands => 1,
-        HelpTab::Runtime => 2,
-    };
-    f.render_widget(
-        Tabs::new(titles)
-            .select(selected)
-            .style(token_fg(ThemeToken::TextSecondary))
-            .highlight_style(help_selected_tab_style()),
-        chunks[0],
-    );
-    match tab {
-        HelpTab::General => {
-            f.render_widget(
-                Paragraph::new(panel_text("general", general_help_text()))
-                    .wrap(Wrap { trim: false }),
-                chunks[1],
-            );
-        }
-        HelpTab::Commands => {
-            let query = app.command_query();
-            let items = help_command_items(query)
-                .into_iter()
-                .map(command_palette_item)
-                .collect::<Vec<_>>();
-            let mut state = command_palette_list_state(app.command_palette_idx);
-            f.render_stateful_widget(
-                List::new(items)
-                    .highlight_style(command_list_highlight_style())
-                    .highlight_symbol("› "),
-                chunks[1],
-                &mut state,
-            );
-        }
-        HelpTab::Runtime => {
-            let inner = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(chunks[1]);
-            let left = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(8),
-                    Constraint::Length(6),
-                    Constraint::Min(5),
-                ])
-                .split(inner[0]);
-            let right = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(6), Constraint::Min(8)])
-                .split(inner[1]);
-            f.render_widget(
-                Paragraph::new(panel_text("runtime", &status_runtime_text(app)))
-                    .wrap(Wrap { trim: false }),
-                left[0],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text("workspace", &status_workspace_text(app)))
-                    .wrap(Wrap { trim: false }),
-                left[1],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text(
-                    "prompt sources",
-                    &status_prompt_sources_text(app),
-                ))
-                .wrap(Wrap { trim: false }),
-                left[2],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text("metrics", &status_metrics_text(app)))
-                    .wrap(Wrap { trim: false }),
-                right[0],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text(
-                    "models / recent",
-                    &format!(
-                        "{}\n\n{}",
-                        model_help_text(app),
-                        recent_transcript_preview(app, 4)
-                    ),
-                ))
-                .wrap(Wrap { trim: false }),
-                right[1],
-            );
-        }
-    }
-    f.render_widget(
-        Paragraph::new("Esc close  1 general  2 commands  3 runtime  / open slash menu")
-            .alignment(Alignment::Center),
-        chunks[2],
-    );
 }
 
 fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
@@ -311,14 +192,14 @@ fn command_palette_list_state(selected_index: usize) -> ListState {
 fn palette_items_for_empty_query(app: &TuiApp) -> Vec<ListItem<'static>> {
     palette_commands(app, "")
         .into_iter()
-        .map(command_palette_item)
+        .map(|spec| command_palette_item(app, spec))
         .collect()
 }
 
-fn palette_items_for_matches(_app: &TuiApp, query: &str) -> Vec<ListItem<'static>> {
+fn palette_items_for_matches(app: &TuiApp, query: &str) -> Vec<ListItem<'static>> {
     matching_commands(query)
         .into_iter()
-        .map(command_palette_item)
+        .map(|spec| command_palette_item(app, spec))
         .collect()
 }
 
@@ -326,16 +207,29 @@ fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
     matching_commands(query)
 }
 
-fn command_palette_item(spec: &CommandSpec) -> ListItem<'static> {
+fn command_palette_item(app: &TuiApp, spec: &CommandSpec) -> ListItem<'static> {
+    ListItem::new(command_entry_line(app, spec))
+}
+
+fn command_entry_line(app: &TuiApp, spec: &CommandSpec) -> Line<'static> {
     // Display name with leading slash for consistent width
     let full_name = format!("/{}", spec.name);
-    ListItem::new(Line::from(vec![
+    let description = match crate::tui::command::parse_local_command(&full_name) {
+        Some(command) => {
+            crate::tui::command::command_unavailable_reason(app, &command).unwrap_or(spec.summary)
+        }
+        None => {
+            log::warn!("Command palette entry has no registered command: {full_name}");
+            "Command unavailable."
+        }
+    };
+    Line::from(vec![
         Span::styled(
             format!("{full_name:<12}"),
             Style::default().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(spec.summary, token_fg(ThemeToken::TextMuted)),
-    ]))
+        Span::styled(description, token_fg(ThemeToken::TextMuted)),
+    ])
 }
 
 #[cfg(test)]
@@ -357,80 +251,6 @@ fn command_list_highlight_style() -> Style {
         .fg(theme_color(ThemeToken::OverlayHighlightFg))
         .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
-}
-
-fn help_selected_tab_style() -> Style {
-    Style::default()
-        .fg(theme_color(ThemeToken::OverlayHighlightFg))
-        .bg(theme_color(ThemeToken::OverlayHighlightBg))
-        .add_modifier(Modifier::BOLD)
-}
-
-fn render_status_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: StatusTab) {
-    let lines = render_status_lines(app, tab);
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Fill(1),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-    let titles = status_tab_titles();
-    f.render_widget(
-        Tabs::new(titles)
-            .select(status_tab_index(tab))
-            .style(token_fg(ThemeToken::TextSecondary))
-            .highlight_style(help_selected_tab_style()),
-        chunks[0],
-    );
-    f.render_widget(Paragraph::new(lines), chunks[1]);
-    f.render_widget(
-        Paragraph::new("Esc close  1 overview  2 config  3 context  <-> switch")
-            .style(token_fg(ThemeToken::TextMuted))
-            .alignment(Alignment::Center),
-        chunks[2],
-    );
-}
-
-fn status_tab_titles() -> Vec<Line<'static>> {
-    ["Overview", "Config", "Context"]
-        .into_iter()
-        .map(Line::from)
-        .collect()
-}
-
-fn status_tab_index(tab: StatusTab) -> usize {
-    match tab {
-        StatusTab::Overview => 0,
-        StatusTab::Config => 1,
-        StatusTab::Context => 2,
-    }
-}
-
-fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
-    let lines = render_context_lines(app, area.width);
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(8), Constraint::Length(2)])
-        .split(inner);
-
-    f.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((app.context_scroll, 0)),
-        chunks[0],
-    );
-    f.render_widget(
-        Paragraph::new("esc close  j/k ↑↓ scroll").alignment(Alignment::Center),
-        chunks[1],
-    );
 }
 
 /// Bottom-anchored compact popup for list pickers (model, provider, etc.).
@@ -519,7 +339,11 @@ fn command_palette_rect(area: Rect, app: &TuiApp) -> Rect {
     let width = area.width;
     let x = area.x;
     // Position above the bottom pane (composer/status) so user input stays visible.
-    let bottom_pane_height = desired_bottom_pane_height(app, area.width, area.height);
+    let columns = PaneColumns {
+        terminal_width: area.width,
+        sidebar_visible: app.sidebar_visible,
+    };
+    let bottom_pane_height = desired_bottom_pane_height(app, columns.main_width(), area.height);
     let bottom_pane_top = area.y + area.height.saturating_sub(bottom_pane_height);
     let y = bottom_pane_top.saturating_sub(height).max(area.y);
 
@@ -536,6 +360,33 @@ mod tests {
     use super::*;
     use crate::config::ConfigManager;
     use crate::tui::command::COMMAND_SPECS;
+
+    #[test]
+    fn malformed_palette_entry_is_rendered_unavailable_without_panicking() {
+        let temp = tempdir().expect("tempdir");
+        let app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        let spec = CommandSpec {
+            category: "test",
+            name: "missing-command",
+            usage: "/missing-command",
+            summary: "Must not claim this command is usable.",
+            detail: "test registration mismatch",
+        };
+        let area = Rect::new(0, 0, 80, 1);
+        let mut buffer = Buffer::empty(area);
+        let mut state = ListState::default();
+        List::new(vec![command_palette_item(&app, &spec)]).render(area, &mut buffer, &mut state);
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("Command unavailable."));
+        assert!(!text.contains(spec.summary));
+    }
 
     #[test]
     fn command_palette_state_scrolls_to_selected_item() {
@@ -628,6 +479,21 @@ mod tests {
     }
 
     #[test]
+    fn palette_anchors_above_the_sidebar_narrowed_composer() {
+        let temp = tempdir().expect("tempdir");
+        let mut app = TuiApp::new(ConfigManager {
+            path: temp.path().join("config.json"),
+        })
+        .expect("app");
+        app.sidebar_visible = true;
+        app.bottom_pane.input = "x".repeat(720);
+        let area = Rect::new(0, 0, 160, 40);
+        let popup = command_palette_rect(area, &app);
+        let bottom_height = desired_bottom_pane_height(&app, 122, area.height);
+        assert_eq!(popup.bottom(), area.bottom() - bottom_height);
+    }
+
+    #[test]
     fn setup_flow_rect_is_tall_enough_for_small_terminal_onboarding() {
         let area = Rect::new(0, 0, 100, 24);
         let popup = setup_flow_rect(area);
@@ -637,18 +503,9 @@ mod tests {
     }
 }
 
-fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) -> Option<(u16, u16)> {
     let query = app.model_search_query.as_str();
-    let presets = app.available_unified_model_presets();
-    let filtered: Vec<_> = if query.is_empty() {
-        presets.iter().collect()
-    } else {
-        let q = query.to_ascii_lowercase();
-        presets
-            .iter()
-            .filter(|p| p.model_label.to_ascii_lowercase().contains(&q))
-            .collect()
-    };
+    let filtered = super::super::model_search::matching_model_presets(app);
 
     let mut state = ListState::default();
     state.select(Some(
@@ -673,18 +530,34 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         ])
         .split(inner);
 
-    // Search input
+    let query_area = Rect {
+        x: chunks[0].x.saturating_add(2),
+        width: chunks[0].width.saturating_sub(2),
+        ..chunks[0]
+    };
+    let prefix_end =
+        crate::tui::state::char_offset_to_byte_index(query, app.model_search_cursor_offset());
+    let display_query = crate::tui::display_sanitize::sanitize_display_line(query);
+    let display_prefix = crate::tui::display_sanitize::sanitize_display_line(&query[..prefix_end]);
+    let prefix_width = super::display_width(&display_prefix);
+    let scroll =
+        u16::try_from(prefix_width.saturating_sub(usize::from(query_area.width.saturating_sub(1))))
+            .unwrap_or(u16::MAX);
+
     let search_text = if query.is_empty() {
-        Span::styled("  Type to filter models…", token_fg(ThemeToken::TextMuted))
+        Span::styled("Type to filter models…", token_fg(ThemeToken::TextMuted))
     } else {
         Span::styled(
-            format!("  {}", query),
+            display_query,
             Style::default()
                 .fg(theme_color(ThemeToken::BadgeFgDark))
                 .add_modifier(Modifier::BOLD),
         )
     };
-    f.render_widget(Paragraph::new(Line::from(search_text)), chunks[0]);
+    f.render_widget(
+        Paragraph::new(Line::from(search_text)).scroll((0, scroll)),
+        query_area,
+    );
 
     // Model list
     let items: Vec<ListItem> = filtered
@@ -739,4 +612,10 @@ fn render_model_search(f: &mut Frame, app: &TuiApp, area: Rect) {
         token_fg(ThemeToken::TextMuted),
     )]);
     f.render_widget(Paragraph::new(footer), chunks[2]);
+    (query_area.width > 0 && query_area.height > 0).then(|| {
+        let offset = prefix_width
+            .saturating_sub(usize::from(scroll))
+            .min(usize::from(query_area.width.saturating_sub(1))) as u16;
+        (query_area.x.saturating_add(offset), query_area.y)
+    })
 }

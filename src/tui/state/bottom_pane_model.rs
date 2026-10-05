@@ -5,7 +5,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::char_offset_to_byte_index;
+use super::{ApprovalDetailScroll, char_offset_to_byte_index, effective_cursor_offset};
+use crate::tui::input_text::ceil_grapheme_offset;
+use crate::tui::presentation_revision::PresentationInput;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
 
@@ -18,11 +20,11 @@ pub struct BottomPaneModel {
     pub input: String,
     pub input_cursor_offset: Option<usize>,
     pub composer_scroll: usize,
-    pub pending_planning_suggestion: Option<String>,
-    pub pending_follow_up_messages: Vec<PendingFollowUpMessage>,
-    pub queued_follow_up_messages: Vec<String>,
+    pub(crate) approval_details: ApprovalDetailScroll,
+    pub pending_planning_suggestion: PresentationInput<Option<String>>,
+    pub pending_follow_up_messages: PresentationInput<Vec<PendingFollowUpMessage>>,
+    pub queued_follow_up_messages: PresentationInput<Vec<String>>,
     pub running_task: Option<RunningTask>,
-    pub notice: Option<String>,
 
     // Paste-burst state: when a paste contains newlines or exceeds the
     // large-paste threshold we accumulate chars and flush in one `push_str`,
@@ -41,11 +43,11 @@ impl BottomPaneModel {
             input: String::new(),
             input_cursor_offset: None,
             composer_scroll: 0,
-            pending_planning_suggestion: None,
-            pending_follow_up_messages: Vec::new(),
-            queued_follow_up_messages: Vec::new(),
+            approval_details: ApprovalDetailScroll::default(),
+            pending_planning_suggestion: Default::default(),
+            pending_follow_up_messages: Default::default(),
+            queued_follow_up_messages: Default::default(),
             running_task: None,
-            notice: None,
             paste_burst_buffer: None,
             paste_burst_deadline: None,
             large_paste_pending: Vec::new(),
@@ -54,10 +56,17 @@ impl BottomPaneModel {
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        let text = &self.input;
-        self.input_cursor_offset
-            .unwrap_or_else(|| text.chars().count())
-            .min(text.chars().count())
+        effective_cursor_offset(&self.input, self.input_cursor_offset)
+    }
+
+    pub(crate) fn clear_input(&mut self) {
+        self.input.clear();
+        self.input_cursor_offset = None;
+        self.composer_scroll = 0;
+        self.paste_burst_buffer = None;
+        self.paste_burst_deadline = None;
+        self.large_paste_pending.clear();
+        self.large_paste_counter = 0;
     }
 
     // ── Paste-burst ──────────────────────────────────────────────────
@@ -71,24 +80,14 @@ impl BottomPaneModel {
         self.paste_burst_deadline = Some(Instant::now() + PASTE_BURST_FLUSH_DELAY);
     }
 
-    /// Flush completed paste bursts into the input string.
-    ///
-    /// Returns `true` when a burst was flushed (caller should redraw).
-    pub fn check_paste_burst_flush(&mut self) -> bool {
-        let Some(deadline) = self.paste_burst_deadline else {
-            return false;
-        };
-        if Instant::now() < deadline {
-            return false;
-        }
-        self.flush_paste_burst()
+    pub(crate) fn paste_burst_is_due(&self) -> bool {
+        self.paste_burst_deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
     /// Force-flush any pending paste burst regardless of deadline.
-    pub(crate) fn flush_paste_burst(&mut self) -> bool {
-        let Some(buf) = self.paste_burst_buffer.take() else {
-            return false;
-        };
+    pub(super) fn flush_paste_burst(&mut self) -> Option<String> {
+        let buf = self.paste_burst_buffer.take()?;
         self.paste_burst_deadline = None;
 
         let char_count = buf.chars().count();
@@ -102,12 +101,14 @@ impl BottomPaneModel {
             let offset = self.composer_cursor_offset();
             let pos = char_offset_to_byte_index(&self.input, offset);
             self.input.insert_str(pos, &placeholder);
-            self.input_cursor_offset = Some(offset + placeholder.chars().count());
+            self.input_cursor_offset = Some(ceil_grapheme_offset(
+                &self.input,
+                offset + placeholder.chars().count(),
+            ));
             self.large_paste_pending.push((placeholder, buf));
-            self.notice = Some(format!(
+            return Some(format!(
                 "Large paste #{counter} ({char_count} chars) — expanded on submit"
             ));
-            return true;
         }
 
         let paste_end = {
@@ -118,12 +119,14 @@ impl BottomPaneModel {
             } else {
                 let pos = char_offset_to_byte_index(&self.input, old_offset);
                 self.input.insert_str(pos, &buf);
-                Some(old_offset + buf.chars().count())
+                Some(ceil_grapheme_offset(
+                    &self.input,
+                    old_offset + buf.chars().count(),
+                ))
             }
         };
         self.input_cursor_offset = paste_end;
-        self.notice = Some(format!("Pasted {char_count} chars"));
-        true
+        Some(format!("Pasted {char_count} chars"))
     }
 
     pub fn has_pending_planning_suggestion(&self) -> bool {

@@ -1,8 +1,14 @@
 mod commands;
-pub(crate) use commands::apply_permission_mode;
+mod goals;
+pub(crate) use goals::apply_dialog_action as apply_goal_dialog_action;
+mod permissions;
+pub(crate) use permissions::request_permission_mode;
 mod events;
 pub(super) use events::apply_tui_event;
 mod processor;
+mod query_task;
+pub(super) mod review;
+pub(crate) use query_task::{QueryStopKind, QueryStopRequest, QueryTaskControl};
 pub(super) mod tasks;
 pub(super) use processor::RuntimeCommandProcessor;
 
@@ -55,8 +61,8 @@ pub fn start_input_control_task(
     tasks::start_input_control_task(app, agent, request, notice, phase, phase_detail);
 }
 
-pub fn request_running_task_cancellation(app: &mut TuiApp) {
-    tasks::request_running_task_cancellation(app);
+pub(crate) fn request_running_task_cancellation(app: &mut TuiApp, kind: QueryStopKind) -> bool {
+    tasks::request_running_task_cancellation(app, kind)
 }
 
 pub fn start_pending_approval_task(

@@ -1,24 +1,5 @@
-use rara_tools::tool::ToolOutputStream;
-use serde_json::json;
-use tempfile::tempdir;
-
-use super::helpers::{
-    format_apply_patch_result, format_apply_patch_use, format_tool_progress, format_tool_result,
-    format_tool_use, is_oauth_prompt_message, planning_note_lines, scrub_internal_control_tokens,
-    subagent_request_input,
-};
-use super::{apply_tui_event, format_memory_event_notice, runtime_event_from_agent_event};
-use crate::agent::{AgentEvent, AgentExecutionMode};
-use crate::config::ConfigManager;
-use crate::control_tokens::has_pending_internal_control_context;
-use crate::runtime_control::{MemoryEvent, MemoryRecordSummary, RuntimeEvent, RuntimeProvenance};
-use crate::session_promotion::{
-    SessionShardPromotionDecision, SessionShardPromotionOutcome, SessionShardPromotionPlan,
-    SessionShardPromotionSkipReason, SessionShardPromotionTrigger,
-};
-use crate::tui::state::{ActivePendingInteractionKind, TranscriptEntryPayload};
-use crate::tui::state::{RuntimePhase, TuiApp, TuiEvent};
-use crate::tui::terminal_event::{TerminalEvent, TerminalTarget};
+use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn runtime_agent_event_preserves_structured_semantics_for_tui() {
@@ -63,7 +44,7 @@ fn structured_tool_event_updates_running_action_without_role_parsing() {
         app.active_live.running_actions,
         vec!["Write src/runtime.rs".to_string()]
     );
-    assert_eq!(app.active_turn.entries[0].role, "Tool");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::Tool);
     match app.active_turn.entries[0].payload.as_ref() {
         Some(crate::tui::state::TranscriptEntryPayload::Tool(payload)) => {
             assert_eq!(payload.call_id.as_deref(), Some("call-1"));
@@ -102,7 +83,7 @@ fn structured_compaction_event_becomes_a_typed_transcript_entry() {
     );
 
     assert_eq!(app.snapshot.compaction_count, 2);
-    assert_eq!(app.active_turn.entries[0].role, "Compaction");
+    assert_eq!(app.active_turn.entries[0].role, MessageRole::Compaction);
     match app.active_turn.entries[0].payload.as_ref() {
         Some(TranscriptEntryPayload::Compaction(payload)) => {
             assert_eq!(payload.count, 2);
@@ -116,9 +97,7 @@ fn structured_compaction_event_becomes_a_typed_transcript_entry() {
 
 #[test]
 fn parses_delegated_request_input_from_subagent_result() {
-    let parsed = subagent_request_input(
-        "plan_agent refine the workspace logic\nrequest_user_input: Which discovery strategy should we keep?\noption: Minimal | Keep the current root-level files.\noption: Generic | Scan all instruction markdown files.\nnote: We need one product decision before editing.",
-    )
+    let parsed = delegated_result("plan_agent", &json!({"summary": "refine the workspace logic", "request_user_input": {"question": "Which discovery strategy should we keep?", "options": [["Minimal", "Keep the current root-level files."], ["Generic", "Scan all instruction markdown files."]], "note": "We need one product decision before editing."}}).to_string()).and_then(|result| result.request_user_input)
     .expect("delegated request input should parse");
 
     assert_eq!(parsed.question, "Which discovery strategy should we keep?");
@@ -223,9 +202,7 @@ fn memory_promotion_notice_uses_readable_outcome() {
 
 #[test]
 fn parses_delegated_request_input_from_spawn_agent_result() {
-    let parsed = subagent_request_input(
-        "spawn_agent worker: Need a decision\nrequest_user_input: Which branch should continue?\noption: Main | Continue on main.",
-    )
+    let parsed = delegated_result("spawn_agent", &json!({"summary": "worker: Need a decision", "request_user_input": {"question": "Which branch should continue?", "options": [["Main", "Continue on main."]], "note": null}}).to_string()).and_then(|result| result.request_user_input)
     .expect("spawn_agent request input should parse");
 
     assert_eq!(parsed.question, "Which branch should continue?");
@@ -245,10 +222,32 @@ fn explore_agent_result_with_request_input_records_note_and_pending_question() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Tool Result",
-            message: "explore_agent Found two workspace discovery paths.\nrequest_user_input: Which discovery strategy should we keep?\noption: Minimal | Keep root-level files only.\noption: Generic | Scan instruction markdown files.".into(),
-        },
+        runtime_event_from_agent_event(
+            AgentEvent::ToolResult {
+                call_id: "delegated-call".into(),
+                name: "explore_agent".into(),
+                content: json!({
+                    "summary": "Found two workspace discovery paths.",
+                    "request_user_input": {
+                        "question": "Which discovery strategy should we keep?",
+                        "options": [
+                            [
+                                "Minimal",
+                                "Keep root-level files only."
+                            ],
+                            [
+                                "Generic",
+                                "Scan instruction markdown files."
+                            ]
+                        ],
+                        "note": null
+                    }
+                })
+                .to_string(),
+                is_error: false,
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
 
     assert_eq!(
@@ -277,10 +276,32 @@ fn plan_agent_result_with_request_input_records_note_and_pending_question() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Tool Result",
-            message: "plan_agent Need to choose a rollout boundary.\nrequest_user_input: Which phase should land first?\noption: Runtime | Wire the runtime path first.\noption: UI | Start with visibility.".into(),
-        },
+        runtime_event_from_agent_event(
+            AgentEvent::ToolResult {
+                call_id: "delegated-call".into(),
+                name: "plan_agent".into(),
+                content: json!({
+                    "summary": "Need to choose a rollout boundary.",
+                    "request_user_input": {
+                        "question": "Which phase should land first?",
+                        "options": [
+                            [
+                                "Runtime",
+                                "Wire the runtime path first."
+                            ],
+                            [
+                                "UI",
+                                "Start with visibility."
+                            ]
+                        ],
+                        "note": null
+                    }
+                })
+                .to_string(),
+                is_error: false,
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
 
     assert_eq!(
@@ -309,10 +330,32 @@ fn spawn_agent_result_with_request_input_records_subagent_question() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Tool Result",
-            message: "spawn_agent Need user input before continuing.\nrequest_user_input: Which branch should continue?\noption: Current | Continue on the current branch.\noption: New | Create a new branch.".into(),
-        },
+        runtime_event_from_agent_event(
+            AgentEvent::ToolResult {
+                call_id: "delegated-call".into(),
+                name: "spawn_agent".into(),
+                content: json!({
+                    "summary": "Need user input before continuing.",
+                    "request_user_input": {
+                        "question": "Which branch should continue?",
+                        "options": [
+                            [
+                                "Current",
+                                "Continue on the current branch."
+                            ],
+                            [
+                                "New",
+                                "Create a new branch."
+                            ]
+                        ],
+                        "note": null
+                    }
+                })
+                .to_string(),
+                is_error: false,
+            },
+            RuntimeProvenance::local_tui("session-1"),
+        ),
     );
 
     assert!(app.active_live.exploration_notes.is_empty());
@@ -581,14 +624,6 @@ fn scrub_internal_control_tokens_preserves_literal_dsml_closing_tag_text() {
 }
 
 #[test]
-fn pending_control_prefix_detects_tags_after_visible_punctuation() {
-    assert!(has_pending_internal_control_context("Visible:<agent_"));
-    assert!(has_pending_internal_control_context(
-        "Visible:<｜DSML｜tool_"
-    ));
-}
-
-#[test]
 fn scrub_internal_control_tokens_preserves_colon_text_before_valid_dsml() {
     let cleaned = scrub_internal_control_tokens(
         "The status is: ok\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"read_file\">\n<｜DSML｜parameter name=\"path\" string=\"true\">Cargo.toml</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>",
@@ -621,10 +656,7 @@ fn plan_mode_routes_planning_prose_to_planning_not_exploring() {
 
     apply_tui_event(
         &mut app,
-        TuiEvent::Transcript {
-            role: "Agent",
-            message: "Based on the inspection of `crates/instructions/src/workspace.rs`, I propose the following plan:<channel|>\n1. Generalize prompt discovery.\n2. Keep the current merge semantics.".into(),
-        },
+        runtime_event_from_agent_event(AgentEvent::AssistantText("Based on the inspection of `crates/instructions/src/workspace.rs`, I propose the following plan:<channel|>\n1. Generalize prompt discovery.\n2. Keep the current merge semantics.".into()), RuntimeProvenance::local_tui("session-1")),
     );
 
     assert!(app.active_live.exploration_notes.is_empty());

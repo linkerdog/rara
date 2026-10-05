@@ -1,97 +1,78 @@
 // Bottom pane composer — input rendering, text wrapping, placeholder hints.
-use std::cell::RefCell;
-
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Wrap},
+    widgets::{Block, Paragraph},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::super::super::custom_terminal::Frame;
 use super::super::super::interaction_text::pending_interaction_hint_text;
 use super::super::super::queued_input::{pending_follow_up_hint, queued_follow_up_hint};
-use super::super::super::state::char_offset_to_byte_index;
 use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskKind, TuiApp};
 use super::bottom_pane_style;
+use crate::tui::composer_text::{
+    COMPOSER_INITIAL_INDENT, COMPOSER_SUBSEQUENT_INDENT, WrapConfig, clipped_cursor_column,
+    expand_tabs, wrapped_text,
+};
 use crate::tui::theme::{TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY};
 
-const COMPOSER_TAB_WIDTH: usize = 4;
+const COMPOSER_PLACEHOLDER: &str =
+    "Ask about the repo, request a code change, or type /help to browse commands.";
 
 pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Option<(u16, u16)> {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(2), Constraint::Length(1)])
         .split(area);
-    let hide_input_for_approval = app
+    let pending_approval = app
         .active_pending_interaction()
-        .is_some_and(|p| p.kind != ActivePendingInteractionKind::RequestInput);
+        .filter(|p| p.kind != ActivePendingInteractionKind::RequestInput);
+    let hide_input_for_approval = pending_approval.is_some();
 
-    let composer_lines = if hide_input_for_approval {
+    let composer_lines = if let Some(pending) = pending_approval {
         // Show a single-line status when approval dock is active above.
-        let pending = app.active_pending_interaction().unwrap();
         vec![Line::from(vec![Span::styled(
             format!(
-                "› {} — use ↑↓ or keys to respond",
+                "{COMPOSER_INITIAL_INDENT}{} — use ↑↓ or keys to respond",
                 super::super::super::interaction_text::pending_interaction_card_title(pending.kind),
             ),
             Style::default()
                 .fg(TEXT_MUTED)
                 .add_modifier(Modifier::ITALIC),
         )])]
-    } else if app.bottom_pane.input.is_empty() {
-        vec![Line::from(vec![
-            Span::styled(
-                "› ",
-                Style::default()
-                    .fg(TEXT_ACCENT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                "Ask about the repo, request a code change, or type ",
-                Style::default().fg(TEXT_SECONDARY),
-            ),
-            Span::styled(
-                "/help",
-                Style::default()
-                    .fg(TEXT_ACCENT)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" to browse commands.", Style::default().fg(TEXT_SECONDARY)),
-        ])]
     } else {
-        let rows = wrapped_text_rows(
-            app.bottom_pane.input.as_str(),
-            chunks[0].width,
-            Some("› "),
-            Some("  "),
-        );
-        let cursor_off = app.composer_cursor_offset();
-        let cursor_row = find_cursor_row_in_wrapped(
-            app.bottom_pane.input.as_str(),
-            cursor_off,
-            chunks[0].width,
-            Some("› "),
-            Some("  "),
-        );
-        app.maintain_composer_scroll(
-            area.width,
-            area.height.saturating_sub(1),
-            cursor_row,
-            rows.len(),
-        );
-        rows.into_iter()
+        let is_placeholder = app.bottom_pane.input.is_empty();
+        let content = if is_placeholder {
+            COMPOSER_PLACEHOLDER
+        } else {
+            app.bottom_pane.input.as_str()
+        };
+        let layout = wrapped_text(content, WrapConfig::composer(chunks[0].width));
+        let cursor_row = layout.cursor_position(app.composer_cursor_offset()).row;
+        if is_placeholder {
+            app.bottom_pane.composer_scroll = 0;
+        } else {
+            app.maintain_composer_scroll(
+                area.width,
+                area.height.saturating_sub(1),
+                cursor_row,
+                layout.rows().len(),
+            );
+        }
+        layout
+            .rows()
+            .iter()
             .map(|row| {
                 let mut spans = Vec::new();
-                let (prefix, remainder) = if let Some(rest) = row.strip_prefix("› ") {
-                    ("› ", rest)
-                } else if let Some(rest) = row.strip_prefix("  ") {
-                    ("  ", rest)
-                } else {
-                    ("", row.as_str())
-                };
-
+                let (prefix, remainder) =
+                    if let Some(rest) = row.strip_prefix(COMPOSER_INITIAL_INDENT) {
+                        (COMPOSER_INITIAL_INDENT, rest)
+                    } else if let Some(rest) = row.strip_prefix(COMPOSER_SUBSEQUENT_INDENT) {
+                        (COMPOSER_SUBSEQUENT_INDENT, rest)
+                    } else {
+                        ("", row.as_str())
+                    };
                 if !prefix.is_empty() {
                     spans.push(Span::styled(
                         prefix.to_string(),
@@ -100,7 +81,23 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
                             .add_modifier(Modifier::BOLD),
                     ));
                 }
-                spans.push(Span::raw(expand_composer_display_text(remainder)));
+                if is_placeholder {
+                    let style = Style::default().fg(TEXT_SECONDARY);
+                    if let Some((before, after)) = remainder.split_once("/help") {
+                        spans.push(Span::styled(before.to_string(), style));
+                        spans.push(Span::styled(
+                            "/help",
+                            Style::default()
+                                .fg(TEXT_ACCENT)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        spans.push(Span::styled(after.to_string(), style));
+                    } else {
+                        spans.push(Span::styled(remainder.to_string(), style));
+                    }
+                } else {
+                    spans.push(Span::raw(expand_tabs(remainder)));
+                }
                 Line::from(spans)
             })
             .collect::<Vec<_>>()
@@ -109,7 +106,6 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         Paragraph::new(composer_lines)
             .block(Block::default())
             .style(bottom_pane_style())
-            .wrap(Wrap { trim: false })
             .scroll((app.bottom_pane.composer_scroll as u16, 0)),
         chunks[0],
     );
@@ -133,37 +129,35 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
 }
 
 pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
-    let text: &'static str = if matches!(
-        app.overlay,
-        Some(super::super::super::state::Overlay::CommandPalette)
-    ) {
-        ""
-    } else if app.bottom_pane.input.trim_start().starts_with('/') {
-        "slash command  Enter run  Esc close"
-    } else if let Some(pending) = app.active_pending_interaction() {
-        pending_interaction_hint_text(pending.kind)
-    } else if app.has_pending_follow_up_messages() {
-        pending_follow_up_hint()
-    } else if app.has_queued_follow_up_messages() {
-        queued_follow_up_hint()
-    } else if app.is_busy() {
-        if app
-            .bottom_pane
-            .running_task
-            .as_ref()
-            .is_some_and(|task| matches!(task.kind, TaskKind::Query))
-        {
-            "Enter queue  Esc/Ctrl+C cancel"
+    let text =
+        if matches!(
+            app.overlay,
+            Some(super::super::super::state::Overlay::CommandPalette)
+        ) {
+            ""
+        } else if app.bottom_pane.input.trim_start().starts_with('/') {
+            "slash command  Enter run  Esc close"
+        } else if let Some(pending) = app.active_pending_interaction() {
+            pending_interaction_hint_text(pending.kind)
+        } else if app.has_pending_follow_up_messages() {
+            pending_follow_up_hint()
+        } else if app.has_queued_follow_up_messages() {
+            queued_follow_up_hint()
+        } else if app.is_busy() {
+            if app.bottom_pane.running_task.as_ref().is_some_and(|task| {
+                matches!(task.kind, TaskKind::Query | TaskKind::ReviewPreparation)
+            }) {
+                "Enter queue  Esc/Ctrl+C cancel"
+            } else {
+                "Enter queue"
+            }
+        } else if app.has_pending_planning_suggestion() {
+            "planning suggested  1 enter planning mode  2 continue in execute mode"
+        } else if app.agent_execution_mode_label() == "plan" {
+            "planning mode  read-only planning; approve to execute"
         } else {
-            "Enter queue"
-        }
-    } else if app.has_pending_planning_suggestion() {
-        "planning suggested  1 enter planning mode  2 continue in execute mode"
-    } else if app.agent_execution_mode_label() == "plan" {
-        "planning mode  read-only planning; approve to execute"
-    } else {
-        ""
-    };
+            ""
+        };
 
     if text.is_empty() {
         return Line::default();
@@ -208,7 +202,13 @@ pub(super) fn composer_cursor_position(
     area: Rect,
     scroll: usize,
 ) -> (u16, u16) {
-    let (x, y) = wrapped_text_cursor_position(input, cursor_offset, area, Some("› "), Some("  "));
+    let (x, y) = wrapped_text_cursor_position(
+        input,
+        cursor_offset,
+        area,
+        Some(COMPOSER_INITIAL_INDENT),
+        Some(COMPOSER_SUBSEQUENT_INDENT),
+    );
     let adjusted_y = y.saturating_sub(scroll as u16);
     (x, adjusted_y)
 }
@@ -225,16 +225,23 @@ pub(crate) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u1
 
 pub(super) fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
     let content = if app.bottom_pane.input.is_empty() {
-        "Ask about the repo, request a code change, or type /help to browse commands.".to_string()
+        COMPOSER_PLACEHOLDER.to_string()
     } else {
         app.bottom_pane.input.clone()
     };
 
-    wrapped_text_row_count(&content, width, Some("› "), None)
+    u16::try_from(
+        wrapped_text(&content, WrapConfig::composer(width))
+            .rows()
+            .len(),
+    )
+    .unwrap_or(u16::MAX)
 }
 
 pub(crate) fn editor_cursor_position(input: &str, cursor_offset: usize, area: Rect) -> (u16, u16) {
-    wrapped_text_cursor_position(input, cursor_offset, inner_rect(area), None, None)
+    let inner = inner_rect(area);
+    let column = clipped_cursor_column(input, cursor_offset, inner.width) as u16;
+    (inner.x.saturating_add(column), inner.y)
 }
 
 fn inner_rect(area: Rect) -> Rect {
@@ -257,52 +264,18 @@ pub(super) fn wrapped_text_cursor_position(
         return (area.x, area.y);
     }
 
-    let initial_indent = initial_indent.unwrap_or("");
-    let subsequent_indent = subsequent_indent.unwrap_or("");
-    let cursor_prefix_end = char_offset_to_byte_index(input, cursor_offset);
-    let cursor_prefix = &input[..cursor_prefix_end];
-    let wrapped_rows = wrapped_text_rows(
-        cursor_prefix,
-        area.width,
-        Some(initial_indent),
-        Some(subsequent_indent),
+    let layout = wrapped_text(
+        input,
+        WrapConfig {
+            width: area.width,
+            initial_indent: initial_indent.unwrap_or(""),
+            subsequent_indent: subsequent_indent.unwrap_or(""),
+        },
     );
-
-    let last_row = wrapped_rows
-        .last()
-        .cloned()
-        .unwrap_or_else(|| initial_indent.to_string());
-    let row_index = wrapped_rows.len().saturating_sub(1);
-    let cursor_y = area.y.saturating_add(row_index as u16);
-    let display_width = display_text_width(last_row.as_str()) as u16;
-    let max_x_offset = area.width.saturating_sub(1);
-    let cursor_x = area.x.saturating_add(display_width.min(max_x_offset));
-
-    (cursor_x, cursor_y)
-}
-
-fn wrapped_text_row_count(
-    input: &str,
-    width: u16,
-    initial_indent: Option<&str>,
-    subsequent_indent: Option<&str>,
-) -> u16 {
-    wrapped_text_rows(input, width, initial_indent, subsequent_indent).len() as u16
-}
-
-fn expand_composer_display_text(text: &str) -> String {
-    let mut expanded = String::new();
-    for ch in text.chars() {
-        match ch {
-            '\t' => expanded.push_str(&" ".repeat(COMPOSER_TAB_WIDTH)),
-            _ => expanded.push(ch),
-        }
-    }
-    expanded
-}
-
-fn display_text_width(text: &str) -> usize {
-    text.chars().map(display_char_width).sum()
+    let position = layout.cursor_position(cursor_offset);
+    let row = u16::try_from(position.row).unwrap_or(u16::MAX);
+    let column = u16::try_from(position.column).unwrap_or(u16::MAX);
+    (area.x.saturating_add(column), area.y.saturating_add(row))
 }
 
 pub(super) fn wrapped_text_rows(
@@ -311,124 +284,16 @@ pub(super) fn wrapped_text_rows(
     initial_indent: Option<&str>,
     subsequent_indent: Option<&str>,
 ) -> Vec<String> {
-    // Simple cache: a single-entry cache is effective because the
-    // same (input, width) pair is queried every frame for render,
-    // cursor, and scroll — so the second and third calls are free.
-    thread_local! {
-        static CACHE: RefCell<Option<(String, u16, Vec<String>)>> = const { RefCell::new(None) };
-    }
-    CACHE.with(|cell| {
-        if let Some((ref cached_input, w, ref rows)) = *cell.borrow()
-            && cached_input == input
-            && w == width
-        {
-            return rows.clone();
-        }
-        let rows = wrapped_text_rows_uncached(input, width, initial_indent, subsequent_indent);
-        cell.replace(Some((input.to_string(), width, rows.clone())));
-        rows
-    })
-}
-
-fn wrapped_text_rows_uncached(
-    input: &str,
-    width: u16,
-    initial_indent: Option<&str>,
-    subsequent_indent: Option<&str>,
-) -> Vec<String> {
-    let width = width.max(1);
-    let initial_indent = initial_indent.unwrap_or("");
-    let subsequent_indent = subsequent_indent.unwrap_or("");
-    let mut wrapped_rows = Vec::new();
-
-    if input.is_empty() {
-        wrapped_rows.push(initial_indent.to_string());
-        return wrapped_rows;
-    }
-
-    {
-        let mut lines = input.split('\n');
-        // First logical line keeps the caller-supplied initial indent.
-        if let Some(first) = lines.next() {
-            wrapped_rows.extend(wrap_logical_line_preserving_whitespace(
-                first,
-                width,
-                initial_indent,
-                subsequent_indent,
-            ));
-        }
-        // Lines after embedded newlines use the subsequent indent.
-        for logical_line in lines {
-            wrapped_rows.extend(wrap_logical_line_preserving_whitespace(
-                logical_line,
-                width,
-                subsequent_indent,
-                subsequent_indent,
-            ));
-        }
-    }
-
-    wrapped_rows
-}
-
-fn wrap_logical_line_preserving_whitespace(
-    logical_line: &str,
-    width: u16,
-    initial_indent: &str,
-    subsequent_indent: &str,
-) -> Vec<String> {
-    let max_width = width.max(1) as usize;
-    let initial_width = UnicodeWidthStr::width(initial_indent);
-    let subsequent_width = UnicodeWidthStr::width(subsequent_indent);
-    let mut rows = Vec::new();
-    let mut current = initial_indent.to_string();
-    let mut current_width = initial_width.min(max_width);
-    let mut current_prefix_width = initial_width.min(max_width);
-
-    if logical_line.is_empty() {
-        rows.push(current);
-        return rows;
-    }
-
-    for ch in logical_line.chars() {
-        let char_width = display_char_width(ch);
-        let next_width = current_width.saturating_add(char_width);
-        let can_wrap = current_width > current_prefix_width;
-        if next_width > max_width && can_wrap {
-            rows.push(current);
-            current = subsequent_indent.to_string();
-            current_prefix_width = subsequent_width.min(max_width);
-            current_width = current_prefix_width;
-        }
-        current.push(ch);
-        current_width = current_width.saturating_add(char_width);
-    }
-
-    rows.push(current);
-    rows
-}
-
-fn display_char_width(ch: char) -> usize {
-    match ch {
-        '\t' => COMPOSER_TAB_WIDTH,
-        _ => UnicodeWidthChar::width(ch).unwrap_or(0),
-    }
-}
-
-/// Find which wrapped row the cursor falls on by wrapping only the
-/// cursor prefix substring — matching the approach in
-/// `wrapped_text_cursor_position`.
-pub(super) fn find_cursor_row_in_wrapped(
-    input: &str,
-    cursor_char_offset: usize,
-    width: u16,
-    initial_indent: Option<&str>,
-    subsequent_indent: Option<&str>,
-) -> usize {
-    let cursor_prefix_end = char_offset_to_byte_index(input, cursor_char_offset);
-    let cursor_prefix = &input[..cursor_prefix_end];
-    let wrapped = wrapped_text_rows(cursor_prefix, width, initial_indent, subsequent_indent);
-    wrapped.len().saturating_sub(1)
+    wrapped_text(
+        input,
+        WrapConfig {
+            width,
+            initial_indent: initial_indent.unwrap_or(""),
+            subsequent_indent: subsequent_indent.unwrap_or(""),
+        },
+    )
+    .rows()
+    .to_vec()
 }
 
 #[cfg(test)]

@@ -46,9 +46,14 @@ architecture. The 2026-08-22 checkpoint implements:
   shutdown that closes and waits for the session's active child-agent tree;
 - embedded, ask, print, exec, Wire, and ACP adapters over the session handle.
 
+The lightweight `rara-runtime` package now owns the shared actor, commands,
+turn outcomes, event log, and replay used by native and host adapters. Its
+[downstream contract](downstream-runtime.md) defines explicit host assembly and
+the independent Git consumer gate.
+
 The following target items are not delivered by this checkpoint: TUI command
 migration, agent rebuild and queued/steered input, store-trait injection,
-lightweight crate extraction, a network AppServer transport, and the Nowledge
+a network AppServer transport, and the Nowledge
 Mem parity harness. They remain explicit follow-up work and must not be treated
 as production Rig-replacement evidence.
 
@@ -95,6 +100,24 @@ local-model dependencies must not be unconditional dependencies of the minimal
 runtime library.
 
 ### Session Ownership
+
+The lightweight package owns the session command loop, turn admission,
+cooperative stop fencing, completion barrier, and shutdown receipt. A
+session-scoped execution adapter supplies application policy and resources.
+Native application assembly and host-controlled assembly use that same owner;
+an adapter must not introduce another session scheduling loop.
+
+An admitted turn transfers its executor out of the adapter until execution
+actually returns. Cancellation only signals that executor and its descendants;
+it does not drop the future or publish a terminal event early. Completion
+returns the executor before transcript readback, pending-input publication,
+memory capture, or acceptance of another turn. Shutdown retains a shared result
+even when the caller awaiting it is cancelled.
+
+Host assembly injects its backend and tools and uses the shared model, tool,
+and loop effects. Native approval, extension, memory, and persistence policy
+remain application adapters. The external acceptance fixture must exercise the
+public session builder and handle, not implement its own effects driver.
 
 `RuntimeSession` is a cloneable command and observation handle. It does not
 expose `Agent`, registries, mutable runtime state, locks, or task join handles.
@@ -153,7 +176,166 @@ boundary; `Queue` waits for the current turn to finish. The runtime must not
 silently reinterpret one mode as the other. Neither command is implemented in
 the current checkpoint.
 
+### Structured Input And Waiting
+
+The strict `submit_input` API accepts typed prompt, follow-up and answer commands.
+An answer includes the originating waiting turn and a user, plan or shell
+response. Admission validates the active/pending state, turn identity and answer
+kind before consuming native state. Busy follow-up returns `Busy`; it does not
+queue, steer or cancel. A fresh strict prompt cannot replace a pending approval.
+The existing plain `submit` path remains a compatibility API, not the app-server
+input boundary. It explicitly supersedes any pending interaction and clears its
+native callback state. A transcript replacement is rejected while input is
+pending so an approval cannot act against a different transcript.
+
+After root execution returns, the actor derives a typed pending descriptor from
+the native agent and publishes it with its original turn identity. Snapshots use
+`AwaitingInput` and retain the same descriptor. A wait is distinct from an active
+provider call, and a terminal turn event does not imply the interaction is done.
+Approvals take precedence over a simultaneous plain question. Late, duplicate
+or wrong-kind answers do not consume a newer wait. Stops and shutdown discard
+pending ownership; live approvals are not advertised as surviving process exit.
+When approval pauses a tool batch, results from calls that already completed
+remain in the transcript and its enabled checkpoint exactly once, with their
+original provider call IDs. Pausing does not advance the plan, insert a normal
+tool continuation, or invoke a later call. Approving or rejecting the pending
+call preserves those earlier results in the next provider request.
+Ordered input events distinguish a requested wait, an accepted answer naming its
+original waiting turn, and discard by cancel, interrupt, shutdown or legacy
+replacement. Discarding an already waiting turn does not emit another terminal
+turn event. The native parser still determines when a question exists: structured
+question and plan blocks are interpreted in plan mode.
+
+Accepted answers use the native input/plan/shell execution paths and receive a
+new turn identity. Native approval continuations start fresh turn observations
+and inference accounting. Sources refresh when a continuation will call the
+model; rejecting a plan without model execution does not consume source TTL.
+Refreshed context is attached after the native continuation message is appended,
+so it reaches the next provider request without modifying the system prefix.
+
+### Prompt Source Control
+
+`apply_prompt_source` serializes source changes with session commands and rejects
+mutations while a root turn is active. Provenance is scoped to the target session;
+an explicitly different session ID is rejected. Source content enters the normal
+appended per-turn user context, preserving the stable top-level prompt.
+
+The supported registration contract is protocol/session scope, user layer, and
+session or positive turn-count lifetime. Unsupported scope/layer and persistent
+lifetime requests fail explicitly. IDs and provenance labels are bounded to128
+ASCII identifier bytes. A session retains at most32 sources,64KiB per source and
+256KiB aggregate content. Replacements check the final budget before mutation.
+Lifecycle events retain source provenance; expiry affects subsequent query
+assembly and does not erase historical transcript content.
+
+### Skill Source Control
+
+`apply_skill_source` serializes inline skill registration, source-scoped disable
+and catalogue queries with session commands. It rejects active turns and foreign
+session provenance. Registration requires the native skill tool and its shared
+session catalogue; injected tool registries and profiles without that tool cannot
+advertise this capability. Protocol root discovery is explicitly unsupported.
+
+Registration and query events contain source identity and selection/disabled
+metadata, never full bodies. `Injected` is emitted only when the native skill
+tool returns a protocol body, with the invoking turn and original source
+provenance. Compact winning metadata reaches the latest model-visible context;
+removal is explicit and old transcript evidence remains intact. Static system
+guidance follows tool availability from initial assembly, so registering a first
+skill does not change the system prefix. Local discovery/reload uses the explicit
+workspace; disabling ambient discovery also disables local reload.
+
+### Turn Stop Control
+
+`cancel_turn(expected_turn)` and `interrupt_turn(expected_turn)` target a specific
+active turn; stale identities are rejected without signalling cancellation.
+`cancel()` remains the compatibility operation for the current turn. The first
+accepted stop kind wins. Repeating that kind while the turn drains is idempotent;
+switching kinds returns `StopInProgress`. Shutdown preserves an already accepted
+interruption rather than relabelling it as cancellation.
+
+Both kinds propagate cooperative cancellation immediately and use the
+`Cancelling` snapshot phase while execution drains. Their acknowledgements are
+not completion evidence. The actor publishes `TurnCancelled` or `TurnInterrupted`
+only after execution returns, and the corresponding typed error retains the
+partial `RuntimeTurnOutcome`.
+
+The TUI compatibility task bridge preserves the same stop boundary. A stop
+request records a typed cancel/interrupt kind, signals cooperative cancellation,
+and leaves the turn running while its execution drains. Task return, not request
+acceptance or notice text, owns the terminal publication. Query events carry one
+session/turn identity, including the terminal event. A stop racing with task
+return is serialized; a finished task rejects the request and the first accepted
+stop kind cannot be relabelled.
+
+Only an admitted typed stop selects the cancelled/interrupted completion path.
+Provider or maintenance errors remain failures even if their text mentions a
+user cancellation. Maintenance without stop admission must not translate an
+error string into a successful terminal event.
+
+The accepted stop wins over a later successful execution return, including a
+newly raised approval; pending interactions are discarded and automatic goal
+continuation is not entered. An execution error remains available as a diagnostic
+and in the returned error chain even when the stop determines terminal status.
+
+The TUI completion barrier requires both task return and the matching ordered
+terminal event. Each local task also retains ordered event receipts in its
+existing task channel, with the same bus-assigned identity and sequence. A receipt
+is enqueued before its broadcast becomes visible. Before applying a broadcast
+event, the controller applies query receipts up to that sequence; later receipts
+remain pending. After joining the producer it drains the remaining receipts
+through the same fence before completing the task. A lagged or dropped broadcast
+terminal event cannot strand completion or discard its preceding tail; a replayed event cannot
+be applied twice. This recovery does not accept an unscoped completion as proof
+that an identified query ended. Foreign-session, mismatched-turn, duplicate, and
+post-terminal turn events cannot mutate presentation or satisfy the barrier. Unscoped runtime
+catalog/status events remain compatible; unscoped turn output is not valid while
+a scoped query owns the presentation. After its terminal boundary and task
+completion, unscoped maintenance events may be presented again; closed query IDs
+remain fenced. A task join failure closes live output while preserving its
+partial transcript and surfaces an explicit error rather than waiting for a
+producer that no longer exists.
+
+### Review Preparation
+
+The TUI compatibility processor handles local review preparation as a separate
+maintenance task. It retains the current agent while an owned asynchronous Git
+capture runs, and consumes its typed result before starting a review query.
+Clean, failed, and cancelled preparation never enter the query completion
+barrier or invoke the model. Cancellation is recorded before aborting the owned
+capture task; a concurrently completed result cannot start a query after that
+stop has been admitted. The helper's cancellation boundary terminates and reaps
+its child. The processor rejects competing maintenance and interaction
+continuations while preparation owns the task slot; queued prompts and pending
+permission changes retain their existing behavior. Review preparation does not
+change the public session or wire API.
+
+### Shutdown Receipts
+
+Closing a session stops admission, cancels active work, and waits for the root
+turn and child tree to drain. The actor retains one cleanup outcome before
+publishing `Closed`. Concurrent and repeated shutdown calls observe that same
+outcome; a failed child-tree drain returns `ShutdownFailed` on every retry.
+An ended event stream or a `Closed` snapshot alone does not prove cleanup.
+Memory draining retains its existing diagnostic behavior; this receipt does not
+claim a durable memory commit.
+
+A host keeps each session registered until successful cleanup. One owned task
+drains each host shutdown generation, so cancelling a caller does not cancel
+cleanup and simultaneous callers cannot return early from an emptied registry.
+Failed session handles and the failed outcome remain retained. Admission is
+rejected during pending or failed cleanup. After successful shutdown, explicit
+insertion may start a new host generation; shutdown without new admission
+returns the retained success. Removing a session also waits for cleanup before
+releasing its identity, and checks actor identity before deleting the entry.
+
 ### Events And Snapshots
+
+`query_runtime_state` publishes a canonical `session.runtime_state` event through
+the actor, including session identity, lifecycle phase and observed cursor.
+`replay_events(after_sequence)` reads a finite bounded event batch without changing
+original identities; exhausted and future cursors use the same explicit resync
+error as live subscriptions. The stdio adapter consumes these owned APIs.
 
 Each event envelope contains:
 
@@ -174,6 +356,45 @@ before `N`. A subscription begins from an atomically captured snapshot and
 sequence. A bounded replay gap produces `ResyncRequired`; lag must not be
 discarded silently. After shutdown, an observer drains every event already
 published to its stream before receiving the typed `Closed` boundary.
+
+`RuntimeSession::subscribe_after` starts an ordered stream after an explicit,
+exclusive session cursor, retaining original event IDs and sequence values.
+Live subscription is established before reading replay so concurrent publication
+cannot fall between the two paths. An exhausted window or a cursor ahead of the
+current session produces `ResyncRequired`; an invalid future cursor must not
+silently suppress subsequent events. A closed session can still replay retained
+events and then returns `Closed`.
+
+The TUI compatibility adapter also consumes an ordered, replay-aware stream.
+Its default bootstrap retains 1024 control events behind a 256-slot broadcast
+channel. Explicit session event-capacity settings still supply the same requested
+size to broadcast and retention. Broadcast lag and sequence gaps trigger replay before a
+later event can be projected. Subscription captures a cursor before subscribing
+and replays from it, closing the publication race; cancelled receives retain
+the cursor and pending replay. Zero-sequence transport records are invalid and
+are rejected with a diagnostic before projection.
+
+An exhausted replay window becomes an explicit projection recovery gap. Query
+receipts can fill that missing range without duplicating text. Missing events
+outside those receipts produce a visible warning and a refresh from the owned
+runtime, goal store, and agent activity state; an agent snapshot refresh waits
+until the retained event tail is applied and the running task returns its agent.
+Additional gaps extend that pending refresh without appending another loss
+notice; a new recovery episode can produce a new warning.
+Old replay must not overwrite a fresh snapshot. Idle recovery retires stale
+live progress without inventing tool results. The UI's cached snapshot is not an
+authoritative recovery source. A refresh cannot recreate lost transient text
+or progress, and must not claim that it did. Query completion first drains the
+ordered stream through the cursor captured after execution returns, before
+draining remaining receipts. This preserves interleaved background events,
+including live records that outlast the replay window when Tokio rounds broadcast
+capacity up.
+
+Verification compares lagged and uninterrupted non-query projections, exercises
+exhausted windows with and without complete query receipts, checks completion
+interleaving and stale-event fencing, and cancels/resumes stream receives. Recovery
+tests use the production controller, including its receipt queue; the lightweight
+rendering harness must reject scripted recovery markers it cannot model.
 
 Thinking, assistant output, and tool lifecycle events for a turn precede its
 terminal event because the actor publishes that boundary only after the root
@@ -212,8 +433,22 @@ usage events are not yet public; they remain required Nowledge Mem parity work.
 The public tool contract carries trusted session, turn, call, workspace, and
 cancellation context. Host tool implementations can own approval, budgeting,
 safety filtering, audit behavior, and authority rather than accepting those
-values from model arguments. A distinct injectable middleware stack remains
-target work.
+values from model arguments. Its canonical types now live in the
+[portable core tool contract](portable-tool-contracts.md), with compatibility
+re-exports through the existing tool path. A distinct injectable middleware
+stack remains target work.
+
+The application uses the [shared loop executor](portable-agent-loop.md) for
+effect scheduling and the pure machine for continuation, bounded repair,
+tool/approval, and finalization decisions. Its `LoopEffects` adapter retains
+native model/tool execution, persistence, hooks, and cancellation cleanup.
+Model dispatch and response collection use the shared `execute_model_turn`
+effect, with native accounting, planning, and hooks supplied by `ModelTurnPolicy`.
+Serial tool batches and trusted-context invocation use shared tool effects;
+native admission, result policy, and batch budgets remain explicit adapters.
+Only machine control state is serializable. The lightweight host runtime uses
+explicit host context and policy while native application assembly remains an
+adapter; complete native context/provider extraction remains #871 work.
 
 Direct transcript handoff, usage observation, and memory opt-out are
 implemented. Async transcript/context store traits remain target policy seams.
@@ -236,7 +471,7 @@ to `RuntimeSession`. It is not a second runtime owner.
 7. Runtime replacement must be generation-fenced when it is added.
 8. Adapters translate commands and events but do not implement turn lifecycle.
 9. Memory is an injected facility, not a runtime or session owner.
-10. The target minimal Rust library does not require TUI, ACP, local-model,
+10. The minimal Rust runtime library does not require TUI, ACP, local-model,
     OAuth, or application provider implementations.
 11. Dropping one handle or transport connection does not stop a registry-owned
     session.
@@ -251,15 +486,20 @@ to `RuntimeSession`. It is not a second runtime owner.
 | Serialization | delivered | Two commands for one session never run two root turns concurrently. |
 | Concurrency | delivered | Two sessions can block at the provider boundary and make progress independently. |
 | Cancellation | delivered | A cooperative provider receives cancellation without waiting for the agent task lock; completion occurs when the backend observes the token or otherwise returns. |
+| Turn stop | delivered | Targeted cancel/interrupt reject stale turns, retain the first accepted kind, and publish terminal evidence only after execution returns. |
+| TUI stop bridge | delivered | Task-return/terminal-event interleavings retain trailing output; typed stop admission rejects finished tasks; session/turn fencing rejects stale output and terminal events before the completion barrier. |
+| Review preparation | delivered | Bounded Git capture leaves the agent available on clean/error/cancel; competing maintenance cannot replace it; a stop wins over an unconsumed successful result. |
+| Shutdown receipt | delivered | Concurrent and repeated callers share cleanup results; failed sessions remain registered and cancelled callers do not cancel host cleanup. |
 | Replacement | target | A completion from an older generation must not replace the rebuilt agent after rebuild support is added. |
 | Event order | delivered | Concurrent producers preserve increasing sequence values; thinking, text, and tool events precede the terminal event. |
 | Replay | delivered | Snapshot plus replay has no gap; an exhausted replay window returns `ResyncRequired`, and shutdown drains published events before `Closed`. |
 | Tool identity | delivered | Repeated same-name calls retain distinct provider call IDs. |
+| Partial tool batch | delivered | Shell approval and rejection retain preceding results in paused readback, checkpoints, and the resumed provider request without replaying completed calls. |
 | Adapters | partial | Embedded, ACP, Wire, print, exec, and ask use `RuntimeSession`; TUI command ownership remains compatible but separate. |
 | Isolation | delivered | Workspace, state root, MCP, LSP, hooks, memory, and child-agent controls remain session-scoped. |
 | Library | partial | An integration fixture injects a fake backend, tool, stable identity, and transcript; async store traits remain target work. |
-| Dependency boundary | target | The future minimal runtime dependency graph excludes Ratatui, Candle, ACP, and OAuth. |
-| Build | partial | Cargo formatting, checks, Clippy, and tests pass; the default Bazel configuration is blocked before analysis by an unsupported local startup option. |
+| Dependency boundary | delivered | The independent `rara-runtime` Git consumer excludes Ratatui, Candle, ACP, OAuth, and application provider implementations. |
+| Build | partial | Root Cargo library tests, strict all-target Clippy, formatting, and the default `//:rara_unit_tests` Bazel gate pass; exact-head remote CI/review/merge remain separate gates. |
 
 ## Host Integration Example
 
@@ -299,9 +539,8 @@ model-generated tool arguments.
 
 ## Open Risks
 
-- Extracting the current root agent loop into a lightweight crate requires
-  dependency inversion for provider construction, hooks, persistence, and
-  extension discovery.
+- Native context/provider extraction and browser session execution still
+  require platform and policy work beyond the lightweight host package.
 - Existing persisted transcripts need an explicit compatibility codec before a
   host changes message formats.
 - Durable prompt admission and crash continuation require a separate contract
@@ -312,3 +551,8 @@ model-generated tool arguments.
 ## Source Journals
 
 - `docs/journal/2026-08-22-runtime-session.md`
+- [TUI cancellation barrier](../journal/2026-10-03-turn-cancellation-barrier.md)
+- [Partial tool results across approval pauses](../journal/2026-10-04-approval-partial-tool-results.md)
+- [Lightweight session ownership](../journal/2026-10-04-lightweight-session-runtime.md)
+
+- [Bounded review preparation](../journal/2026-10-04-review-diff-capture.md)

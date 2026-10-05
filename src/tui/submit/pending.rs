@@ -1,7 +1,8 @@
 use crate::agent::Agent;
-use crate::runtime_control::{InputControlRequest, ShellApprovalDecision};
+use crate::runtime_control::InputControlRequest;
 use crate::tui::input_control;
 use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand};
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 
 pub(super) async fn handle_pending_option_submit(
@@ -38,11 +39,8 @@ pub(super) async fn handle_pending_option_submit(
             Ok(true)
         }
         ActivePendingInteractionKind::ShellApproval => {
-            let selection = match index {
-                0 => ShellApprovalDecision::Once,
-                1 => ShellApprovalDecision::Prefix,
-                2 => ShellApprovalDecision::Always,
-                _ => ShellApprovalDecision::Suggestion,
+            let Some(selection) = input_control::shell_approval_decision_for_index(index) else {
+                return Ok(false);
             };
             if let Some(runtime_port) = runtime_port {
                 runtime_port
@@ -71,7 +69,10 @@ pub(super) async fn handle_pending_option_submit(
                 } else if let Some(agent) = agent_slot.take() {
                     input_control::answer_pending_input(app, agent_slot, agent, label);
                 } else {
-                    app.push_notice("Request input is still preparing. Try the shortcut again.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "Request input is still preparing. Try the shortcut again.",
+                    );
                 }
                 return Ok(true);
             }

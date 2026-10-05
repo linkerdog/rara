@@ -54,8 +54,8 @@ impl Tool for ApplyPatchTool {
             .get("dry_run")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let ops = parse_patch(patch)?;
-        validate_patch_update_context(&ops)?;
+        let ops = parse_patch(patch).map_err(patch_tool_error)?;
+        validate_patch_update_context(&ops).map_err(patch_tool_error)?;
 
         // Pre-read enforcement: every Update or Delete must target a file
         // that was fully read in this conversation and hasn't been modified
@@ -78,7 +78,8 @@ impl Tool for ApplyPatchTool {
                 other => Err(PatchError::ExecutionFailed(other.to_string())),
             },
         };
-        let action = build_patch_action_from_ops(patch, ops, &mut read_for_action)?;
+        let action = build_patch_action_from_ops(patch, ops, &mut read_for_action)
+            .map_err(patch_tool_error)?;
         let mut delta = AppliedPatchDelta::empty();
 
         for change in &action.changes {
@@ -225,7 +226,7 @@ impl Tool for ApplyPatchTool {
 
 fn record_patch_write_best_effort(read_state: &FileReadState, path: &str, content: &str) {
     if let Err(err) = read_state.record_write(path, content) {
-        eprintln!("Failed to record file read state after patch write: {err}");
+        log::warn!("Failed to record file read state after patch write: {err}");
     }
 }
 
@@ -314,12 +315,10 @@ fn read_optional_existing_text(path: &str, delta: &mut AppliedPatchDelta) -> Opt
     }
 }
 
-impl From<PatchError> for ToolError {
-    fn from(error: PatchError) -> Self {
-        match error {
-            PatchError::InvalidInput(message) => Self::InvalidInput(message),
-            PatchError::ExecutionFailed(message) => Self::ExecutionFailed(message),
-        }
+fn patch_tool_error(error: PatchError) -> ToolError {
+    match error {
+        PatchError::InvalidInput(message) => ToolError::InvalidInput(message),
+        PatchError::ExecutionFailed(message) => ToolError::ExecutionFailed(message),
     }
 }
 
@@ -331,7 +330,7 @@ mod tests {
 
     use super::ApplyPatchTool;
     use crate::file::{FileReadState, ReadFileTool};
-    use crate::tool::Tool;
+    use crate::tool::{Tool, ToolError};
 
     #[test]
     fn apply_patch_description_encodes_safe_edit_contract() {
@@ -559,11 +558,8 @@ mod tests {
             .await
             .expect_err("add-only update hunk should be rejected");
 
-        assert!(
-            error
-                .to_string()
-                .contains("must include at least one context or removed line")
-        );
+        assert!(matches!(error, ToolError::ExecutionFailed(message)
+            if message.contains("must include at least one context or removed line")));
         assert_eq!(std::fs::read_to_string(&file).expect("read"), "hello\n");
     }
 
@@ -586,9 +582,44 @@ mod tests {
             .await
             .expect_err("empty update hunk should be rejected");
 
-        assert!(error.to_string().contains("must include at least one hunk"));
+        assert!(matches!(error, ToolError::ExecutionFailed(message)
+            if message.contains("must include at least one hunk")));
         assert!(file.exists());
         assert!(!moved.exists());
+    }
+
+    #[tokio::test]
+    async fn malformed_patch_preserves_invalid_input() {
+        let result = ApplyPatchTool::default()
+            .call(json!({"patch": "*** Begin Patch\ninvalid\n*** End Patch"}))
+            .await;
+        assert!(matches!(result, Err(ToolError::InvalidInput(message))
+            if message == "Unexpected patch directive: invalid"));
+    }
+
+    #[tokio::test]
+    async fn missing_patch_target_preserves_execution_failure() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("missing.txt");
+        let result = ApplyPatchTool::default()
+            .call(json!({
+                "patch": format!(
+                    "*** Begin Patch\n*** Update File: {}\n@@\n-before\n+after\n*** End Patch",
+                    file.display()
+                )
+            }))
+            .await;
+        match result {
+            Err(ToolError::ExecutionFailed(message)) => {
+                assert_eq!(
+                    message,
+                    format!("Cannot update missing file {}", file.display())
+                );
+            }
+            other => anyhow::bail!("expected a patch execution failure, got {other:?}"),
+        }
+        assert!(!file.exists());
+        Ok(())
     }
 
     #[tokio::test]

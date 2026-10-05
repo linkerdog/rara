@@ -277,7 +277,7 @@ fn collect_messages_from_turns(turns: &[TranscriptTurn]) -> Vec<Message> {
         .iter()
         .flat_map(|turn| &turn.entries)
         .filter_map(|entry| {
-            transcript_role_to_message_role(&entry.role).map(|role| Message {
+            transcript_role_to_message_role(entry.role.as_str()).map(|role| Message {
                 role: role.to_string(),
                 content: serde_json::Value::String(entry.message.clone()),
             })
@@ -326,9 +326,11 @@ async fn process_request(request: &AutoMemoryRequest, effective_start_turn_exclu
     let result = match result {
         Ok(r) => r,
         Err(err) => {
-            eprintln!(
+            log::warn!(
                 "Warning: auto-memory summarize failed for session {} turns {}-{}: {err}",
-                request.session_id, start_turn_index, request.completed_turns
+                request.session_id,
+                start_turn_index,
+                request.completed_turns
             );
             return false;
         }
@@ -353,9 +355,11 @@ async fn process_request(request: &AutoMemoryRequest, effective_start_turn_exclu
             source_span: source_span.clone(),
         };
         if let Err(err) = request.store.insert_text_only(record).await {
-            eprintln!(
+            log::warn!(
                 "Warning: auto-memory insert failed for session {} turns {}-{}: {err}",
-                request.session_id, start_turn_index, request.completed_turns
+                request.session_id,
+                start_turn_index,
+                request.completed_turns
             );
         }
     }
@@ -444,6 +448,7 @@ mod tests {
     use crate::config::ConfigManager;
     use crate::llm::{ContentBlock, LlmResponse, TokenUsage};
     use crate::session::SessionManager;
+    use crate::tui::MessageRole;
     use crate::tui::state::{TranscriptEntry, TranscriptTurn, TuiApp};
     use crate::workspace::WorkspaceMemory;
 
@@ -520,9 +525,9 @@ mod tests {
         TranscriptTurn {
             thinking_duration: None,
             entries: vec![
-                TranscriptEntry::new("You", user),
-                TranscriptEntry::new("Agent", assistant),
-                TranscriptEntry::new("System", "ignored"),
+                TranscriptEntry::new(MessageRole::User, user),
+                TranscriptEntry::new(MessageRole::Agent, assistant),
+                TranscriptEntry::new(MessageRole::System, "ignored"),
             ],
         }
     }

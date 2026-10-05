@@ -1,15 +1,16 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use std::ops::Range;
 
+#[cfg(test)]
+use ratatui::text::Line;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
-    text::Line,
 };
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
+
+use super::text_wrap::display_width;
+use super::transcript_rows::TranscriptRows;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ScreenPosition {
@@ -30,7 +31,8 @@ pub(crate) struct TranscriptSelection {
     last_mouse: Option<ScreenPosition>,
     dragging: bool,
     snapshot: TranscriptSelectionSnapshot,
-    snapshot_key: Option<TranscriptSelectionSnapshotKey>,
+    #[cfg(test)]
+    pub(crate) work: super::transcript_work::WorkMeter,
 }
 
 impl TranscriptSelection {
@@ -40,28 +42,31 @@ impl TranscriptSelection {
 
     pub(crate) fn update_snapshot(
         &mut self,
-        lines: &[Line<'static>],
+        rows: &TranscriptRows,
         area: Rect,
-        width: u16,
-        scroll_offset: u16,
+        scroll_offset: usize,
     ) {
-        let key = TranscriptSelectionSnapshotKey::from_lines(lines, area, width, scroll_offset);
-        if self.snapshot_key == Some(key) {
-            return;
-        }
-        self.snapshot =
-            TranscriptSelectionSnapshot::from_lines(lines, area, width, usize::from(scroll_offset));
-        self.snapshot_key = Some(key);
+        self.snapshot = TranscriptSelectionSnapshot::from_rows(rows.clone(), area, scroll_offset);
         self.clamp_points_to_snapshot();
+    }
+
+    #[cfg(test)]
+    fn update_snapshot_lines(&mut self, lines: &[Line<'static>], area: Rect, scroll_offset: usize) {
+        self.update_snapshot(
+            &TranscriptRows::from_visual_lines(lines.to_vec()),
+            area,
+            scroll_offset,
+        );
     }
 
     pub(crate) fn clear_snapshot(&mut self) {
         self.snapshot = TranscriptSelectionSnapshot::default();
-        self.snapshot_key = None;
         self.clear();
     }
 
     pub(crate) fn start(&mut self, position: ScreenPosition) -> bool {
+        // A fresh press replaces a drag even when its previous release was lost.
+        self.clear();
         let Some(point) = self
             .snapshot
             .point_for_position(position, PointClamp::InsideOnly)
@@ -135,7 +140,7 @@ impl TranscriptSelection {
             return;
         };
         let style = Style::default().add_modifier(Modifier::REVERSED);
-        for (row_index, row) in self.snapshot.visible_rows().iter().enumerate() {
+        for (row_index, row) in self.snapshot.visible_rows().enumerate() {
             let row_start = if row.global_row == start.row {
                 start.col
             } else {
@@ -144,11 +149,12 @@ impl TranscriptSelection {
             let row_end = if row.global_row == end.row {
                 end.col
             } else {
-                display_width(row.text)
+                row.width
             };
             if row.global_row < start.row || row.global_row > end.row || row_start >= row_end {
                 continue;
             }
+            let columns = selected_graphemes(row.text, row_start..row_end).columns;
             let y = self.snapshot.area.y.saturating_add(row_index as u16);
             if y >= self.snapshot.area.bottom() {
                 break;
@@ -157,12 +163,12 @@ impl TranscriptSelection {
                 .snapshot
                 .area
                 .x
-                .saturating_add(row_start.min(u16::MAX as usize) as u16);
+                .saturating_add(columns.start.min(u16::MAX as usize) as u16);
             let x_end = self
                 .snapshot
                 .area
                 .x
-                .saturating_add(row_end.min(usize::from(self.snapshot.area.width)) as u16)
+                .saturating_add(columns.end.min(usize::from(self.snapshot.area.width)) as u16)
                 .min(self.snapshot.area.right());
             for x in x_start..x_end {
                 if let Some(cell) = buffer.cell_mut((x, y)) {
@@ -204,67 +210,13 @@ struct SelectionPoint {
 #[derive(Clone, Debug, Default)]
 struct TranscriptSelectionSnapshot {
     area: Rect,
-    rows: Vec<VisualRow>,
+    rows: TranscriptRows,
     visible_start: usize,
     visible_end: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TranscriptSelectionSnapshotKey {
-    area: Rect,
-    width: u16,
-    scroll_offset: u16,
-    line_count: usize,
-    span_count: usize,
-    text_len: usize,
-    edge_hash: u64,
-}
-
-impl TranscriptSelectionSnapshotKey {
-    fn from_lines(lines: &[Line<'static>], area: Rect, width: u16, scroll_offset: u16) -> Self {
-        let mut span_count = 0usize;
-        let mut text_len = 0usize;
-        for line in lines {
-            span_count = span_count.saturating_add(line.spans.len());
-            for span in &line.spans {
-                text_len = text_len.saturating_add(span.content.len());
-            }
-        }
-
-        let mut hasher = DefaultHasher::new();
-        if let Some(first) = lines.first() {
-            hash_line(first, &mut hasher);
-        }
-        if let Some(last) = lines.last() {
-            hash_line(last, &mut hasher);
-        }
-
-        Self {
-            area,
-            width,
-            scroll_offset,
-            line_count: lines.len(),
-            span_count,
-            text_len,
-            edge_hash: hasher.finish(),
-        }
-    }
-}
-
 impl TranscriptSelectionSnapshot {
-    fn from_lines(lines: &[Line<'static>], area: Rect, width: u16, scroll_offset: usize) -> Self {
-        let wrap_width = usize::from(width.max(1));
-        let mut rows = Vec::new();
-        for line in lines {
-            let text = line
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>();
-            let wrapped = wrap_text_rows(text.as_str(), wrap_width);
-            rows.extend(wrapped.into_iter().map(|text| VisualRow { text }));
-        }
-
+    fn from_rows(rows: TranscriptRows, area: Rect, scroll_offset: usize) -> Self {
         let visible_start = scroll_offset.min(rows.len());
         let visible_end = rows
             .len()
@@ -277,15 +229,14 @@ impl TranscriptSelectionSnapshot {
         }
     }
 
-    fn visible_rows(&self) -> Vec<VisibleRow<'_>> {
-        self.rows[self.visible_start.min(self.rows.len())..self.visible_end.min(self.rows.len())]
-            .iter()
-            .enumerate()
-            .map(|(idx, row)| VisibleRow {
-                global_row: self.visible_start + idx,
+    fn visible_rows(&self) -> impl Iterator<Item = VisibleRow<'_>> {
+        (self.visible_start..self.visible_end).filter_map(|global_row| {
+            self.rows.get(global_row).map(|row| VisibleRow {
+                global_row,
                 text: row.text.as_str(),
+                width: row.width,
             })
-            .collect()
+        })
     }
 
     fn point_for_position(
@@ -314,13 +265,13 @@ impl TranscriptSelectionSnapshot {
     fn point_for_row_and_x(&self, row: usize, x: u16) -> SelectionPoint {
         let row = row.min(self.rows.len().saturating_sub(1));
         let local_x = x.saturating_sub(self.area.x);
-        let col = usize::from(local_x).min(display_width(self.rows[row].text.as_str()));
+        let col = usize::from(local_x).min(self.rows.get(row).map_or(0, |row| row.width));
         SelectionPoint { row, col }
     }
 
     fn clamp_point(&self, point: SelectionPoint) -> SelectionPoint {
         let row = point.row.min(self.rows.len().saturating_sub(1));
-        let col = point.col.min(display_width(self.rows[row].text.as_str()));
+        let col = point.col.min(self.rows.get(row).map_or(0, |row| row.width));
         SelectionPoint { row, col }
     }
 
@@ -331,7 +282,7 @@ impl TranscriptSelectionSnapshot {
         let mut selected = Vec::new();
         for row_index in start.row..=end.row {
             let row = self.rows.get(row_index)?;
-            let row_width = display_width(row.text.as_str());
+            let row_width = row.width;
             let start_col = if row_index == start.row { start.col } else { 0 };
             let end_col = if row_index == end.row {
                 end.col
@@ -361,73 +312,48 @@ enum PointClamp {
     ClampToArea,
 }
 
-#[derive(Clone, Debug)]
-struct VisualRow {
-    text: String,
-}
-
 #[derive(Clone, Copy)]
 struct VisibleRow<'a> {
     global_row: usize,
     text: &'a str,
-}
-
-fn wrap_text_rows(text: &str, width: usize) -> Vec<String> {
-    if text.is_empty() {
-        return vec![String::new()];
-    }
-    let mut rows = Vec::new();
-    let mut current = String::new();
-    let mut current_width = 0usize;
-    for ch in text.chars() {
-        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if current_width > 0 && ch_width > 0 && current_width + ch_width > width {
-            rows.push(std::mem::take(&mut current));
-            current_width = 0;
-        }
-        current.push(ch);
-        current_width = current_width.saturating_add(ch_width);
-        if current_width >= width && !current.is_empty() {
-            rows.push(std::mem::take(&mut current));
-            current_width = 0;
-        }
-    }
-    if !current.is_empty() {
-        rows.push(current);
-    }
-    rows
-}
-
-fn display_width(text: &str) -> usize {
-    text.chars()
-        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
-        .sum()
+    width: usize,
 }
 
 fn slice_display_cols(text: &str, start: usize, end: usize) -> String {
-    if start >= end {
-        return String::new();
+    text[selected_graphemes(text, start..end).bytes].to_string()
+}
+
+struct SelectedGraphemes {
+    columns: Range<usize>,
+    bytes: Range<usize>,
+}
+
+fn selected_graphemes(text: &str, range: Range<usize>) -> SelectedGraphemes {
+    let mut selected = SelectedGraphemes {
+        columns: 0..0,
+        bytes: 0..0,
+    };
+    if range.is_empty() {
+        return selected;
     }
-    let mut out = String::new();
     let mut col = 0usize;
-    for ch in text.chars() {
-        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+    for (offset, grapheme) in text.grapheme_indices(true) {
+        let width = display_width(grapheme);
         let next = col.saturating_add(width);
-        if next > start && col < end {
-            out.push(ch);
+        if next > range.start && col < range.end {
+            if selected.bytes.is_empty() {
+                selected.bytes.start = offset;
+                selected.columns.start = col;
+            }
+            selected.bytes.end = offset + grapheme.len();
+            selected.columns.end = next;
         }
         col = next;
-        if col >= end {
+        if col >= range.end {
             break;
         }
     }
-    out
-}
-
-fn hash_line(line: &Line<'static>, hasher: &mut DefaultHasher) {
-    for span in &line.spans {
-        span.content.hash(hasher);
-    }
+    selected
 }
 
 #[cfg(test)]
@@ -439,10 +365,9 @@ mod tests {
     #[test]
     fn selection_extracts_wrapped_visible_text() {
         let mut selection = TranscriptSelection::default();
-        selection.update_snapshot(
-            &[Line::from("abcdef"), Line::from("gh")],
+        selection.update_snapshot_lines(
+            &crate::tui::transcript_text::wrap_lines(&[Line::from("abcdef"), Line::from("gh")], 3),
             Rect::new(0, 0, 3, 3),
-            3,
             0,
         );
 
@@ -455,10 +380,9 @@ mod tests {
     #[test]
     fn autoscroll_extends_selection_beyond_visible_area() {
         let mut selection = TranscriptSelection::default();
-        selection.update_snapshot(
+        selection.update_snapshot_lines(
             &[Line::from("one"), Line::from("two"), Line::from("three")],
             Rect::new(0, 1, 10, 2),
-            10,
             1,
         );
 
@@ -475,12 +399,60 @@ mod tests {
     fn snapshot_cache_refreshes_when_transcript_edges_change() {
         let mut selection = TranscriptSelection::default();
         let area = Rect::new(0, 0, 10, 2);
-        selection.update_snapshot(&[Line::from("one")], area, 10, 0);
+        selection.update_snapshot_lines(&[Line::from("one")], area, 0);
         assert!(selection.start(ScreenPosition::new(0, 0)));
         assert!(selection.drag(ScreenPosition::new(3, 0)));
         assert_eq!(selection.selected_text().as_deref(), Some("one"));
 
-        selection.update_snapshot(&[Line::from("two")], area, 10, 0);
+        selection.update_snapshot_lines(&[Line::from("two")], area, 0);
         assert_eq!(selection.selected_text().as_deref(), Some("two"));
+    }
+
+    #[test]
+    fn snapshot_cache_refreshes_same_size_middle_rows() {
+        let mut selection = TranscriptSelection::default();
+        let area = Rect::new(0, 0, 10, 3);
+        selection.update_snapshot_lines(
+            &[Line::from("first"), Line::from("old"), Line::from("last")],
+            area,
+            0,
+        );
+        assert!(selection.start(ScreenPosition::new(0, 1)));
+        assert!(selection.drag(ScreenPosition::new(3, 1)));
+        assert_eq!(selection.selected_text().as_deref(), Some("old"));
+        selection.update_snapshot_lines(
+            &[Line::from("first"), Line::from("new"), Line::from("last")],
+            area,
+            0,
+        );
+        assert_eq!(selection.selected_text().as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn snapshot_cache_tracks_row_boundaries_when_span_totals_are_unchanged() {
+        use ratatui::text::Span;
+
+        let mut selection = TranscriptSelection::default();
+        let area = Rect::new(0, 0, 10, 2);
+        selection.update_snapshot_lines(
+            &[
+                Line::from(vec![Span::raw("a"), Span::raw("b")]),
+                Line::from("c"),
+            ],
+            area,
+            0,
+        );
+        assert!(selection.start(ScreenPosition::new(0, 0)));
+        assert!(selection.drag(ScreenPosition::new(2, 0)));
+        assert_eq!(selection.selected_text().as_deref(), Some("ab"));
+        selection.update_snapshot_lines(
+            &[
+                Line::from("a"),
+                Line::from(vec![Span::raw("b"), Span::raw("c")]),
+            ],
+            area,
+            0,
+        );
+        assert_eq!(selection.selected_text().as_deref(), Some("a"));
     }
 }

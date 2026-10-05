@@ -352,7 +352,7 @@ The first visible routing surface is intentionally read-only:
 - `/status` shows the effective main model, auxiliary model, source, and route.
 - `/context` shows the same main/auxiliary route near the context usage summary.
 - Explicit `auxiliary_model` config wins over inference.
-- DeepSeek OpenAI-compatible endpoints may conservatively infer `deepseek-v4-flash` from
+- DeepSeek OpenAI-compatible endpoints may conservatively infer `deepseek-flash` from
   `deepseek-v4-pro`.
 - Providers without an explicit or inferred helper route report `fallback`, meaning helper work uses
   the main model.

@@ -9,16 +9,16 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::Stream;
-use futures::StreamExt;
 use rara_provider_catalog::ModelCatalogProvider;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tokio_stream::wrappers::BroadcastStream;
 
 use crate::runtime_control::{
     ApprovalControlRequest, InputControlRequest, RuntimeControlEvent, SessionControlRequest,
 };
-use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_event_bus::{RuntimeEventBus, RuntimeReplayGap};
 use crate::tui::state::RuntimeSnapshot;
+
+mod event_stream;
 
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
@@ -32,13 +32,19 @@ pub(crate) type RuntimeEventStream = Pin<Box<dyn Stream<Item = RuntimeProjection
 pub(crate) enum RuntimeCommand {
     Session(SessionControlRequest),
     Input(InputControlRequest),
+    ContinueGoal {
+        ticket: crate::runtime_goals::GoalResumeTicket,
+        mode: crate::runtime_goals::GoalContinuationMode,
+    },
     Approval(ApprovalControlRequest),
     Maintenance(RuntimeMaintenanceCommand),
+    SetPermissionMode(crate::tui::state::PermissionMode),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeMaintenanceCommand {
     Compact,
+    Review,
     Rebuild,
     RefreshModelCatalog(ModelCatalogProvider),
 }
@@ -53,6 +59,7 @@ pub(crate) enum RuntimeProjectionEvent {
     Completed { reason: Option<String> },
     Disconnected { reason: String },
     Reconnected,
+    ResyncRequired(RuntimeReplayGap),
 }
 
 pub(crate) fn accept_runtime_event(
@@ -85,6 +92,9 @@ pub(crate) fn accept_runtime_event(
 ///
 /// Implementations own execution state and transport details. They must not
 /// require the controller to know about agents, registries, or task handles.
+/// A port retains one ordering domain for its lifetime, including subscriptions
+/// after reconnect. Replacing the domain requires a new controller; a low
+/// sequence or `Reconnected` notification cannot reset the existing event fence.
 // Contract items are intentionally ahead of their adapters; the next
 // in-process and scripted implementations will consume them.
 #[allow(dead_code)] // Contract item ahead of its adapters
@@ -94,6 +104,13 @@ pub(crate) trait RuntimeClientPort: Send + Sync {
     async fn send(&self, command: RuntimeCommand) -> anyhow::Result<()>;
     fn publish_snapshot(&self, snapshot: RuntimeSnapshot);
     fn subscribe(&self) -> RuntimeEventStream;
+    fn current_sequence(&self) -> u64 {
+        0
+    }
+    /// Subscribe from an explicit cursor when this adapter supports replay.
+    fn subscribe_after(&self, _sequence: u64) -> RuntimeEventStream {
+        self.subscribe()
+    }
 }
 
 /// In-process adapter for the session runtime event bus.
@@ -146,18 +163,18 @@ impl RuntimeClientPort for InProcessRuntimeClientPort {
     }
 
     fn subscribe(&self) -> RuntimeEventStream {
-        let receiver = self.event_bus.subscribe_control();
-        Box::pin(
-            BroadcastStream::new(receiver).filter_map(|event| async move {
-                match event {
-                    Ok(event) => Some(RuntimeProjectionEvent::Runtime(Box::new(event))),
-                    Err(error) => {
-                        log::warn!("TUI runtime event stream lagged: {error}");
-                        None
-                    }
-                }
-            }),
-        )
+        self.subscribe_after(self.current_sequence())
+    }
+
+    fn current_sequence(&self) -> u64 {
+        self.event_bus.current_sequence()
+    }
+
+    fn subscribe_after(&self, sequence: u64) -> RuntimeEventStream {
+        Box::pin(event_stream::ReplayingEventStream::new(
+            self.event_bus.clone(),
+            sequence,
+        ))
     }
 }
 
@@ -272,4 +289,38 @@ mod tests {
                 if event.sequence == 1
         ));
     }
+
+    #[tokio::test]
+    async fn resubscribing_preserves_the_bus_ordering_domain() {
+        let bus = Arc::new(RuntimeEventBus::new(8));
+        let (port, _commands) = InProcessRuntimeClientPort::new(
+            bus.clone(),
+            Arc::new(std::sync::RwLock::new(RuntimeSnapshot::default())),
+        );
+        let provenance = RuntimeProvenance::local_tui("same-session");
+        let mut events = port.subscribe();
+        bus.send_with_provenance(AgentEvent::Status("first".into()), provenance.clone());
+        let Some(RuntimeProjectionEvent::Runtime(first)) = events.next().await else {
+            panic!("expected the first runtime event");
+        };
+        let mut last_event = None;
+        assert!(super::accept_runtime_event(&mut last_event, &first));
+        drop(events);
+
+        bus.send_with_provenance(
+            AgentEvent::Status("between subscriptions".into()),
+            provenance.clone(),
+        );
+        let mut events = port.subscribe();
+        bus.send_with_provenance(AgentEvent::Status("after reconnect".into()), provenance);
+        let Some(RuntimeProjectionEvent::Runtime(next)) = events.next().await else {
+            panic!("expected the reconnected runtime event");
+        };
+        assert_eq!(next.sequence, first.sequence + 2);
+        assert!(super::accept_runtime_event(&mut last_event, &next));
+        assert!(!super::accept_runtime_event(&mut last_event, &first));
+    }
 }
+
+#[cfg(test)]
+mod recovery_tests;

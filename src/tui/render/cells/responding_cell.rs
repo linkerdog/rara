@@ -12,14 +12,15 @@ use crate::tui::interaction_text::{
     pending_interaction_card_title, status_planning_suggestion_text,
 };
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
+use crate::tui::message_role::MessageRole;
 use crate::tui::plan_display::updated_plan_lines;
 use crate::tui::queued_input::{
     QueuedFollowUpSection, pending_follow_up_heading, queued_follow_up_heading,
 };
 use crate::tui::render::diff::render_message_diff_preview;
 use crate::tui::render::{
-    formatted_message_lines, prefixed_message_lines, rendered_markdown_lines,
-    startup_card_inner_width, truncate_for_startup_card, truncate_path_middle,
+    formatted_message_lines, prefixed_message_lines, startup_card_inner_width,
+    truncate_for_startup_card, truncate_path_middle,
 };
 use crate::tui::state::{ActivePendingInteractionKind, TuiApp};
 use crate::tui::sub_agent_display::SUB_AGENT_QUESTION_COLOR;
@@ -27,9 +28,12 @@ use crate::tui::theme::*;
 
 pub(crate) struct RespondingCell<'a> {
     content: RespondingCellContent<'a>,
+    #[cfg(test)]
+    work: Option<crate::tui::transcript_work::WorkMeter>,
 }
 
 enum RespondingCellContent<'a> {
+    #[cfg(test)]
     Stream {
         lines: &'a [Line<'static>],
         max_lines: usize,
@@ -40,13 +44,13 @@ enum RespondingCellContent<'a> {
         cwd: Option<&'a Path>,
     },
     Message {
-        role: &'static str,
+        role: MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
     },
     ToolResult {
-        role: &'a str,
+        role: &'a MessageRole,
         message: &'a str,
         max_lines: usize,
     },
@@ -54,26 +58,46 @@ enum RespondingCellContent<'a> {
 }
 
 impl<'a> RespondingCell<'a> {
+    pub(crate) fn stream_body_line(line: &Line<'static>, index: usize) -> Line<'static> {
+        let mut spans = vec![
+            Span::raw(if index == 0 { "• " } else { "  " }),
+            Span::raw("  "),
+        ];
+        spans.extend(line.spans.clone());
+        Line::from(spans).style(line.style)
+    }
+
+    pub(crate) fn stream_summary_line(remaining: usize) -> Line<'static> {
+        let mut line = super::super::markdown_truncation_line(remaining);
+        line.spans.insert(0, Span::raw("  "));
+        line
+    }
+    #[cfg(test)]
     pub(crate) fn from_stream(stream_lines: &'a [Line<'static>]) -> Self {
         Self {
             content: RespondingCellContent::Stream {
                 lines: stream_lines,
                 max_lines: usize::MAX,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn from_stream_compact(stream_lines: &'a [Line<'static>], max_lines: usize) -> Self {
         Self {
             content: RespondingCellContent::Stream {
                 lines: stream_lines,
                 max_lines,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
     pub(crate) fn from_message(
-        role: &'static str,
+        role: MessageRole,
         message: &'a str,
         max_lines: usize,
         cwd: Option<&'a Path>,
@@ -85,6 +109,8 @@ impl<'a> RespondingCell<'a> {
                 max_lines,
                 cwd,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
@@ -99,30 +125,54 @@ impl<'a> RespondingCell<'a> {
                 max_lines,
                 cwd,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
-    pub(crate) fn from_tool_result(role: &'a str, message: &'a str, max_lines: usize) -> Self {
+    pub(crate) fn from_tool_result(
+        role: &'a MessageRole,
+        message: &'a str,
+        max_lines: usize,
+    ) -> Self {
         Self {
             content: RespondingCellContent::ToolResult {
                 role,
                 message,
                 max_lines,
             },
+            #[cfg(test)]
+            work: None,
         }
     }
 
     pub(crate) fn working(detail: &'a str) -> Self {
         Self {
             content: RespondingCellContent::Working(detail),
+            #[cfg(test)]
+            work: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_work_meter(mut self, work: crate::tui::transcript_work::WorkMeter) -> Self {
+        self.work = Some(work);
+        self
     }
 }
 
 impl HistoryCell for RespondingCell<'_> {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         match &self.content {
+            #[cfg(test)]
             RespondingCellContent::Stream { lines, max_lines } => {
+                #[cfg(test)]
+                if let Some(work) = &self.work {
+                    work.record(
+                        crate::tui::transcript_work::WorkKind::Clone,
+                        lines.len().min(*max_lines),
+                    );
+                }
                 lightweight_stream_lines(lines, *max_lines)
             }
             RespondingCellContent::Message {
@@ -130,7 +180,7 @@ impl HistoryCell for RespondingCell<'_> {
                 message,
                 max_lines,
                 cwd,
-            } if *role == "Responding" => compact_message_lines(message, *max_lines),
+            } if *role == MessageRole::Responding => compact_message_lines(message, *max_lines),
             RespondingCellContent::CompactMessage {
                 message,
                 max_lines,
@@ -146,7 +196,9 @@ impl HistoryCell for RespondingCell<'_> {
                 role,
                 message,
                 max_lines,
-            } if *role == "Tool Progress" => tool_progress_lines(message, *max_lines, width),
+            } if **role == MessageRole::ToolProgress => {
+                tool_progress_lines(message, *max_lines, width)
+            }
             RespondingCellContent::ToolResult {
                 role,
                 message,
@@ -156,7 +208,8 @@ impl HistoryCell for RespondingCell<'_> {
                     lines
                 } else if let Some(cell) = LspDiagnosticsCell::from_message(message) {
                     cell.display_lines(width)
-                } else if let Some(lines) = render_message_diff_preview(Some(role), message, width)
+                } else if let Some(lines) =
+                    render_message_diff_preview(Some(role.as_str()), message, width)
                 {
                     lines
                 } else {
@@ -169,11 +222,11 @@ impl HistoryCell for RespondingCell<'_> {
 }
 
 fn bash_completion_lines(
-    role: &str,
+    role: &MessageRole,
     message: &str,
     max_lines: usize,
 ) -> Option<Vec<Line<'static>>> {
-    if !matches!(role, "Tool Result" | "Tool Error") {
+    if !matches!(role, MessageRole::ToolResult | MessageRole::ToolError) {
         return None;
     }
 
@@ -243,20 +296,27 @@ fn bash_completion_lines(
     Some(rendered)
 }
 
+#[cfg(test)]
 fn lightweight_stream_lines(rendered: &[Line<'static>], max_lines: usize) -> Vec<Line<'static>> {
-    let mut lines = markdown_body_lines(rendered, max_lines);
-    if lines.is_empty() {
-        return vec![Line::from("•")];
+    if rendered.is_empty() {
+        return vec![Line::from("• ")];
     }
-
-    if let Some(first) = lines.first_mut() {
-        first.spans.insert(0, Span::raw("• "));
+    let cap = rendered.len().min(max_lines);
+    let mut lines = rendered
+        .iter()
+        .take(cap)
+        .enumerate()
+        .map(|(index, line)| RespondingCell::stream_body_line(line, index))
+        .collect::<Vec<_>>();
+    if cap < rendered.len() {
+        let mut summary = RespondingCell::stream_summary_line(rendered.len() - cap);
+        if lines.is_empty()
+            && let Some(first) = summary.spans.first_mut()
+        {
+            *first = Span::raw("• ");
+        }
+        lines.push(summary);
     }
-
-    for line in lines.iter_mut().skip(1) {
-        line.spans.insert(0, Span::raw("  "));
-    }
-
     lines
 }
 
@@ -285,20 +345,6 @@ fn compact_message_lines(message: &str, max_lines: usize) -> Vec<Line<'static>> 
         )));
     }
 
-    lines
-}
-
-pub(crate) fn markdown_body_lines(
-    rendered: &[Line<'static>],
-    max_lines: usize,
-) -> Vec<Line<'static>> {
-    let mut lines = rendered_markdown_lines("Responding", rendered, max_lines);
-    if !lines.is_empty() {
-        lines.remove(0);
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(String::new()));
-    }
     lines
 }
 

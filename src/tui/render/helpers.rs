@@ -2,14 +2,12 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::Span,
 };
-use unicode_width::UnicodeWidthStr;
 
+use crate::tui::display_sanitize::sanitize_display_line_segments;
 use crate::tui::state::TuiApp;
+pub(crate) use crate::tui::text_wrap::display_width;
+use crate::tui::text_wrap::{suffix_to_width, truncate_to_width};
 use crate::tui::theme::*;
-
-pub(crate) fn display_width(value: &str) -> usize {
-    UnicodeWidthStr::width(value)
-}
 
 pub(crate) fn display_directory_for_startup(app: &TuiApp) -> String {
     let cwd = if app.snapshot.cwd.is_empty() {
@@ -29,39 +27,39 @@ pub(crate) fn display_directory_for_startup(app: &TuiApp) -> String {
 }
 
 pub(crate) fn truncate_for_startup_card(value: &str, width: usize) -> String {
-    if display_width(value) <= width {
-        return value.to_string();
+    let value = sanitize_display_line_segments(&ratatui::text::Line::from(value)).to_string();
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(&value) <= width {
+        return value;
     }
     if width <= 1 {
         return "…".to_string();
     }
-    let kept = value.chars().take(width - 1).collect::<String>();
+    let kept = truncate_to_width(&value, width - 1);
     format!("{kept}…")
 }
 
 pub(crate) fn truncate_path_middle(value: &str, width: usize) -> String {
-    if display_width(value) <= width {
-        return value.to_string();
+    let value = sanitize_display_line_segments(&ratatui::text::Line::from(value)).to_string();
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(&value) <= width {
+        return value;
     }
     if width <= 1 {
         return "…".to_string();
     }
     if width <= 5 {
-        return truncate_for_startup_card(value, width);
+        return truncate_for_startup_card(&value, width);
     }
 
     let keep_left = (width - 1) / 2;
     let keep_right = width - 1 - keep_left;
-    let chars = value.chars().collect::<Vec<_>>();
-    let left = chars.iter().take(keep_left).collect::<String>();
-    let right = chars
-        .iter()
-        .rev()
-        .take(keep_right)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
+    let left = truncate_to_width(&value, keep_left);
+    let right = suffix_to_width(&value, keep_right);
     format!("{left}…{right}")
 }
 

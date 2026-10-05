@@ -9,8 +9,10 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use super::Frame;
+use crate::tui::composer_text::expand_tabs;
+use crate::tui::display_sanitize::annotate_bidi_text;
 use crate::tui::render::bottom_pane::composer::editor_cursor_position;
-use crate::tui::state::{ApiKeyTarget, PermissionMode, TuiApp};
+use crate::tui::state::{ApiKeyTarget, TuiApp};
 use crate::tui::theme::{ThemeToken, theme_color};
 
 fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
@@ -37,83 +39,78 @@ fn wrapped_text_height(text: &str, area_width: u16) -> u16 {
 }
 
 pub(super) fn render_permission_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
-    // Keep in sync with PermissionMode enum order (skip Custom).
-    let modes: &[(PermissionMode, &str, &str)] = &[
-        (
-            PermissionMode::Auto,
-            "Ask Permissions",
-            "Ask before file edits and commands. Only reads are auto-approved. Best for sensitive work.",
-        ),
-        (
-            PermissionMode::AcceptEdits,
-            "Auto Accept Edits",
-            "Auto-approve file edits and common filesystem commands. Ask for network and destructive operations.",
-        ),
-        (
-            PermissionMode::ReadOnly,
-            "Plan Mode",
-            "Read and explore only. No file changes permitted. Best for codebase analysis.",
-        ),
-        (
-            PermissionMode::FullAccess,
-            "Full Access",
-            "Auto-approve everything including network access. For isolated, trusted tasks.",
-        ),
-    ];
+    use std::sync::atomic::Ordering;
 
-    let title = " Permission Mode ";
-    let items = modes
+    use crate::tui::permission_policy::PERMISSION_PRESETS;
+
+    let current = app.effective_permission_mode();
+    let selected = app.permission_picker_idx.min(PERMISSION_PRESETS.len() - 1);
+    let header_text = format!(
+        "Current: {}\nmode={} shell={}\nnetwork={} bypass={}\n{}",
+        current.label(),
+        app.agent_execution_mode_label(),
+        app.bash_approval_mode_label(),
+        if app.sandbox_network_access.load(Ordering::Relaxed) {
+            "on"
+        } else {
+            "off"
+        },
+        if app.permission_mode == crate::tui::state::PermissionMode::FullAccess {
+            "on"
+        } else {
+            "off"
+        },
+        match app.pending_permission_mode {
+            Some(mode) => format!("Pending: {} (after current task)", mode.label()),
+            None if app.is_busy() => "Changes apply after the current task.".into(),
+            None => "Changes apply to this session.".into(),
+        }
+    );
+    let block = Block::default()
+        .style(element_bg())
+        .padding(Padding::horizontal(1))
+        .title(" Permissions ");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let [header, list, detail, footer] = Layout::vertical([
+        Constraint::Length(4),
+        Constraint::Length(4),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    f.render_widget(Paragraph::new(header_text), header);
+    let items = PERMISSION_PRESETS
         .iter()
         .enumerate()
-        .map(|(idx, (mode, label, desc))| {
-            let is_current = app.permission_mode == *mode
-                || (app.permission_mode == PermissionMode::Custom
-                    && idx == app.permission_picker_idx);
-            let style = if idx == app.permission_picker_idx {
-                Style::default()
-                    .fg(theme_color(ThemeToken::TextAccent))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            let current_marker = if is_current && app.permission_mode != PermissionMode::Custom {
+        .map(|(idx, preset)| {
+            let marker = if app.pending_permission_mode == Some(preset.mode) {
+                " (pending)"
+            } else if current == preset.mode {
                 " (current)"
             } else {
                 ""
             };
-            let mode_label = format!("[{}] {}{}", idx + 1, label, current_marker);
-            ListItem::new(vec![
-                Line::from(mode_label),
-                Line::from(desc.to_string()),
-                Line::from(""),
-            ])
-            .style(style)
+            ListItem::new(format!("[{}] {}{}", idx + 1, preset.title, marker))
         })
         .collect::<Vec<_>>();
-
-    let [header, list, footer] = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(8),
-            Constraint::Length(2),
-        ])
-        .areas(area);
-    f.render_widget(
-        Paragraph::new("Choose how RARA handles file edits, commands, and network access. Press Enter to apply the selected mode.")
-            .block(
-                Block::default()
-                    .style(element_bg())
-                    .padding(Padding::horizontal(1))
-                    .title(title),
-            ),
-        header,
+    let mut state = ListState::default().with_selected(Some(selected));
+    f.render_stateful_widget(
+        List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(theme_color(ThemeToken::TextAccent))
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        list,
+        &mut state,
     );
-    f.render_widget(List::new(items), list);
     f.render_widget(
-        Paragraph::new("1-4 jump  Up/Down navigate  Enter select  Esc cancel"),
-        footer,
+        Paragraph::new(PERMISSION_PRESETS[selected].description).wrap(Wrap { trim: false }),
+        detail,
     );
+    f.render_widget(Paragraph::new("1-4 select  Enter apply  Esc close"), footer);
 }
 
 pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
@@ -125,7 +122,11 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
             .iter()
             .enumerate()
             .map(|(idx, entry)| {
-                let checkbox = if entry.enabled { "[x]" } else { "[ ]" };
+                let availability = if entry.disable_model_invocation {
+                    "manual"
+                } else {
+                    "auto"
+                };
                 let style = if idx == app.skill_picker_idx {
                     Style::default()
                         .fg(theme_color(ThemeToken::TextAccent))
@@ -134,8 +135,8 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
                     Style::default()
                 };
                 ListItem::new(Line::from(format!(
-                    "{} {} [{}] - {}",
-                    checkbox, entry.name, entry.scope, entry.title
+                    "[{}] {} [{}] - {}",
+                    availability, entry.name, entry.scope, entry.title
                 )))
                 .style(style)
             })
@@ -156,7 +157,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         ])
         .areas(area);
     f.render_widget(
-        Paragraph::new("Toggle skills on/off with Space. Press Enter to apply.").block(
+        Paragraph::new("Read-only: auto = model-invocable; manual = explicit invocation.").block(
             Block::default()
                 .style(element_bg())
                 .padding(Padding::horizontal(1))
@@ -175,10 +176,7 @@ pub(super) fn render_skills_picker_modal(f: &mut Frame, app: &TuiApp, area: Rect
         list,
         &mut list_state,
     );
-    f.render_widget(
-        Paragraph::new("Space toggle  Up/Down navigate  Enter confirm  Esc cancel"),
-        footer,
-    );
+    f.render_widget(Paragraph::new("Up/Down navigate  Enter/Esc close"), footer);
 }
 
 pub(super) fn render_api_key_editor_modal(
@@ -187,7 +185,18 @@ pub(super) fn render_api_key_editor_modal(
     target: ApiKeyTarget,
     area: Rect,
 ) -> Option<(u16, u16)> {
+    let registry_intro = format!(
+        "Paste an API key for {}. Credentials are saved separately from model configuration.",
+        app.registry_credential_target
+            .as_deref()
+            .unwrap_or("the selected provider")
+    );
     let (intro_text, title, footer_text) = match target {
+        ApiKeyTarget::Registry => (
+            registry_intro.as_str(),
+            " Provider API Key ",
+            "Enter save  Esc back",
+        ),
         ApiKeyTarget::OpenAiCompatible => (
             "Paste the API key for the selected OpenAI-compatible endpoint profile.",
             " API Key ",
@@ -236,7 +245,8 @@ pub(super) fn render_api_key_editor_modal(
                 .title(title),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.api_key_input.chars().map(|_| '*').collect::<String>()).block(
+    let masked_input = "*".repeat(app.api_key_input.chars().count());
+    let editor = Paragraph::new(masked_input.as_str()).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -247,7 +257,7 @@ pub(super) fn render_api_key_editor_modal(
     f.render_widget(editor, chunks[1]);
     f.render_widget(footer, chunks[2]);
     Some(editor_cursor_position(
-        app.api_key_input.as_str(),
+        masked_input.as_str(),
         app.api_key_cursor_offset(),
         chunks[1],
     ))
@@ -276,7 +286,7 @@ pub(super) fn render_base_url_editor_modal(
                 .title(" Base URL "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.base_url_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(&app.base_url_input))).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -321,7 +331,7 @@ pub(super) fn render_model_name_editor_modal(
                 .title(" Model Name "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.model_name_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(&app.model_name_input))).block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -368,7 +378,10 @@ pub(super) fn render_openai_profile_label_editor_modal(
                 .title(" New Endpoint Profile "),
         )
         .wrap(Wrap { trim: false });
-    let editor = Paragraph::new(app.openai_profile_label_input.as_str()).block(
+    let editor = Paragraph::new(expand_tabs(&annotate_bidi_text(
+        &app.openai_profile_label_input,
+    )))
+    .block(
         Block::default()
             .style(element_bg())
             .padding(Padding::horizontal(1))
@@ -387,4 +400,59 @@ pub(super) fn render_openai_profile_label_editor_modal(
 
 fn element_bg() -> Style {
     Style::default().bg(theme_color(ThemeToken::UiElementBg))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tui::state::{ApiKeyTarget, Overlay, RuntimeSnapshot};
+    use crate::tui::testing::TuiHarness;
+
+    #[test]
+    fn clipped_setup_editors_keep_overflow_cursors_on_the_rendered_row() {
+        for overlay in [
+            Overlay::BaseUrlEditor,
+            Overlay::ModelNameEditor,
+            Overlay::OpenAiProfileLabelEditor,
+            Overlay::ApiKeyEditor(ApiKeyTarget::OpenAiCompatible),
+        ] {
+            let mut tui = TuiHarness::new(RuntimeSnapshot::default()).expect("harness");
+            tui.app_mut().open_overlay(overlay);
+            let app = tui.app_mut();
+            app.base_url_input = "z".repeat(500);
+            app.model_name_input = "z".repeat(500);
+            app.openai_profile_label_input = "z".repeat(500);
+            app.api_key_input = "\u{754c}".repeat(500);
+            app.base_url_cursor_offset = Some(0);
+            app.model_name_cursor_offset = Some(0);
+            app.openai_profile_label_cursor_offset = Some(0);
+            app.api_key_cursor_offset = Some(0);
+            let (buffer, cursor) = tui.screen_buffer(80, 40);
+            let first = cursor.expect("editor cursor");
+            let symbol = if matches!(overlay, Overlay::ApiKeyEditor(_)) {
+                "*"
+            } else {
+                "z"
+            };
+            assert_eq!(buffer[first].symbol(), symbol);
+            let visible_width = (first.0..buffer.area.right())
+                .take_while(|x| buffer[(*x, first.1)].symbol() == symbol)
+                .count();
+            assert!(visible_width > 1);
+            for offset in [1, visible_width, visible_width + 1, 500] {
+                let app = tui.app_mut();
+                app.base_url_cursor_offset = Some(offset);
+                app.model_name_cursor_offset = Some(offset);
+                app.openai_profile_label_cursor_offset = Some(offset);
+                app.api_key_cursor_offset = Some(offset);
+                let (buffer, cursor) = tui.screen_buffer(80, 40);
+                let expected = (first.0 + offset.min(visible_width - 1) as u16, first.1);
+                assert_eq!(
+                    cursor,
+                    Some(expected),
+                    "overlay={overlay:?}, offset={offset}"
+                );
+                assert_eq!(buffer[expected].symbol(), symbol);
+            }
+        }
+    }
 }

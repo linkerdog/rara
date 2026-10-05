@@ -23,6 +23,7 @@ use crate::runtime_event_bus::RuntimeEventBus;
 use crate::session::SessionManager;
 use crate::tasklist::{DEFAULT_TASK_LIST_ID, NewTaskRecord, TaskListStore};
 use crate::tools::tasklist::TaskListTool;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{
     ListPickerKind, LocalCommand, LocalCommandKind, Overlay, PermissionMode, RunningTask,
     TaskCompletion, TaskKind, TuiApp,
@@ -43,7 +44,7 @@ fn mark_app_busy(app: &mut TuiApp) {
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
         cancellation_token: None,
-        cancellation_requested: false,
+        query_control: None,
     });
 }
 
@@ -75,6 +76,29 @@ fn test_agent_with_shared_task_tool(dir: &tempfile::TempDir) -> Agent {
     )
 }
 
+fn attach_task_services(app: &mut TuiApp) {
+    let bus = Arc::new(RuntimeEventBus::new(8));
+    app.event_bus = Some(bus.clone());
+    app.prompt_source_registry = Some(Arc::new(
+        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
+    ));
+    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
+        bus.clone(),
+    )));
+    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
+        bus.clone(),
+    )));
+    app.mcp_manager = Some(Arc::new(
+        crate::mcp_connection_manager::McpConnectionManager::new(
+            Arc::new(McpRegistry::empty()),
+            bus.clone(),
+        ),
+    ));
+    app.memory_handler = Some(Arc::new(
+        crate::protocol_sources::MemoryControlHandler::new(bus),
+    ));
+}
+
 #[test]
 fn mcp_project_root_walks_up_to_project_config() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -100,6 +124,7 @@ fn parses_goal_budget_tokens_like_codex_goal_command() {
     assert_eq!(parse_goal_token_budget("98.5K"), Some(98_500));
     assert_eq!(parse_goal_token_budget("2m"), Some(2_000_000));
     assert_eq!(parse_goal_token_budget("0"), None);
+    assert_eq!(parse_goal_token_budget("0.1"), None);
     assert_eq!(parse_goal_token_budget("-1"), None);
 }
 
@@ -256,6 +281,7 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     );
     let mut agent_slot = None;
 
+    let original_permission_mode = app.permission_mode;
     mark_app_busy(&mut app);
     execute_local_command(
         LocalCommand {
@@ -269,10 +295,10 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     .await
     .expect("approval command should be handled");
     assert_eq!(app.bash_approval_mode_label(), "suggestion");
-    assert_eq!(app.permission_mode, PermissionMode::Auto);
+    assert_eq!(app.permission_mode, original_permission_mode);
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("A task is already running. Wait for it to finish.")
+        app.notice_text(),
+        Some("Unavailable while a task is running. Wait or cancel it first.")
     );
 
     execute_local_command(
@@ -299,12 +325,11 @@ async fn mode_changing_commands_are_rejected_while_busy() {
     )
     .await
     .expect("permissions command should be handled");
-    assert!(app.overlay.is_none());
-    assert_ne!(app.overlay, Some(Overlay::PermissionPicker));
+    assert_eq!(app.overlay, Some(Overlay::PermissionPicker));
 }
 
 #[tokio::test]
-async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
+async fn goal_command_requires_confirmation_to_replace_unfinished_goal() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -314,7 +339,48 @@ async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
         "existing goal".to_string(),
         None,
     ));
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("new goal".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.objective.as_str()),
+        Some("existing goal")
+    );
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(
+        matches!(app.goal_ui.dialog, Some(crate::tui::goal_ui::GoalDialog::Replace { ref objective, .. }) if objective == "new goal")
+    );
+}
+
+#[tokio::test]
+async fn goal_command_replaces_completed_goal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut completed = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    completed.status = crate::tui::state::GoalStatus::Complete;
+    app.goal = Some(completed);
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -334,21 +400,133 @@ async fn goal_command_refuses_to_replace_existing_goal_without_clear() {
 
     assert_eq!(
         app.goal.as_ref().map(|goal| goal.objective.as_str()),
-        Some("existing goal")
-    );
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("A goal already exists. Use /goal clear before setting a new goal.")
+        Some("new goal")
     );
 }
 
 #[tokio::test]
-async fn dream_command_without_agent_reports_unavailable() {
+async fn goal_command_resumes_blocked_goal() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
     })
     .expect("app");
+    let db = Arc::new(
+        rara_state::state_db::StateDb::new_for_root_dir(dir.path().join("state"))
+            .expect("state db"),
+    );
+    app.snapshot.session_id = "resumed-goal-thread".into();
+    app.attach_state_db(db.clone());
+    attach_task_services(&mut app);
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Blocked;
+    app.goal = Some(goal);
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Pursuing)
+    );
+    assert_eq!(
+        app.notice_text(),
+        Some("Goal resumed. The blocked-goal audit has restarted.")
+    );
+    assert!(app.bottom_pane.running_task.is_some());
+    let mut fresh = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("fresh app");
+    fresh.snapshot.session_id = "resumed-goal-thread".into();
+    fresh.attach_state_db(db);
+    assert_eq!(fresh.goal, app.goal);
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .all(|entry| entry.role != MessageRole::User)
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}
+
+#[tokio::test]
+async fn goal_command_starts_an_active_goal_continuation_when_idle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    attach_task_services(&mut app);
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = Some(test_agent_with_shared_task_tool(&dir));
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("finish the migration".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Pursuing)
+    );
+    assert!(app.bottom_pane.running_task.is_some());
+    assert!(
+        app.notice_text()
+            .is_some_and(|notice| notice.contains("Continuing active goal."))
+    );
+    assert!(
+        app.active_turn
+            .entries
+            .iter()
+            .all(|entry| entry.role != MessageRole::User)
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
+}
+
+#[tokio::test]
+async fn goal_command_keeps_paused_goal_while_another_task_is_running() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Paused;
+    app.goal = Some(goal);
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
+    mark_app_busy(&mut app);
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -356,19 +534,63 @@ async fn dream_command_without_agent_reports_unavailable() {
 
     execute_local_command(
         LocalCommand {
-            kind: LocalCommandKind::Dream,
-            arg: None,
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
         },
         &mut app,
         &mut agent_slot,
         &oauth_manager,
     )
     .await
-    .expect("dream command should be handled");
+    .expect("goal command should be handled");
 
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Memory consolidation is not available until an agent is ready.")
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Paused)
+    );
+    assert_eq!(
+        app.notice_text(),
+        Some("Unavailable while a task is running. Wait or cancel it first.")
+    );
+}
+
+#[tokio::test]
+async fn goal_command_keeps_paused_goal_without_a_runtime_agent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .expect("app");
+    let mut goal = crate::tui::state::RalphGoal::new("existing goal".to_string(), None);
+    goal.status = crate::tui::state::GoalStatus::Paused;
+    app.goal = Some(goal);
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
+    let oauth_manager = Arc::new(
+        OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
+    );
+    let mut agent_slot = None;
+
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Goal,
+            arg: Some("resume".to_string()),
+        },
+        &mut app,
+        &mut agent_slot,
+        &oauth_manager,
+    )
+    .await
+    .expect("goal command should be handled");
+
+    assert_eq!(
+        app.goal.as_ref().map(|goal| goal.status),
+        Some(crate::tui::state::GoalStatus::Paused)
+    );
+    assert_eq!(
+        app.notice_text(),
+        Some("Goal resume is unavailable until the runtime agent is ready.")
     );
 }
 
@@ -401,8 +623,7 @@ async fn goal_command_accepts_tokens_option() {
     assert_eq!(goal.token_budget, Some(98_500));
     assert_eq!(
         app.goal_handle
-            .read()
-            .unwrap()
+            .snapshot()
             .as_ref()
             .map(|goal| goal.objective.as_str()),
         Some("improve benchmark coverage")
@@ -410,7 +631,7 @@ async fn goal_command_accepts_tokens_option() {
 }
 
 #[tokio::test]
-async fn goal_command_status_notice_stays_compact() {
+async fn goal_command_opens_summary() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -420,7 +641,9 @@ async fn goal_command_status_notice_stays_compact() {
     goal.tokens_used = 125;
     goal.turns_completed = 3;
     app.goal = Some(goal);
-    *app.goal_handle.write().unwrap() = app.goal.clone();
+    app.goal_handle
+        .replace(app.goal.clone())
+        .expect("seed goal");
     let oauth_manager = Arc::new(
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
@@ -438,14 +661,16 @@ async fn goal_command_status_notice_stays_compact() {
     .await
     .expect("goal command should be handled");
 
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Goal: finish goal polish [active] · 125 / 500 tokens")
-    );
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(matches!(
+        app.goal_ui.dialog,
+        Some(crate::tui::goal_ui::GoalDialog::Summary)
+    ));
+    assert_eq!(app.goal.as_ref().unwrap().tokens_used, 125);
 }
 
 #[tokio::test]
-async fn goal_command_empty_state_points_to_help() {
+async fn goal_command_empty_state_opens_summary() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -468,10 +693,11 @@ async fn goal_command_empty_state_points_to_help() {
     .await
     .expect("goal command should be handled");
 
-    assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("No active goal. Use /help for /goal details.")
-    );
+    assert_eq!(app.overlay, Some(Overlay::Goal));
+    assert!(matches!(
+        app.goal_ui.dialog,
+        Some(crate::tui::goal_ui::GoalDialog::Summary)
+    ));
 }
 
 #[tokio::test]
@@ -530,7 +756,7 @@ async fn tasks_command_switches_agent_and_tool_default_list() {
 }
 
 #[tokio::test]
-async fn approval_command_switches_always_to_full_access() {
+async fn approval_command_scopes_always_to_bash_without_enabling_full_access() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut app = TuiApp::new(ConfigManager {
         path: dir.path().join("config.json"),
@@ -540,6 +766,9 @@ async fn approval_command_switches_always_to_full_access() {
         OAuthManager::new_for_config_dir(dir.path().join("oauth")).expect("oauth manager"),
     );
     let mut agent_slot = None;
+    let initial_network_access = app
+        .sandbox_network_access
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     execute_local_command(
         LocalCommand {
@@ -553,14 +782,44 @@ async fn approval_command_switches_always_to_full_access() {
     .await
     .expect("approval command should be handled");
 
-    assert_eq!(app.permission_mode, PermissionMode::FullAccess);
+    assert_eq!(app.permission_mode, PermissionMode::Custom);
     assert_eq!(app.bash_approval_mode_label(), "always");
-    assert!(
-        app.sandbox_network_access
-            .load(std::sync::atomic::Ordering::Relaxed)
-    );
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
-        Some("Permission mode: full-access.")
+        app.sandbox_network_access
+            .load(std::sync::atomic::Ordering::Relaxed),
+        initial_network_access
     );
+    assert_eq!(app.notice_text(), Some("Bash approval set to always."));
+}
+
+#[tokio::test]
+async fn review_preparation_keeps_the_agent_until_git_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: dir.path().join("config.json"),
+    })
+    .unwrap();
+    attach_task_services(&mut app);
+    app.snapshot.cwd = dir.path().display().to_string();
+    let oauth = Arc::new(OAuthManager::new_for_config_dir(dir.path().join("oauth")).unwrap());
+    let mut agent = Some(test_agent_with_shared_task_tool(&dir));
+    execute_local_command(
+        LocalCommand {
+            kind: LocalCommandKind::Review,
+            arg: None,
+        },
+        &mut app,
+        &mut agent,
+        &oauth,
+    )
+    .await
+    .unwrap();
+    assert!(app.is_busy(), "review must have an owned preparation task");
+    assert!(
+        agent.is_some(),
+        "preparation must preserve the agent before Git succeeds"
+    );
+    if let Some(task) = app.bottom_pane.running_task.take() {
+        task.handle.abort();
+    }
 }

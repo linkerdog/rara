@@ -700,3 +700,28 @@ fn effective_prompt_reports_base_kind_and_active_sections() {
     assert!(effective.text.ends_with("policy"));
     assert!(!effective.text.contains("__DYNAMIC_BOUNDARY__"));
 }
+
+#[test]
+fn native_skill_guidance_keeps_the_empty_catalogue_prefix_stable() {
+    let temp = tempfile::tempdir().expect("workspace");
+    let workspace =
+        WorkspaceMemory::from_paths(temp.path().to_path_buf(), temp.path().join(".rara"));
+    let mut runtime = PromptRuntimeConfig {
+        skill_tool_available: true,
+        ..Default::default()
+    };
+    let before = build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
+    assert!(before.section_keys.contains(&"skills"));
+    runtime.available_skills.push(PromptSkillSummary {
+        name: "runtime-review".into(),
+        title: None,
+        description: "Review the current runtime.".into(),
+        scope: "protocol".into(),
+        disable_model_invocation: false,
+    });
+    let registered = build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
+    runtime.available_skills.clear();
+    let disabled = build_effective_prompt(&workspace, &runtime, PromptMode::Execute);
+    assert_eq!(before.text, registered.text);
+    assert_eq!(before.text, disabled.text);
+}

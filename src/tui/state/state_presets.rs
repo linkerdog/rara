@@ -41,6 +41,9 @@ pub const BEDROCK_MODEL_PRESETS: [(&str, &str, &str); 3] = [
 ];
 
 pub fn selected_provider_family_idx_for_config(config: &RaraConfig) -> usize {
+    if config.selected_registry_model().is_some() {
+        return provider_family_index(ProviderFamily::OpenAiCompatible);
+    }
     let family = match config.provider.as_str() {
         "codex" => ProviderFamily::Codex,
         "deepseek" => ProviderFamily::DeepSeek,

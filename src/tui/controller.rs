@@ -14,16 +14,26 @@ use super::app_event::AppEvent;
 use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
-    accept_runtime_event,
 };
-use super::state::{TaskCompletion, TuiApp};
+use super::state::{TaskCompletion, TuiApp, TuiEvent};
 use crate::oauth::OAuthManager;
-use crate::runtime_control::{ErrorEvent, RuntimeEvent, SessionEvent};
+use crate::runtime_control::RuntimeControlEvent;
+mod event_fence;
+mod recovery;
+#[cfg(test)]
+mod recovery_tests;
+use event_fence::{RuntimeEventFence, is_terminal_turn_event};
 
 pub(super) enum RuntimeActivity {
     Event(Option<RuntimeProjectionEvent>),
     Command(Option<RuntimeCommand>),
     Completed(Box<Result<TaskCompletion, tokio::task::JoinError>>),
+}
+
+#[derive(Clone, Copy)]
+enum QueryReceiptBoundary {
+    BroadcastSequence(u64),
+    ExecutionReturned,
 }
 
 #[derive(Default)]
@@ -76,7 +86,11 @@ pub(super) struct TuiController {
     runtime_events: RuntimeEventStream,
     runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     last_runtime_event: Option<(Option<String>, u64, String)>,
+    runtime_event_fence: RuntimeEventFence,
     query_completion_barrier: QueryCompletionBarrier,
+    pending_query_receipt: Option<Box<RuntimeControlEvent>>,
+    runtime_resync_through: Option<u64>,
+    runtime_cursor: u64,
     /// Set to true every time an event is applied and the screen should repaint.
     pub(super) needs_redraw: bool,
 }
@@ -87,14 +101,19 @@ impl TuiController {
         runtime_port: std::sync::Arc<dyn RuntimeClientPort>,
         runtime_commands: tokio::sync::mpsc::UnboundedReceiver<RuntimeCommand>,
     ) -> Self {
-        let runtime_events = runtime_port.subscribe();
+        let runtime_cursor = runtime_port.current_sequence();
+        let runtime_events = runtime_port.subscribe_after(runtime_cursor);
         Self {
             app,
             runtime_port,
             runtime_events,
             runtime_commands,
             last_runtime_event: None,
+            runtime_event_fence: RuntimeEventFence::default(),
             query_completion_barrier: QueryCompletionBarrier::default(),
+            pending_query_receipt: None,
+            runtime_resync_through: None,
+            runtime_cursor,
             needs_redraw: true,
         }
     }
@@ -118,6 +137,18 @@ impl TuiController {
             .await
     }
 
+    pub(super) async fn queue_restored_goal(
+        &mut self,
+        processor: &RuntimeCommandProcessor,
+    ) -> bool {
+        let readiness = if processor.agent().is_some() {
+            super::goal_resume::AgentReadiness::Ready
+        } else {
+            super::goal_resume::AgentReadiness::Unavailable
+        };
+        super::goal_resume::queue_if_idle(&mut self.app, &*self.runtime_port, readiness).await
+    }
+
     pub(super) async fn send_runtime_command(&self, command: RuntimeCommand) -> anyhow::Result<()> {
         self.runtime_port.send(command).await
     }
@@ -133,14 +164,24 @@ impl TuiController {
     }
 
     /// Defer query completion until the ordered runtime stream reaches a
-    /// terminal event. Maintenance tasks do not emit turn lifecycle events and
-    /// continue to complete directly from their join handle.
+    /// terminal event. Local receipts repair gaps in the broadcast projection;
+    /// maintenance tasks complete directly from their join handle.
     pub(super) async fn receive_runtime_task_completion(
         &mut self,
         processor: &mut RuntimeCommandProcessor,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<bool> {
         if self.running_task_is_query() {
+            // Consume the published transport prefix first: its live buffer
+            // may still own records already evicted from the replay window.
+            let published = self.runtime_port.current_sequence();
+            while self.runtime_cursor < published {
+                let Some(event) = self.runtime_events.next().await else {
+                    break;
+                };
+                self.apply_runtime_event(event);
+            }
+            self.drain_query_receipts(QueryReceiptBoundary::ExecutionReturned);
             self.query_completion_barrier.defer(completion);
             return self.complete_query_if_ready(processor).await;
         }
@@ -157,6 +198,15 @@ impl TuiController {
         let Some(completion) = self.query_completion_barrier.take_ready() else {
             return Ok(false);
         };
+        if let Some(control) = self
+            .app
+            .bottom_pane
+            .running_task
+            .as_ref()
+            .and_then(|task| task.query_control.as_ref())
+        {
+            self.runtime_event_fence.close(control);
+        }
         processor.complete(&mut self.app, completion).await?;
         self.needs_redraw = true;
         Ok(true)
@@ -172,6 +222,10 @@ impl TuiController {
 
     /// Wait for the next runtime event or task completion without polling.
     pub(super) async fn wait_for_runtime_activity(&mut self) -> RuntimeActivity {
+        // Honor submitted controls before completion can start queued work.
+        if let Ok(command) = self.runtime_commands.try_recv() {
+            return RuntimeActivity::Command(Some(command));
+        }
         if self.query_completion_barrier.has_pending_completion() {
             let activity = tokio::select! {
                 event = self.runtime_events.next() => RuntimeActivity::Event(event),
@@ -202,10 +256,92 @@ impl TuiController {
     }
 
     pub(super) fn apply_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
-        let terminal_event = is_terminal_projection_event(&event);
+        let boundary = match &event {
+            RuntimeProjectionEvent::Runtime(event) => self
+                .app
+                .bottom_pane
+                .running_task
+                .as_ref()
+                .and_then(|task| task.query_control.as_ref())
+                .filter(|query| {
+                    event
+                        .provenance
+                        .session_id
+                        .as_deref()
+                        .is_none_or(|id| id == query.session_id)
+                        && event
+                            .turn_id
+                            .as_deref()
+                            .is_none_or(|id| id == query.turn_id)
+                })
+                .map(|_| QueryReceiptBoundary::BroadcastSequence(event.sequence)),
+            RuntimeProjectionEvent::Snapshot(_)
+            | RuntimeProjectionEvent::Completed { .. }
+            | RuntimeProjectionEvent::Disconnected { .. }
+            | RuntimeProjectionEvent::Reconnected
+            | RuntimeProjectionEvent::ResyncRequired(_) => None,
+        };
+        let recovered = boundary.is_some_and(|boundary| self.drain_query_receipts(boundary));
+        self.project_runtime_event(event) || recovered
+    }
+
+    fn collect_query_receipts(
+        &mut self,
+        boundary: QueryReceiptBoundary,
+    ) -> Vec<RuntimeControlEvent> {
+        std::iter::from_fn(|| self.next_query_receipt(boundary).map(|event| *event)).collect()
+    }
+
+    fn next_query_receipt(
+        &mut self,
+        boundary: QueryReceiptBoundary,
+    ) -> Option<Box<RuntimeControlEvent>> {
+        loop {
+            let task = self.app.bottom_pane.running_task.as_mut()?;
+            task.query_control.as_ref()?;
+            let event = match self.pending_query_receipt.take() {
+                Some(event) => event,
+                None => match task.receiver.try_recv() {
+                    Ok(TuiEvent::Runtime(event)) => event,
+                    Ok(_) => {
+                        log::warn!(
+                            "received a non-runtime event in the scoped query receipt channel"
+                        );
+                        continue;
+                    }
+                    Err(
+                        tokio::sync::mpsc::error::TryRecvError::Empty
+                        | tokio::sync::mpsc::error::TryRecvError::Disconnected,
+                    ) => return None,
+                },
+            };
+            if let QueryReceiptBoundary::BroadcastSequence(sequence) = boundary
+                && event.sequence > sequence
+            {
+                self.pending_query_receipt = Some(event);
+                return None;
+            }
+            return Some(event);
+        }
+    }
+
+    fn project_runtime_event(&mut self, event: RuntimeProjectionEvent) -> bool {
+        let mut terminal_event = is_terminal_projection_event(&event);
         match event {
             RuntimeProjectionEvent::Runtime(event) => {
-                if !accept_runtime_event(&mut self.last_runtime_event, &event) {
+                self.runtime_cursor = self.runtime_cursor.max(event.sequence);
+                let query = self
+                    .app
+                    .bottom_pane
+                    .running_task
+                    .as_ref()
+                    .and_then(|task| task.query_control.as_ref());
+                if !self.runtime_event_fence.accept(
+                    &mut self.last_runtime_event,
+                    &event,
+                    &self.app.snapshot.session_id,
+                    query,
+                ) {
                     return false;
                 }
                 super::runtime::apply_tui_event(
@@ -213,12 +349,24 @@ impl TuiController {
                     super::state::TuiEvent::Runtime(event),
                 );
             }
+            RuntimeProjectionEvent::ResyncRequired(gap) => return self.recover_event_gap(gap),
             RuntimeProjectionEvent::Snapshot(snapshot) => {
-                self.app.snapshot = *snapshot;
+                self.app.snapshot = (*snapshot).into();
                 let catalogs = self.app.snapshot.model_catalogs.clone();
                 self.app.apply_model_catalog_snapshots(&catalogs);
             }
             RuntimeProjectionEvent::Completed { reason } => {
+                // This unscoped compatibility notification cannot end an
+                // identity-bearing in-process query.
+                terminal_event = self
+                    .app
+                    .bottom_pane
+                    .running_task
+                    .as_ref()
+                    .is_none_or(|task| task.query_control.is_none());
+                if !terminal_event {
+                    return false;
+                }
                 self.app
                     .set_runtime_phase(super::state::RuntimePhase::Idle, reason);
             }
@@ -240,7 +388,7 @@ impl TuiController {
 
     pub(super) fn publish_snapshot_projection(&self) {
         self.runtime_port
-            .publish_snapshot(self.app.snapshot.clone());
+            .publish_snapshot(self.app.snapshot.clone().into_inner());
     }
 
     /// Sync snapshot from the active agent (must be called at the top of the event loop).
@@ -249,7 +397,8 @@ impl TuiController {
         processor: &mut RuntimeCommandProcessor,
     ) -> anyhow::Result<()> {
         processor.sync_snapshot(&mut self.app);
-        self.app.snapshot = self.runtime_port.snapshot().await?;
+        self.publish_snapshot_projection();
+        self.app.snapshot = self.runtime_port.snapshot().await?.into();
         Ok(())
     }
 
@@ -268,22 +417,13 @@ impl TuiController {
 
 fn is_terminal_projection_event(event: &RuntimeProjectionEvent) -> bool {
     match event {
-        RuntimeProjectionEvent::Runtime(event) => matches!(
-            &event.event,
-            RuntimeEvent::Session(
-                SessionEvent::TurnFinished { .. }
-                    | SessionEvent::TurnFailed { .. }
-                    | SessionEvent::TurnCancelled
-                    | SessionEvent::TurnInterrupted
-            ) | RuntimeEvent::Error(ErrorEvent::RuntimeError {
-                recoverable: false,
-                ..
-            })
-        ),
+        RuntimeProjectionEvent::Runtime(event) => is_terminal_turn_event(&event.event),
         RuntimeProjectionEvent::Completed { .. } | RuntimeProjectionEvent::Disconnected { .. } => {
             true
         }
-        RuntimeProjectionEvent::Snapshot(_) | RuntimeProjectionEvent::Reconnected => false,
+        RuntimeProjectionEvent::Snapshot(_)
+        | RuntimeProjectionEvent::Reconnected
+        | RuntimeProjectionEvent::ResyncRequired(_) => false,
     }
 }
 
@@ -306,6 +446,10 @@ async fn select_runtime_activity(
 }
 
 #[cfg(test)]
+#[path = "controller/cancellation_tests.rs"]
+mod cancellation_tests;
+
+#[cfg(test)]
 mod tests {
     use futures::stream;
 
@@ -319,7 +463,61 @@ mod tests {
     use crate::tui::runtime_port::{RuntimeEventStream, RuntimeProjectionEvent};
     use crate::tui::state::TaskCompletion;
 
-    fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
+    #[tokio::test]
+    async fn submitted_permissions_precede_ready_runtime_completion() {
+        use std::sync::Arc;
+        use std::time::Instant;
+
+        use crate::tui::state::{PermissionMode, RunningTask, RuntimeSnapshot, TaskKind, TuiApp};
+        use crate::tui::testing::FakeRuntimeClient;
+
+        for deferred in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut app = TuiApp::new(crate::config::ConfigManager {
+                path: temp.path().join("config.json"),
+            })
+            .unwrap();
+            let (_, receiver) = tokio::sync::mpsc::unbounded_channel();
+            app.bottom_pane.running_task = Some(RunningTask {
+                kind: TaskKind::Query,
+                receiver,
+                handle: tokio::spawn(async { (*test_completion()).unwrap() }),
+                started_at: Instant::now(),
+                next_heartbeat_after_secs: 2,
+                cancellation_token: None,
+                query_control: None,
+            });
+            tokio::task::yield_now().await;
+            let port = Arc::new(FakeRuntimeClient::new(RuntimeSnapshot::default()));
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            let mut controller = super::TuiController::new(app, port.clone(), receiver);
+            if deferred {
+                controller.query_completion_barrier.defer(test_completion());
+            }
+            port.emit(crate::tui::runtime_port::RuntimeProjectionEvent::Completed { reason: None });
+            sender
+                .send(RuntimeCommand::SetPermissionMode(
+                    PermissionMode::FullAccess,
+                ))
+                .unwrap();
+            assert!(matches!(
+                controller.wait_for_runtime_activity().await,
+                RuntimeActivity::Command(Some(RuntimeCommand::SetPermissionMode(
+                    PermissionMode::FullAccess
+                )))
+            ));
+            controller
+                .app
+                .bottom_pane
+                .running_task
+                .take()
+                .unwrap()
+                .handle
+                .abort();
+        }
+    }
+
+    pub(super) fn test_completion() -> Box<Result<TaskCompletion, tokio::task::JoinError>> {
         Box::new(Ok(TaskCompletion::ModelCatalog {
             provider: rara_provider_catalog::ModelCatalogProvider::Kimi,
             result: Ok(Vec::new()),

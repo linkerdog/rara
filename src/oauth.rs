@@ -172,6 +172,10 @@ impl OAuthManager {
         Ok(false)
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "The CLI-only stdin credential prompt owns stderr."
+    )]
     pub fn read_api_key_from_stdin(&self) -> Result<SecretString> {
         eprintln!("Paste the Codex API key, then press Ctrl-D:");
         let mut input = String::new();
@@ -404,6 +408,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -432,6 +437,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -458,6 +464,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -522,6 +529,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -553,6 +561,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -586,6 +595,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -613,6 +623,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -628,6 +639,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),
@@ -656,6 +668,7 @@ mod tests {
                 agent_identity: None,
                 personal_access_token: None,
                 bedrock_api_key: None,
+                bedrock_access_keys: None,
             },
             AuthCredentialsStoreMode::File,
             AuthKeyringBackendKind::default(),

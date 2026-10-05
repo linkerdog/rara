@@ -1,3 +1,6 @@
+mod goal_persistence;
+mod options;
+pub(crate) use options::RuntimeBootstrapOptions;
 mod tooling;
 
 use std::path::{Path, PathBuf};
@@ -20,8 +23,9 @@ use crate::google_oauth::GoogleOAuthManager;
 use crate::hook_registry::HookRegistry;
 use crate::hook_runtime::HookRuntime;
 use crate::llm::{
-    BedrockBackend, CodexBackend, GeminiBackend, LlmBackend, Message, MockLlm, OllamaBackend,
-    OpenAiCompatibleBackend, fetch_model_context_window,
+    BedrockBackend, CodexBackend, DeepseekAnthropicConfig, GeminiBackend, LlmBackend, Message,
+    MockLlm, OllamaBackend, OpenAiCompatibleBackend, fetch_model_context_window,
+    wrap_deepseek_anthropic_if_eligible,
 };
 use crate::local_backend::{LocalLlmBackend, LocalProgressReporter};
 use crate::lsp_manager::LspManager;
@@ -31,16 +35,16 @@ use crate::prompt::{PromptRuntimeConfig, PromptSkillSummary};
 use crate::protocol_sources::{PromptSourceRegistry, SkillSourceRegistry};
 use crate::runtime_control::{ExtensionEvent, ExtensionReadinessSnapshot, RuntimeEvent};
 use crate::runtime_event_bus::RuntimeEventBus;
+use crate::runtime_goals::{GoalHandle, GoalStore};
 use crate::runtime_session::RuntimeSessionProfile;
 use crate::sandbox::SandboxManager;
 use crate::session::SessionManager;
 use crate::shell_env::capture_shell_environment_snapshot;
 use crate::skill::SkillScope;
 use crate::tools::agent::{
-    AgentDefinitionCache, AgentTreeConfig, AgentTreeControl, ResolvedSubagentBackend,
-    SubagentBackendResolver, SubagentProviderTarget,
+    AgentDefinitionCache, AgentTreeControl, ResolvedSubagentBackend, SubagentBackendResolver,
+    SubagentProviderTarget,
 };
-use crate::tui::state::GoalHandle;
 use crate::workspace::WorkspaceMemory;
 
 pub(crate) struct RuntimeBootstrap {
@@ -286,114 +290,6 @@ impl RuntimeBootstrap {
     }
 }
 
-pub(crate) struct RuntimeBootstrapOptions {
-    pub plugin_dirs: Vec<PathBuf>,
-    pub rara_home: Option<PathBuf>,
-    pub agent_tree_config: AgentTreeConfig,
-    pub agent_tree_control: Option<Arc<AgentTreeControl>>,
-    pub backend: Option<Arc<dyn LlmBackend>>,
-    pub tool_manager: Option<ToolManager>,
-    pub extension_discovery: bool,
-    pub session_id: Option<String>,
-    pub initial_transcript: Vec<Message>,
-    pub transcript_persistence: bool,
-    pub memory_facilities: bool,
-    pub session_profile: RuntimeSessionProfile,
-    pub event_capacity: usize,
-}
-
-impl Default for RuntimeBootstrapOptions {
-    fn default() -> Self {
-        Self {
-            plugin_dirs: Vec::new(),
-            rara_home: None,
-            agent_tree_config: AgentTreeConfig::default(),
-            agent_tree_control: None,
-            backend: None,
-            tool_manager: None,
-            extension_discovery: true,
-            session_id: None,
-            initial_transcript: Vec::new(),
-            transcript_persistence: true,
-            memory_facilities: true,
-            session_profile: RuntimeSessionProfile::Default,
-            event_capacity: 256,
-        }
-    }
-}
-
-impl RuntimeBootstrapOptions {
-    pub(crate) fn with_plugin_dirs(plugin_dirs: Vec<PathBuf>) -> Self {
-        Self {
-            plugin_dirs,
-            ..Self::default()
-        }
-    }
-
-    pub(crate) fn with_rara_home(mut self, rara_home: Option<PathBuf>) -> Self {
-        self.rara_home = rara_home;
-        self
-    }
-
-    pub(crate) fn with_agent_tree_config(mut self, agent_tree_config: AgentTreeConfig) -> Self {
-        self.agent_tree_config = agent_tree_config;
-        self
-    }
-
-    pub(crate) fn with_agent_tree_control(
-        mut self,
-        agent_tree_control: Option<Arc<AgentTreeControl>>,
-    ) -> Self {
-        self.agent_tree_control = agent_tree_control;
-        self
-    }
-
-    pub(crate) fn with_backend(mut self, backend: Option<Arc<dyn LlmBackend>>) -> Self {
-        self.backend = backend;
-        self
-    }
-
-    pub(crate) fn with_tool_manager(mut self, tool_manager: Option<ToolManager>) -> Self {
-        self.tool_manager = tool_manager;
-        self
-    }
-
-    pub(crate) fn with_extension_discovery(mut self, enabled: bool) -> Self {
-        self.extension_discovery = enabled;
-        self
-    }
-
-    pub(crate) fn with_session_id(mut self, session_id: Option<String>) -> Self {
-        self.session_id = session_id;
-        self
-    }
-
-    pub(crate) fn with_initial_transcript(mut self, transcript: Vec<Message>) -> Self {
-        self.initial_transcript = transcript;
-        self
-    }
-
-    pub(crate) fn with_transcript_persistence(mut self, enabled: bool) -> Self {
-        self.transcript_persistence = enabled;
-        self
-    }
-
-    pub(crate) fn with_memory_facilities(mut self, enabled: bool) -> Self {
-        self.memory_facilities = enabled;
-        self
-    }
-
-    pub(crate) fn with_session_profile(mut self, profile: RuntimeSessionProfile) -> Self {
-        self.session_profile = profile;
-        self
-    }
-
-    pub(crate) fn with_event_capacity(mut self, capacity: usize) -> Self {
-        self.event_capacity = capacity.max(1);
-        self
-    }
-}
-
 pub(crate) async fn initialize_rara_context(
     config: &RaraConfig,
     progress: Option<LocalProgressReporter>,
@@ -501,7 +397,11 @@ pub(crate) async fn initialize_rara_context_with_options(
     }
     append_multi_agent_prompt_instructions(&mut prompt_config, multi_agent_policy);
     let skill_manager = if options.extension_discovery {
-        load_skill_manager(&mut prompt_config.warnings, &plugin_skill_roots)
+        load_skill_manager(
+            &workspace.root,
+            &mut prompt_config.warnings,
+            &plugin_skill_roots,
+        )
     } else {
         Arc::new(RwLock::new(SkillManager::new()))
     };
@@ -522,6 +422,7 @@ pub(crate) async fn initialize_rara_context_with_options(
                 | rara_skills::SkillScope::Repo
                 | rara_skills::SkillScope::Cwd => "workspace",
                 rara_skills::SkillScope::Plugin => "plugin",
+                rara_skills::SkillScope::Protocol => "protocol",
                 rara_skills::SkillScope::System => "system",
             };
             PromptSkillSummary {
@@ -538,13 +439,43 @@ pub(crate) async fn initialize_rara_context_with_options(
         config.sandbox_workspace_write.network_access,
     ));
 
-    let event_bus = Arc::new(RuntimeEventBus::new(options.event_capacity));
+    let event_bus = Arc::new(RuntimeEventBus::with_capacity(
+        crate::runtime_event_bus::RuntimeEventCapacity {
+            broadcast: options.event_capacity,
+            replay: options.replay_capacity,
+        },
+    ));
     let hook_runtime = Arc::new(HookRuntime::new(event_bus.clone()));
     hook_runtime.start();
     let prompt_source_registry = Arc::new(PromptSourceRegistry::new(event_bus.clone()));
-    let skill_source_registry = Arc::new(SkillSourceRegistry::new(event_bus.clone()));
+    let native_skill_available = options.tool_manager.is_none()
+        && session_profile
+            .tool_names()
+            .is_none_or(|names| names.contains(&"skill"));
+    prompt_config.skill_tool_available = native_skill_available;
+    if !native_skill_available {
+        prompt_config.available_skills.clear();
+    }
+    let skill_source_registry = Arc::new(if native_skill_available {
+        SkillSourceRegistry::with_manager(event_bus.clone(), skill_manager.clone())
+    } else {
+        SkillSourceRegistry::unavailable(event_bus.clone())
+    });
+    let skill_reload_policy = if options.extension_discovery {
+        crate::tools::skill::SkillReloadPolicy::Enabled {
+            workspace_root: workspace.root.clone(),
+        }
+    } else {
+        crate::tools::skill::SkillReloadPolicy::Disabled
+    };
     let hook_registry = Arc::new(HookRegistry::new(event_bus.clone()));
-    let goal_handle: GoalHandle = Arc::new(std::sync::RwLock::new(None));
+    let goal_handle = Arc::new(GoalStore::default());
+    goal_persistence::bind_bootstrap_goal(
+        &goal_handle,
+        &mut options,
+        &workspace,
+        &mut prompt_config.warnings,
+    );
     let mcp_tool_cache = McpToolCache::new();
     mcp_tool_cache.clear();
     let lsp_manager = Arc::new(LspManager::new(workspace.root.clone()));
@@ -626,6 +557,8 @@ pub(crate) async fn initialize_rara_context_with_options(
             workspace.clone(),
             sandbox_manager.clone(),
             skill_manager,
+            skill_source_registry.clone(),
+            skill_reload_policy,
             plugin_skill_roots,
             prompt_config.clone(),
             Arc::new(shell_env.env),
@@ -752,6 +685,49 @@ async fn build_backend_with_progress_for_home(
     progress: Option<LocalProgressReporter>,
     rara_home: Option<&Path>,
 ) -> Result<Box<dyn LlmBackend>> {
+    let mut resolved = config.clone();
+    resolved.resolve_registry_model_reference()?;
+    let config = &resolved;
+    if let Some(model) = config.selected_registry_model() {
+        let kind = match config.provider.as_str() {
+            "deepseek" => OpenAiEndpointKind::Deepseek,
+            "moonshotai" => OpenAiEndpointKind::Kimi,
+            "openrouter" => OpenAiEndpointKind::Openrouter,
+            _ => OpenAiEndpointKind::Custom,
+        };
+        let base_url = config
+            .base_url
+            .clone()
+            .context("Configured provider requires an API root")?;
+        let model_name = config
+            .model
+            .clone()
+            .context("Configured provider requires a model")?;
+        let backend = OpenAiCompatibleBackend::new_with_endpoint_kind_and_reasoning(
+            config.api_key_secret(),
+            base_url.clone(),
+            model_name.clone(),
+            kind,
+            config.reasoning_effort.clone(),
+            config.thinking,
+        )?
+        .with_provider_model(model)
+        .with_auxiliary_model(config.auxiliary_model.clone());
+        return Ok(wrap_deepseek_anthropic_if_eligible(
+            backend,
+            DeepseekAnthropicConfig {
+                api_key: config.api_key_secret(),
+                thinking: config.thinking,
+                reasoning_effort: config.reasoning_effort.clone(),
+                max_output_tokens: model.limit.output.and_then(std::num::NonZeroU32::new),
+                temperature: model.options.temperature,
+                top_p: model.options.top_p,
+            },
+            kind,
+            &base_url,
+            &model_name,
+        ));
+    }
     match config.provider.as_str() {
         "codex" => Ok(Box::new(
             CodexBackend::new(
@@ -900,7 +876,18 @@ async fn build_openai_compatible_backend(
         )
         .await;
     }
-    Ok(Box::new(backend))
+    Ok(wrap_deepseek_anthropic_if_eligible(
+        backend,
+        DeepseekAnthropicConfig {
+            api_key: config.api_key_secret(),
+            thinking: config.thinking,
+            reasoning_effort: config.reasoning_effort.clone(),
+            ..Default::default()
+        },
+        kind,
+        &base_url,
+        &model,
+    ))
 }
 
 fn ollama_thinking_enabled(config: &RaraConfig) -> bool {

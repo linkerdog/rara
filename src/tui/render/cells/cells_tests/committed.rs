@@ -1,10 +1,11 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 use crate::tui::state::{CompactionTranscriptPayload, TranscriptEntryPayload};
 
 #[test]
 fn committed_turn_renders_compaction_as_a_dedicated_cell() {
     let entries = vec![TranscriptEntry {
-        role: "Compaction".into(),
+        role: MessageRole::Compaction,
         message: "Retained the active task.".into(),
         payload: Some(TranscriptEntryPayload::Compaction(
             CompactionTranscriptPayload {
@@ -32,7 +33,7 @@ fn committed_turn_renders_compaction_as_a_dedicated_cell() {
 #[test]
 fn explicit_progress_entry_groups_preserves_thinking_indentation() {
     let entries = [TranscriptEntry {
-        role: "Thinking".into(),
+        role: MessageRole::Thinking,
         message: "    let value = 1;\n  aligned note\n\n".into(),
         payload: None,
     }];
@@ -54,22 +55,22 @@ fn explicit_progress_entry_groups_preserves_thinking_indentation() {
 fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review this repo".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool".into(),
+            role: MessageRole::Tool,
             message: "list_files .".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool".into(),
+            role: MessageRole::Tool,
             message: "bash cargo check".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "Final recommendation".into(),
             payload: None,
         },
@@ -96,17 +97,17 @@ fn committed_turn_cell_keeps_user_summary_and_agent_sections_in_order() {
 fn committed_turn_cell_ignores_routine_system_notices() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review this repo".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "Final recommendation".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "System".into(),
+            role: MessageRole::System,
             message: "prompt finished".into(),
             payload: None,
         },
@@ -128,19 +129,19 @@ fn committed_turn_cell_ignores_routine_system_notices() {
 fn committed_turn_cell_renders_memory_action_notices() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review this repo".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "System".into(),
+            role: MessageRole::System,
             message: "Memory · queried workspace memory: 2 candidates".into(),
             payload: Some(crate::tui::state::TranscriptEntryPayload::System(
                 crate::tui::state::SystemMessageKind::Memory,
             )),
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "Final recommendation".into(),
             payload: None,
         },
@@ -159,22 +160,22 @@ fn committed_turn_cell_renders_memory_action_notices() {
 #[test]
 fn committed_turn_cell_renders_materialized_sidecar_sections() {
     let entries = vec![
-        TranscriptEntry { role: "You".into(), message: "Review the workspace logic".into(), payload: None },
+        TranscriptEntry { role: MessageRole::User, message: "Review the workspace logic".into(), payload: None },
         TranscriptEntry {
-            role: "Exploring".into(),
+            role: MessageRole::Exploring,
             message:
                 "Delegate repository exploration: inspect instruction discovery\nSub-agent summary: current discovery is hardcoded"
                     .into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Planning".into(),
+            role: MessageRole::Planning,
             message:
                 "Delegate plan refinement: generalize instruction discovery\nSub-agent summary: reuse the workspace traversal helper"
                     .into(),
             payload: None,
         },
-        TranscriptEntry { role: "Agent".into(), message: "Here is the final recommendation.".into(), payload: None },
+        TranscriptEntry { role: MessageRole::Agent, message: "Here is the final recommendation.".into(), payload: None },
     ];
 
     let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
@@ -202,17 +203,17 @@ fn committed_turn_cell_renders_materialized_sidecar_sections() {
 fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run the checks".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Thinking".into(),
+            role: MessageRole::Thinking,
             message: "I should run the focused test first.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Running".into(),
+            role: MessageRole::Running,
             message: "Run cargo test active_turn_cell".into(),
             payload: None,
         },
@@ -227,7 +228,7 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
             is_error: false,
         })),
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "The focused tests passed.".into(),
             payload: None,
         },
@@ -257,27 +258,27 @@ fn committed_turn_cell_keeps_progress_segments_and_terminal_output() {
 fn committed_turn_cell_preserves_interleaved_agent_and_progress_output() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Sync the branch".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "First I will sync the branch.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Running".into(),
+            role: MessageRole::Running,
             message: "Run git rebase main".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "The first conflict is in keymap.rs.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Running".into(),
+            role: MessageRole::Running,
             message: "Run cargo test tui::keymap".into(),
             payload: None,
         },
@@ -318,37 +319,37 @@ fn committed_turn_cell_preserves_interleaved_agent_and_progress_output() {
 fn committed_turn_cell_appends_adjacent_progress_entries() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Inspect the split".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Exploring".into(),
+            role: MessageRole::Exploring,
             message: "Read src/context/assembler.rs".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Exploring".into(),
+            role: MessageRole::Exploring,
             message: "Read src/context/mod.rs".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Running".into(),
+            role: MessageRole::Running,
             message: "Run cargo test active_turn_cell".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Running".into(),
+            role: MessageRole::Running,
             message: "Run cargo check".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Planning".into(),
+            role: MessageRole::Planning,
             message: "Refine the follow-up plan".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Planning".into(),
+            role: MessageRole::Planning,
             message: "Split the UI status work".into(),
             payload: None,
         },
@@ -381,12 +382,12 @@ fn committed_turn_cell_appends_adjacent_progress_entries() {
 #[test]
 fn committed_turn_cell_places_completion_records_before_final_agent_message() {
     let entries = vec![
-        TranscriptEntry { role: "You".into(), message: "Inspect the repo and decide whether to run the migration".into(), payload: None },
-        TranscriptEntry { role: "Exploring".into(), message: "└ Read crates/instructions/src/workspace.rs".into(), payload: None },
-        TranscriptEntry { role: "Shell Approval Completed".into(), message: "Bash approval: Approved once for command: bash ./scripts/migrate.sh"
+        TranscriptEntry { role: MessageRole::User, message: "Inspect the repo and decide whether to run the migration".into(), payload: None },
+        TranscriptEntry { role: MessageRole::Exploring, message: "└ Read crates/instructions/src/workspace.rs".into(), payload: None },
+        TranscriptEntry { role: MessageRole::ShellApprovalCompleted, message: "Bash approval: Approved once for command: bash ./scripts/migrate.sh"
                 .into(), payload: None },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message:
                 "I approved the one-off shell step and can now continue with the final recommendation."
                     .into(),
@@ -415,27 +416,27 @@ fn committed_turn_cell_places_completion_records_before_final_agent_message() {
 fn committed_turn_cell_preserves_completion_record_order() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Inspect the workflow and capture the decision trail".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Question Answered".into(),
+            role: MessageRole::QuestionAnswered,
             message: "Captured the generic answer.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Shell Approval Completed".into(),
+            role: MessageRole::ShellApprovalCompleted,
             message: "Approved the one-off shell command.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Planning Question Answered".into(),
+            role: MessageRole::PlanningQuestionAnswered,
             message: "Chose the plan_agent option.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "Here is the final narrative summary.".into(),
             payload: None,
         },
@@ -464,10 +465,10 @@ fn committed_turn_cell_preserves_completion_record_order() {
 #[test]
 fn committed_turn_cell_renders_terminal_result_as_terminal_cell() {
     let entries = vec![
-        TranscriptEntry { role: "You".into(), message: "Run tests in the background".into(), payload: None },
-        TranscriptEntry { role: "Tool".into(), message: "background_task_status bash-123".into(), payload: None },
-        TranscriptEntry { role: "Tool Result".into(), message: "background task bash-123 completed: cargo test\nexit_code: 0\noutput:\ncompile\nrunning tests\nok".into(), payload: None },
-        TranscriptEntry { role: "Agent".into(), message: "The background test task completed.".into(), payload: None },
+        TranscriptEntry { role: MessageRole::User, message: "Run tests in the background".into(), payload: None },
+        TranscriptEntry { role: MessageRole::Tool, message: "background_task_status bash-123".into(), payload: None },
+        TranscriptEntry { role: MessageRole::ToolResult, message: "background task bash-123 completed: cargo test\nexit_code: 0\noutput:\ncompile\nrunning tests\nok".into(), payload: None },
+        TranscriptEntry { role: MessageRole::Agent, message: "The background test task completed.".into(), payload: None },
     ];
 
     let rendered = CommittedTurnCell::new(entries.as_slice(), Some(Path::new(".")), false, None)
@@ -489,12 +490,12 @@ fn committed_turn_cell_renders_terminal_result_as_terminal_cell() {
 fn committed_turn_cell_renders_terminal_result_with_inline_output_path() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run tests in the background".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool Result".into(),
+            role: MessageRole::ToolResult,
             message:
                 "background task bash-123 running\noutput: /tmp/rara/background-tasks/bash-123.log"
                     .into(),
@@ -518,12 +519,12 @@ fn committed_turn_cell_renders_terminal_result_with_inline_output_path() {
 fn committed_turn_cell_shows_tail_for_long_tool_messages() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run the long task".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool Progress".into(),
+            role: MessageRole::ToolProgress,
             message: [
                 "line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8",
             ]
@@ -531,7 +532,7 @@ fn committed_turn_cell_shows_tail_for_long_tool_messages() {
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "The task finished.".into(),
             payload: None,
         },
@@ -561,12 +562,12 @@ fn committed_turn_cell_shows_tail_for_long_tool_messages() {
 fn committed_turn_cell_renders_tool_result_diff_preview() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Edit the file".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool Result".into(),
+            role: MessageRole::ToolResult,
             message: [
                 "replace src/main.rs",
                 "replacements=1 line_delta=0",
@@ -602,7 +603,7 @@ fn committed_turn_cell_renders_tool_result_diff_preview() {
 fn committed_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run tests in the background".into(),
             payload: None,
         },
@@ -617,7 +618,7 @@ fn committed_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
             is_error: false,
         })),
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "The background test task completed.".into(),
             payload: None,
         },
@@ -642,22 +643,22 @@ fn committed_turn_cell_renders_typed_terminal_event_as_terminal_cell() {
 fn committed_turn_cell_keeps_final_agent_response_when_system_notice_arrives_after_tool_turn() {
     let entries = vec![
         TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Inspect the repository and summarize the result".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Tool".into(),
+            role: MessageRole::Tool,
             message: "bash cargo check".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "Agent".into(),
+            role: MessageRole::Agent,
             message: "The repository is healthy and the check passed.".into(),
             payload: None,
         },
         TranscriptEntry {
-            role: "System".into(),
+            role: MessageRole::System,
             message: "Waiting for device-code confirmation.".into(),
             payload: None,
         },

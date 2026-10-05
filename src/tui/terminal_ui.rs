@@ -1,90 +1,29 @@
-use std::io;
-
-use anyhow::Result;
-use crossterm::{
-    cursor::Show,
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
-    execute,
-    terminal::disable_raw_mode,
-};
-use ratatui::{backend::CrosstermBackend, layout::Rect};
-
-use super::custom_terminal::Terminal;
 use super::state::TuiApp;
 
 pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = super::display_sanitize::sanitize_paste_text(&text);
+    if !app.composer_input_is_active() {
+        let text = normalized.replace('\n', " ");
+        if app.overlay
+            == Some(super::state::Overlay::ListPicker(
+                super::state::ListPickerKind::Resume,
+            ))
+        {
+            app.insert_resume_search_text(&text);
+        } else {
+            app.insert_active_input_text(&text);
+        }
+        return;
+    }
     if normalized.contains('\n') || normalized.len() > 1000 {
         // Large or multi-line paste — use burst buffer to avoid
         // O(n²) per-frame redraws. The buffer will be flushed after
         // a short debounce on the next call to drain_paste_burst.
         app.bottom_pane.handle_paste_burst_chunk(&normalized);
     } else {
+        app.flush_composer_paste();
         app.insert_active_input_text(&normalized);
     }
-}
-
-pub(super) fn build_terminal(
-    viewport_height: u16,
-) -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
-    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    execute!(
-        terminal.backend_mut(),
-        EnableBracketedPaste,
-        EnableMouseCapture
-    )?;
-
-    let result = (|| -> Result<()> {
-        let size = terminal.size()?;
-        terminal.set_viewport_area(viewport_area(size.width, size.height, viewport_height));
-        terminal.clear_visible_screen()?;
-        Ok(())
-    })();
-
-    if let Err(err) = result {
-        let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
-        return Err(err);
-    }
-
-    Ok(terminal)
-}
-
-pub(super) fn update_terminal_viewport(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    viewport_height: u16,
-    _app: &mut TuiApp,
-) -> Result<()> {
-    let size = terminal.size()?;
-    let area = viewport_area(size.width, size.height, viewport_height);
-    if area != terminal.viewport_area {
-        terminal.clear_visible_screen()?;
-        terminal.set_viewport_area(area);
-    }
-    Ok(())
-}
-
-pub(super) fn teardown_terminal(
-    mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-) -> Result<()> {
-    execute!(
-        terminal.backend_mut(),
-        DisableBracketedPaste,
-        DisableMouseCapture
-    )?;
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), Show)?;
-    terminal.show_cursor()?;
-    Ok(())
-}
-
-fn viewport_area(width: u16, height: u16, viewport_height: u16) -> Rect {
-    let viewport_height = viewport_height.max(1).min(height.max(1));
-    Rect::new(
-        0,
-        height.saturating_sub(viewport_height),
-        width,
-        viewport_height,
-    )
 }
 
 pub(crate) fn is_ssh_session() -> bool {

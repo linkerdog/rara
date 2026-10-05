@@ -1,6 +1,7 @@
 mod bedrock;
 mod cache_policy;
 mod codex_tools_compat;
+pub(crate) mod deepseek_anthropic;
 pub(crate) mod deepseek_dsml;
 mod gemini;
 mod gemini_schema;
@@ -30,6 +31,8 @@ mod types;
 
 pub use self::bedrock::BedrockBackend;
 pub use self::cache_policy::AnthropicCacheTtl;
+pub(crate) use self::deepseek_anthropic::DeepseekAnthropicConfig;
+pub(crate) use self::deepseek_anthropic::wrap_if_eligible as wrap_deepseek_anthropic_if_eligible;
 pub use self::gemini::GeminiBackend;
 pub use self::ollama::OllamaBackend;
 #[cfg(test)]

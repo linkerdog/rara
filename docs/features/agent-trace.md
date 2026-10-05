@@ -60,6 +60,10 @@ The runtime converts existing structured observations into these event types:
 - `agent_step_updated` snapshots one agent-loop state transition, including
   stop/continuation state and tool-call count.
 
+Model completion is observed at the shared model-turn policy boundary, including
+failed requests. Native inference leases remain the owner of task accounting;
+tracing does not recreate an independent provider execution loop.
+
 ## Contracts
 
 - Tracing is disabled unless an explicit output directory is configured.
@@ -67,6 +71,9 @@ The runtime converts existing structured observations into these event types:
   has no explicit `cache_accounting_present` flag, so `cache: null` means no
   non-zero cache category was reported; a zero-hit receipt with non-zero misses
   remains explicit as `hit_tokens: 0`.
+- A failed model request records its failed outcome and duration without provider
+  error text, finish reason, or a token receipt. Both successful and failed
+  requests retain a corresponding terminal turn outcome.
 - Sequence values strictly increase within one trace directory.
 - A failed trace write returns an error to the runtime, which logs a warning and
   continues the agent operation unchanged.
@@ -82,6 +89,7 @@ The runtime converts existing structured observations into these event types:
 | File contract | Crate test creates a trace, reads manifest and JSONL, and checks ordered sequence values. |
 | Cache honesty | Crate test distinguishes absent accounting from a verified zero-hit receipt. |
 | Runtime integration | Agent test records model, context, and terminal turn events without prompt text. |
+| Failed request | Agent test verifies one failed model record and failed turn without prompt or provider-error text. |
 | Opt-in behavior | Runtime construction with no trace directory remains a no-op. |
 | Formatting | `cargo fmt --check` and `git diff --check`. |
 
@@ -101,3 +109,4 @@ protected local destination and apply their own retention policy.
 ## Source Journals
 
 - [2026-09-14-agent-trace](../journal/2026-09-14-agent-trace.md)
+- [2026-10-05-agent-trace-main-integration](../journal/2026-10-05-agent-trace-main-integration.md)

@@ -365,22 +365,27 @@ impl Agent {
             .map(|request| format!("Running approved shell command: {}", request.summary()))
             .unwrap_or_else(|_| "Running approved bash command.".to_string());
         report(AgentEvent::Status(status_detail));
-        match tool
-            .call_with_context_events(
-                input.clone(),
-                self.tool_call_context(&pending.tool_use_id),
-                &mut |progress| match progress {
-                    ToolProgressEvent::Output { stream, chunk } => {
-                        report(AgentEvent::ToolProgress {
-                            call_id: pending.tool_use_id.clone(),
-                            name: "bash".to_string(),
-                            stream,
-                            chunk,
-                        });
-                    }
-                },
-            )
-            .await
+        let call = ToolCall {
+            id: pending.tool_use_id.clone(),
+            name: "bash".to_string(),
+            input: input.clone(),
+        };
+        match rara_agent::execute_tool_call(
+            tool,
+            &call,
+            self.tool_call_context(&pending.tool_use_id),
+            &mut |progress| match progress.event {
+                ToolProgressEvent::Output { stream, chunk } => {
+                    report(AgentEvent::ToolProgress {
+                        call_id: progress.call_id,
+                        name: progress.name,
+                        stream,
+                        chunk,
+                    });
+                }
+            },
+        )
+        .await
         {
             Ok(result) => {
                 let result_text = self.tool_result_store.compact_result(
@@ -611,7 +616,7 @@ impl Agent {
         Ok(true)
     }
 
-    pub(super) fn current_plan_markdown(&self) -> String {
+    pub(crate) fn current_plan_markdown(&self) -> String {
         let mut lines = Vec::new();
         if let Some(explanation) = self.plan_explanation.as_ref() {
             let trimmed = explanation.trim();
@@ -645,58 +650,6 @@ impl Agent {
     pub(super) fn save_current_plan_file(&self) -> Result<()> {
         self.session_manager
             .save_plan_file(&self.session_id, &self.current_plan_markdown())
-    }
-
-    pub(super) fn should_continue_plan_without_tools(
-        &self,
-        plan_updated: bool,
-        continue_inspection: bool,
-        had_text_response: bool,
-        had_reasoning_response: bool,
-        agentic_turns: usize,
-    ) -> bool {
-        let shallow_initial_plan =
-            plan_updated && agentic_turns == 0 && self.current_plan.len() <= 1;
-        let reasoning_only_turn =
-            Self::is_reasoning_only_turn(had_text_response, had_reasoning_response);
-        let has_inspection_evidence = self.inspection_progress.has_any_evidence();
-        let still_missing_inspection_evidence = agentic_turns > 0
-            && !plan_updated
-            && has_inspection_evidence
-            && !self.inspection_progress.has_minimum_review_evidence();
-        matches!(self.execution_mode, AgentExecutionMode::Plan)
-            && (continue_inspection
-                || shallow_initial_plan
-                || still_missing_inspection_evidence
-                || reasoning_only_turn)
-            && self.pending_user_input.is_none()
-            && self.pending_approval.is_none()
-            && (continue_inspection
-                || has_inspection_evidence
-                || !self.current_plan.is_empty()
-                || had_text_response
-                || reasoning_only_turn)
-    }
-
-    pub(super) fn should_continue_execute_without_tools(
-        &self,
-        continue_inspection: bool,
-        had_text_response: bool,
-        had_reasoning_response: bool,
-    ) -> bool {
-        let reasoning_only_turn =
-            Self::is_reasoning_only_turn(had_text_response, had_reasoning_response);
-        matches!(self.execution_mode, AgentExecutionMode::Execute)
-            && (continue_inspection || reasoning_only_turn)
-            && self.pending_user_input.is_none()
-            && self.pending_approval.is_none()
-    }
-
-    pub(super) fn is_reasoning_only_turn(
-        had_text_response: bool,
-        had_reasoning_response: bool,
-    ) -> bool {
-        had_reasoning_response && !had_text_response
     }
 
     pub(super) fn ensure_active_plan_step(&mut self) {
@@ -894,16 +847,5 @@ pub(super) fn strip_continue_inspection_control(text: &str) -> (String, bool) {
 }
 
 pub(super) fn tool_result_message(tool_use_id: &str, content: String, is_error: bool) -> Message {
-    let mut block = json!({
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": content,
-    });
-    if is_error {
-        block["is_error"] = json!(true);
-    }
-    Message {
-        role: "user".to_string(),
-        content: json!([block]),
-    }
+    rara_agent::ToolReply { content, is_error }.into_message(tool_use_id)
 }

@@ -22,6 +22,11 @@ use crate::thread_cli;
 use crate::tui::StartupResumeTarget;
 use crate::wire_consumer::WireConsumer;
 
+mod permissions;
+use permissions::StartupPermissions;
+#[cfg(test)]
+mod permission_tests;
+
 #[derive(Parser)]
 #[command(name = "rara")]
 #[command(version, about = "RARA: RARA Automates Rust Agents", long_about = None)]
@@ -59,6 +64,10 @@ pub(crate) struct Cli {
     /// Write a content-free agent trace bundle under this directory.
     #[arg(long, env = "RARA_AGENT_TRACE_DIR", value_name = "DIR", global = true)]
     agent_trace_dir: Option<PathBuf>,
+
+    /// Skip local tool approval and classifier checks for this session; enable sandbox network.
+    #[arg(long, global = true)]
+    dangerously_skip_permissions: bool,
 }
 
 /// Register a model provider.
@@ -152,6 +161,22 @@ struct ExecArgs {
     prompt: Option<String>,
 }
 
+#[derive(Debug, clap::Args)]
+struct AppServerArgs {
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1), required = true)]
+    protocol_version: u32,
+    #[arg(long, value_parser = ["stdio-jsonl"], required = true)]
+    transport: String,
+    #[arg(long = "cwd", short = 'C', value_name = "DIR")]
+    cwd: Option<PathBuf>,
+    /// Disable ambient extension discovery; inline protocol skills remain available.
+    #[arg(long)]
+    no_extension_discovery: bool,
+    /// Disable runtime-owned memory facilities for externally managed sessions.
+    #[arg(long)]
+    no_memory_facilities: bool,
+}
+
 #[derive(Debug, clap::Subcommand)]
 enum ModelsCommands {
     /// List configured models
@@ -163,6 +188,8 @@ enum ModelsCommands {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Acp,
+    /// Serve the versioned runtime-control protocol over stdin/stdout.
+    AppServer(AppServerArgs),
     /// Register a model provider
     Connect(ConnectArgs),
     /// List, show, or select models
@@ -219,13 +246,35 @@ enum Commands {
 }
 
 pub(crate) async fn run_cli() -> Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    let startup_permissions = StartupPermissions::from_cli(&cli)?;
     let cli_plugin_dirs = cli.plugin_dirs.clone();
     let config_manager =
         ConfigManager::new().context("failed to initialize the RARA configuration root")?;
+    let working_directory = std::env::current_dir()?;
+    let config_directory = match &cli.command {
+        Some(Commands::Exec(args)) => args
+            .cwd
+            .as_ref()
+            .map(|path| working_directory.join(path))
+            .unwrap_or(working_directory),
+        _ => working_directory,
+    };
     let mut config = config_manager
-        .load()
+        .load_for_project_with_overrides(
+            &config_directory,
+            &crate::config::ProviderSelectionOverrides {
+                provider: cli.provider.clone(),
+                model: cli.model.clone(),
+                api_key: cli.api_key.clone().map(secrecy::SecretString::from),
+            },
+        )
         .context("failed to load the RARA configuration")?;
+    // Registry selection has already applied CLI provider/model overrides.
+    if config.selected_registry_model().is_some() {
+        cli.model = None;
+        cli.provider = None;
+    }
     let command = apply_cli_overrides(&mut config, cli);
     if matches!(command, Some(Commands::Mem(_))) {
         config_manager.save(&config)?;
@@ -241,12 +290,30 @@ pub(crate) async fn run_cli() -> Result<()> {
 
     match command.unwrap_or(Commands::Tui) {
         Commands::Acp => run_acp_command(&config, plugin_dirs).await?,
+        Commands::AppServer(args) => {
+            crate::app_server_stdio::run(crate::app_server_stdio::LaunchOptions {
+                config,
+                workspace: match args.cwd {
+                    Some(path) => path,
+                    None => std::env::current_dir()?,
+                },
+                plugin_dirs,
+                extension_discovery: !args.no_extension_discovery,
+                memory_facilities: !args.no_memory_facilities,
+                full_access: startup_permissions == StartupPermissions::FullAccess,
+            })
+            .await?;
+        }
         Commands::Connect(args) => run_connect_command(&config, args)?,
         Commands::Models(cmd) => run_models_command(&config, cmd)?,
         Commands::Plugin(cmd) => run_plugin_command(cmd)?,
         Commands::Mem(_) => unreachable!("mem configuration returns before runtime startup"),
-        Commands::Ask { prompt } => run_ask_command(&config, prompt, plugin_dirs).await?,
-        Commands::Exec(args) => run_exec_command(&config, args, plugin_dirs).await?,
+        Commands::Ask { prompt } => {
+            run_ask_command(&config, prompt, plugin_dirs, startup_permissions).await?
+        }
+        Commands::Exec(args) => {
+            run_exec_command(&config, args, plugin_dirs, startup_permissions).await?
+        }
         Commands::Fork { thread_id } => thread_cli::run_fork_command(&thread_id)?,
         Commands::Distill { thread_id } => run_distill_command(&config, &thread_id).await?,
         Commands::Thread { thread_id } => thread_cli::run_thread_command(&thread_id)?,
@@ -259,6 +326,7 @@ pub(crate) async fn run_cli() -> Result<()> {
                 startup_resume_target_for_command(&Commands::Resume { thread_id, last })
                     .expect("resume command should always map to a startup target"),
                 plugin_dirs,
+                startup_permissions,
             )
             .await?
         }
@@ -280,8 +348,12 @@ pub(crate) async fn run_cli() -> Result<()> {
             let oauth_manager = initialize_oauth_manager()?;
             run_logout_command(&mut config, &config_manager, &oauth_manager)?
         }
-        Commands::Print { prompt } => run_print_command(&config, prompt, plugin_dirs).await?,
-        Commands::Wire { prompt } => run_wire_command(&config, prompt, plugin_dirs).await?,
+        Commands::Print { prompt } => {
+            run_print_command(&config, prompt, plugin_dirs, startup_permissions).await?
+        }
+        Commands::Wire { prompt } => {
+            run_wire_command(&config, prompt, plugin_dirs, startup_permissions).await?
+        }
         Commands::Tui => {
             let oauth_manager = initialize_oauth_manager()?;
             run_tui_command(
@@ -290,6 +362,7 @@ pub(crate) async fn run_cli() -> Result<()> {
                 startup_resume_target_for_command(&Commands::Tui)
                     .expect("tui command should always map to a startup target"),
                 plugin_dirs,
+                startup_permissions,
             )
             .await?
         }
@@ -400,6 +473,7 @@ async fn run_ask_command(
     config: &RaraConfig,
     prompt: String,
     plugin_dirs: Vec<PathBuf>,
+    startup_permissions: StartupPermissions,
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
         config,
@@ -409,7 +483,9 @@ async fn run_ask_command(
     )
     .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let session = crate::runtime_session::RuntimeSession::from_bootstrap(bootstrap).await?;
+    let session = startup_permissions
+        .start_headless_session(bootstrap)
+        .await?;
     let query_result = session
         .query_with_events(prompt, crate::agent::AgentOutputMode::Terminal, |_| {})
         .await;
@@ -428,6 +504,7 @@ async fn run_print_command(
     config: &RaraConfig,
     prompt: String,
     plugin_dirs: Vec<PathBuf>,
+    startup_permissions: StartupPermissions,
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
         config,
@@ -437,7 +514,9 @@ async fn run_print_command(
     )
     .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let session = crate::runtime_session::RuntimeSession::from_bootstrap(bootstrap).await?;
+    let session = startup_permissions
+        .start_headless_session(bootstrap)
+        .await?;
     let consumer = PrintConsumer::new(session, prompt);
     consumer.run().await
 }
@@ -446,6 +525,7 @@ async fn run_exec_command(
     config: &RaraConfig,
     args: ExecArgs,
     plugin_dirs: Vec<PathBuf>,
+    startup_permissions: StartupPermissions,
 ) -> Result<()> {
     let startup_complete = install_exec_panic_hook(&args);
     if let Some(cwd) = args.cwd.as_deref() {
@@ -462,7 +542,9 @@ async fn run_exec_command(
     .await
     .context("failed to initialize the exec runtime")?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let session = crate::runtime_session::RuntimeSession::from_bootstrap(bootstrap).await?;
+    let session = startup_permissions
+        .start_headless_session(bootstrap)
+        .await?;
     if args.full_access {
         session.set_full_access_mode(true).await?;
     }
@@ -511,6 +593,7 @@ async fn run_wire_command(
     config: &RaraConfig,
     prompt: String,
     plugin_dirs: Vec<PathBuf>,
+    startup_permissions: StartupPermissions,
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
         config,
@@ -520,7 +603,9 @@ async fn run_wire_command(
     )
     .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
-    let session = crate::runtime_session::RuntimeSession::from_bootstrap(bootstrap).await?;
+    let session = startup_permissions
+        .start_headless_session(bootstrap)
+        .await?;
     let consumer = WireConsumer::new(session, prompt);
     consumer.run().await
 }
@@ -549,6 +634,7 @@ async fn run_tui_command(
     oauth_manager: OAuthManager,
     startup_resume: StartupResumeTarget,
     plugin_dirs: Vec<PathBuf>,
+    startup_permissions: StartupPermissions,
 ) -> Result<()> {
     let bootstrap = runtime_context::initialize_rara_context_for_workspace_with_options(
         config,
@@ -559,8 +645,16 @@ async fn run_tui_command(
     .await?;
     emit_bootstrap_warnings(&bootstrap.warnings);
     let runtime_client = crate::runtime_client::RuntimeClient::from_bootstrap(bootstrap).await;
-    let resumed_thread_id =
-        crate::tui::run_tui(runtime_client, oauth_manager, startup_resume).await?;
+    let resumed_thread_id = crate::tui::run_tui(
+        runtime_client,
+        oauth_manager,
+        crate::tui::TuiStartupOptions {
+            config: config.clone(),
+            resume: startup_resume,
+            permission_override: startup_permissions.tui_override(),
+        },
+    )
+    .await?;
     if let Some(thread_id) = resumed_thread_id {
         print!("{}", rendered_resume_hint(&thread_id));
     }
@@ -583,6 +677,7 @@ fn startup_resume_target_for_command(command: &Commands) -> Option<StartupResume
         } => Some(StartupResumeTarget::Picker),
         Commands::Tui => Some(StartupResumeTarget::Fresh),
         Commands::Acp
+        | Commands::AppServer(..)
         | Commands::Connect(..)
         | Commands::Models(..)
         | Commands::Plugin(..)

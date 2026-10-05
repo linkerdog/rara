@@ -2,6 +2,10 @@
 
 This directory stores stable, domain-oriented technical specifications.
 Chronological implementation records belong in `docs/journal/`.
+User interaction contracts live in [docs/interaction/](../interaction/README.md),
+including command discovery, keyboard routing, overlays, runtime feedback, and
+their validation requirements. Reference those specs rather than duplicating
+key tables or command inventories in feature docs.
 
 ## Required Structure
 
@@ -19,6 +23,7 @@ Each active feature spec should include:
 ## File Policy
 
 - `docs/features/`: stable theme/domain docs only
+- `docs/interaction/`: canonical user interaction contracts
 - `docs/journal/`: date-prefixed implementation records
 - When a feature evolves, update the canonical feature doc and add or append a journal note.
 
@@ -43,6 +48,12 @@ future appserver integrations can use.
 
 ## Runtime Extension Specs
 
+- `downstream-runtime.md`: lightweight host package, shared native/session owner,
+  public Git consumer fixture, dependency closure, and version policy.
+- `portable-agent-loop.md`: serializable shared loop decisions, asynchronous
+  execution, host effect boundaries, and external dependency validation.
+- `portable-tool-contracts.md`: provider-neutral tool trait, trusted invocation
+  context, compatibility exports, and standalone Git dependency verification.
 - `mcp-runtime.md`: source-aware MCP configuration, registry, status, refresh,
   reconnect, resource, and Tool Search contracts.
 - `support-acp-integration.md`: ACP client integration guidance boundary,
@@ -60,12 +71,17 @@ future appserver integrations can use.
   the opt-in official DeepSeek AB/BA measurement contract.
 - `agent-trace.md`: opt-in session-scoped JSONL diagnostics for model cache,
   memory selection, and agent-loop state transitions.
+- `provider-registry.md`: layered provider/model documents, compatible service
+  presets, credential isolation, and model selection identity.
+- `deepseek-anthropic-route.md`: `deepseek-flash` routed to DeepSeek's
+  Anthropic Messages-compatible endpoint, eligibility gating, and the
+  generalized chat/completions DSML streaming scrubber it backstops.
 - `local-embedding-runtimes.md`: local Python model server, macOS MLX/Qwen3
   backend, portable FastEmbed/ONNX backend, and server safety contract.
 - `workspace-memory-cache.md`: prompt-source and workspace-memory cache
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
-  and compact TUI contracts aligned with Codex 0.130.
+  and compact TUI contracts aligned with Codex 0.154.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
 - `multi-agent-orchestration.md`: session-tree ownership, shared child capacity,
@@ -74,10 +90,18 @@ future appserver integrations can use.
   Claude-compatible read tools for future subagent/team coordination.
 - `hooks-plugin-lifecycle.md`: hook/plugin lifecycle phases, MemoryQuery
   dispatch, and hook output context injection boundaries.
+- `tui-transcript.md`: typed presentation roles/events, stable persisted labels,
+  and internal transcript module boundaries.
 - `tui-theme-tokens.md`: configurable semantic TUI theme tokens, renderer
   integration, and embedded syntax theme selection.
+- `streaming-transcript.md`: coalesced frames and incremental markdown/visual-row
+  work boundaries, including the remaining implementation gates.
+- `display-text-boundary.md`: chunk-independent control removal, sanitized
+  paste/transcript ingestion, bounded tool display tails, and selection identity.
 - `wasm-core.md`: pure Rust browser/worker core boundary for deterministic
   patch preview and future protocol/reducer logic.
+- `browser-agent-effects.md`: browser-local shared model/tool/loop effects,
+  accounting clocks, native thread-safety compatibility, and browser execution tests.
 
 ## App Server Architecture
 
@@ -86,6 +110,8 @@ future appserver integrations can use.
 - `app-server-architecture.md`: agent output as typed objects over a lightweight
   event bus; TUI, ACP, Wire as peer consumers. Internal = objects, external =
   protocol.
+- `app-server-stdio.md`: versioned subprocess framing, capability negotiation,
+  request acknowledgement, replay lifetime, and shutdown contracts.
 - `embedded-runtime.md`: supported Rust library facade, workspace-scoped
   construction, typed events, and CLI-as-adapter boundary.
 

@@ -112,17 +112,16 @@ impl LlmBackend for OllamaBackend {
                 .get("done_reason")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            usage: Some(TokenUsage {
-                input_tokens: resp_json
+            usage: ollama_token_usage(
+                resp_json
                     .get("prompt_eval_count")
                     .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-                output_tokens: resp_json
+                    .map(|value| value as u32),
+                resp_json
                     .get("eval_count")
                     .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-                ..TokenUsage::default()
-            }),
+                    .map(|value| value as u32),
+            ),
         })
     }
 
@@ -190,8 +189,8 @@ impl LlmBackend for OllamaBackend {
         let mut streamed_text = String::new();
         let mut streamed_tool_calls = Vec::new();
         let mut stop_reason = None;
-        let mut input_tokens = 0u32;
-        let mut output_tokens = 0u32;
+        let mut input_tokens: Option<u32> = None;
+        let mut output_tokens: Option<u32> = None;
         let mut saw_done = false;
 
         while let Some(chunk) = stream.next().await {
@@ -251,11 +250,7 @@ impl LlmBackend for OllamaBackend {
         Ok(LlmResponse {
             content,
             stop_reason,
-            usage: Some(TokenUsage {
-                input_tokens,
-                output_tokens,
-                ..TokenUsage::default()
-            }),
+            usage: ollama_token_usage(input_tokens, output_tokens),
         })
     }
 
@@ -293,13 +288,33 @@ fn normalize_ollama_stream_line(line: &[u8]) -> Vec<u8> {
         .collect()
 }
 
+/// `None` unless Ollama's final response line actually reported
+/// `prompt_eval_count` — treating a response with no prompt count as
+/// `Some(TokenUsage { input_tokens: 0, .. })` would tell callers "this
+/// request cost zero prompt tokens" for a response that simply never said,
+/// not one that reliably measured zero. `Agent::record_actual_prompt_tokens`
+/// (`src/agent/compact/main.rs`) in particular re-anchors the compaction
+/// token estimate to `usage.input_tokens` on every response that reports
+/// usage at all; a synthetic zero there would reset a real, populated
+/// estimate and could suppress compaction as history keeps growing.
+pub(super) fn ollama_token_usage(
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+) -> Option<TokenUsage> {
+    input_tokens.map(|input_tokens| TokenUsage {
+        input_tokens,
+        output_tokens: output_tokens.unwrap_or(0),
+        ..TokenUsage::default()
+    })
+}
+
 pub(super) fn apply_ollama_stream_event(
     event: &Value,
     streamed_text: &mut String,
     streamed_tool_calls: &mut Vec<OllamaToolCall>,
     stop_reason: &mut Option<String>,
-    input_tokens: &mut u32,
-    output_tokens: &mut u32,
+    input_tokens: &mut Option<u32>,
+    output_tokens: &mut Option<u32>,
     on_event: &mut (dyn FnMut(LlmStreamEvent) + Send),
 ) -> Result<bool> {
     if let Some(delta) = event
@@ -329,8 +344,11 @@ pub(super) fn apply_ollama_stream_event(
         *input_tokens = event
             .get("prompt_eval_count")
             .and_then(Value::as_u64)
-            .unwrap_or(0) as u32;
-        *output_tokens = event.get("eval_count").and_then(Value::as_u64).unwrap_or(0) as u32;
+            .map(|value| value as u32);
+        *output_tokens = event
+            .get("eval_count")
+            .and_then(Value::as_u64)
+            .map(|value| value as u32);
         return Ok(true);
     }
 

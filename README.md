@@ -40,13 +40,16 @@ For `RARA_API_KEY`, set the environment variable or pass `--api-key`.
 
 ```bash
 # Start a TUI session with a specific provider
-rara --provider deepseek --model deepseek-chat tui
+rara --provider deepseek --model deepseek-flash tui
 
 # Ask a one-shot question
 rara ask "summarize this repo"
 
 # Resume your last session
 rara resume --last
+
+# Start this session with local permission checks bypassed
+rara --dangerously-skip-permissions
 ```
 
 ---
@@ -62,7 +65,13 @@ The terminal UI gives you a full development environment:
   child sessions at a glance.
 - **Slash commands** — `/model` to switch providers, `/status` for runtime
   state, `/context` for prompt diagnostics, `/help` for available commands.
-  All slash commands work during agent rebuild.
+  Inspection commands remain available during work; runtime mutations show a
+  disabled reason until the current task finishes.
+- **Permission controls** — `/permissions` shows the effective policy and pending
+  changes. `Full access (always allow)` skips local tool approval and classifier
+  checks and enables sandbox network access. Start directly in this mode with
+  `--dangerously-skip-permissions`; the flag does not change saved defaults or
+  disable OS/container isolation.
 - **Approval card** — when a shell command needs approval, use Up/Down plus
   Enter, or press `1`-`4`, directly on the transcript card.
 - **Follow-up queuing** — type ahead while the agent is busy; your messages
@@ -87,6 +96,28 @@ The terminal UI gives you a full development environment:
 Provider state includes API key, base URL, model name, reasoning effort,
 and context window size. OpenAI-compatible providers can be saved as named
 profiles for quick switching.
+
+Additional compatible services can be configured using OpenCode-style provider
+and model maps in `rara.json` or `rara.jsonc`. Presets include Groq, Together,
+xAI, Mistral, MiniMax, Z.ai, and Hyperbolic; custom API roots are also supported.
+
+```jsonc
+{
+  "provider": {
+    "groq": {
+      "models": {
+        "llama-3.3-70b-versatile": { "name": "Llama 3.3 70B" }
+      }
+    }
+  }
+}
+```
+
+Use `/connect` to save the provider key, then `/model` to select a model, or set
+`GROQ_API_KEY` and pass `--model groq/llama-3.3-70b-versatile`. Global provider
+documents live in `$RARA_HOME` (default `~/.rara`); project documents override
+global fields. See the [configuration contract](docs/features/provider-registry.md)
+for merge precedence, variable references, and the supported compatibility scope.
 
 ---
 
@@ -133,7 +164,7 @@ PTY/seatbelt interaction constraints.
 
 ## Where State Lives
 
-- `~/.config/rara/` — config, profiles, auth, access logs
+- `$RARA_HOME` (default `~/.rara/`) — configuration, profiles, and credentials
 - `~/.cache/rara/` — model downloads, runtime metadata
 - `~/.local/share/rara/` — workspace thread logs and session data
 - `<workspace>/.rara/` — per-project memory and lock files

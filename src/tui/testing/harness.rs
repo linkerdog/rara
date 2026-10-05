@@ -2,9 +2,10 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use crossterm::event::{Event, KeyEvent};
 use futures::StreamExt;
 use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
-use ratatui::buffer::Cell;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::{Position, Rect, Size};
 use tempfile::TempDir;
 
@@ -14,9 +15,12 @@ use crate::memory_lifecycle::{
     MemoryAppendRequest, MemoryLifecycleCoordinator, MemorySessionMessage, MemorySessionSink,
     MemorySessionSnapshot, MemorySyncReason,
 };
+use crate::oauth::OAuthManager;
 use crate::runtime_control::{RuntimeControlEvent, SessionControlRequest};
 use crate::runtime_event_bus::RuntimeEventBus;
-use crate::tui::custom_terminal::Terminal;
+use crate::tui::custom_terminal::{Frame, Terminal};
+use crate::tui::event_dispatch::dispatch_event_with_runtime;
+use crate::tui::event_stream::{UiEvent, translate_event};
 use crate::tui::render;
 use crate::tui::runtime::apply_tui_event;
 use crate::tui::runtime_port::{
@@ -33,6 +37,7 @@ const DEFAULT_HEIGHT: u16 = 30;
 pub(crate) struct TuiHarness {
     _config_dir: TempDir,
     app: TuiApp,
+    oauth_manager: Arc<OAuthManager>,
     runtime: FakeRuntimeClient,
     events: RuntimeEventStream,
     terminal: Terminal<TestBackendAdapter>,
@@ -68,7 +73,10 @@ impl TuiHarness {
         let mut app = TuiApp::new(ConfigManager {
             path: config_dir.path().join("config.json"),
         })?;
-        app.snapshot = snapshot.clone();
+        app.snapshot = snapshot.clone().into();
+        let oauth_manager = Arc::new(OAuthManager::new_for_config_dir(
+            config_dir.path().join("oauth"),
+        )?);
 
         let runtime = FakeRuntimeClient::new(snapshot);
         let events = runtime.subscribe();
@@ -85,6 +93,7 @@ impl TuiHarness {
         Ok(Self {
             _config_dir: config_dir,
             app,
+            oauth_manager,
             runtime,
             events,
             terminal,
@@ -93,6 +102,94 @@ impl TuiHarness {
             memory_events,
             last_runtime_event: None,
         })
+    }
+
+    pub(crate) fn app(&self) -> &TuiApp {
+        &self.app
+    }
+
+    pub(crate) fn app_mut(&mut self) -> &mut TuiApp {
+        &mut self.app
+    }
+
+    /// Exercise production key routing and dispatch, with runtime I/O captured
+    /// at the same port used by the live controller.
+    pub(crate) async fn press_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+        self.send_terminal_event(Event::Key(key)).await
+    }
+
+    pub(crate) async fn send_terminal_event(&mut self, event: Event) -> anyhow::Result<bool> {
+        let event = match translate_event(event, &mut self.app) {
+            Some(UiEvent::App(event)) => event,
+            Some(UiEvent::Paste(text)) => {
+                crate::tui::terminal_ui::handle_paste(text, &mut self.app);
+                return Ok(false);
+            }
+            Some(UiEvent::Draw | UiEvent::FocusChanged(_)) | None => return Ok(false),
+            #[cfg(unix)]
+            Some(UiEvent::Suspend) => return Ok(false),
+        };
+        dispatch_event_with_runtime(
+            event,
+            &mut self.app,
+            &mut None,
+            &self.oauth_manager,
+            &self.runtime,
+        )
+        .await
+    }
+
+    pub(crate) fn screen_text(&mut self, width: u16, height: u16) -> String {
+        self.screen_with_cursor(width, height).0
+    }
+
+    pub(crate) fn screen_with_cursor(
+        &mut self,
+        width: u16,
+        height: u16,
+    ) -> (String, Option<(u16, u16)>) {
+        let (buffer, cursor) = self.screen_buffer(width, height);
+        let text = (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, cursor)
+    }
+
+    pub(crate) fn screen_buffer(
+        &mut self,
+        width: u16,
+        height: u16,
+    ) -> (Buffer, Option<(u16, u16)>) {
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Buffer::empty(area);
+        let mut frame = Frame {
+            cursor_position: None,
+            viewport_area: area,
+            buffer: &mut buffer,
+        };
+        render::render(&mut frame, &mut self.app);
+        let cursor = frame
+            .cursor_position
+            .map(|position| (position.x, position.y));
+        (buffer, cursor)
+    }
+
+    pub(crate) async fn queue_restored_goal(
+        &mut self,
+        readiness: crate::tui::goal_resume::AgentReadiness,
+    ) {
+        crate::tui::goal_resume::queue_if_idle(&mut self.app, &self.runtime, readiness).await;
+    }
+
+    pub(crate) fn expect_no_commands(&self) {
+        assert!(self.runtime.commands().is_empty());
     }
 
     pub(crate) async fn sync_snapshot(&mut self, snapshot: RuntimeSnapshot) {
@@ -200,7 +297,7 @@ impl TuiHarness {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&self.app.active_turn))
+            .chain(std::iter::once(&*self.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .any(|entry| entry.message.contains(expected));
         assert!(found, "transcript does not contain {expected:?}");
@@ -209,7 +306,7 @@ impl TuiHarness {
     pub(crate) async fn pump_one(&mut self) {
         let event = self.events.next().await.expect("fake runtime event");
         match event {
-            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = *snapshot,
+            RuntimeProjectionEvent::Snapshot(snapshot) => self.app.snapshot = (*snapshot).into(),
             RuntimeProjectionEvent::Runtime(event) => {
                 if !accept_runtime_event(&mut self.last_runtime_event, &event) {
                     return;
@@ -222,6 +319,11 @@ impl TuiHarness {
             RuntimeProjectionEvent::Disconnected { reason } => {
                 self.app
                     .set_runtime_phase(RuntimePhase::Failed, Some(reason));
+            }
+            RuntimeProjectionEvent::ResyncRequired(gap) => {
+                // This rendering harness has no query receipt queue or owned
+                // agent. Recovery belongs in production-controller fixtures.
+                panic!("Use a TuiController recovery fixture for ResyncRequired: {gap:?}");
             }
             RuntimeProjectionEvent::Reconnected => {
                 self.app.set_runtime_phase(RuntimePhase::Idle, None);
@@ -351,7 +453,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting"))
             .count();
@@ -368,7 +470,7 @@ mod tests {
             .app
             .committed_turns
             .iter()
-            .chain(std::iter::once(&harness.app.active_turn))
+            .chain(std::iter::once(&*harness.app.active_turn))
             .flat_map(|turn| turn.entries.iter())
             .filter(|entry| entry.message.contains("Inspecting again"))
             .count();

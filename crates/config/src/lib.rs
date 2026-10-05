@@ -12,7 +12,21 @@ mod mcp;
 mod migration;
 mod model;
 mod multi_agent;
+mod provider_auth;
+mod provider_json;
+mod provider_loader;
+mod provider_presets;
+mod provider_registry;
+#[cfg(test)]
+mod provider_registry_tests;
 mod provider_surface;
+
+pub use provider_loader::ProviderSelectionOverrides;
+pub use provider_presets::{PROVIDER_PRESETS, ProviderPreset};
+pub use provider_registry::{
+    ModelLimits, ModelOptions, ProviderDefinition, ProviderDocument, ProviderModel,
+    ProviderOptions, ProviderRegistry, split_model_reference,
+};
 mod secrets;
 mod serde_helpers;
 

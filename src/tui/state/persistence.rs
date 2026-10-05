@@ -12,6 +12,7 @@ use super::{
     TuiApp, state_db_status_error,
 };
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
+use crate::tui::state::NoticeLevel;
 
 const RESUME_PICKER_THREAD_LIMIT: usize = 200;
 
@@ -66,7 +67,11 @@ impl TuiApp {
     }
 
     pub(crate) fn push_resume_search_char(&mut self, c: char) {
-        self.resume_search_query.push(c);
+        self.insert_resume_search_text(&c.to_string());
+    }
+
+    pub(crate) fn insert_resume_search_text(&mut self, text: &str) {
+        self.resume_search_query.push_str(text);
         self.resume_picker_idx = 0;
         self.refresh_recent_threads_for_resume_picker();
     }
@@ -85,6 +90,24 @@ impl TuiApp {
 
     pub fn attach_state_db(&mut self, state_db: Arc<StateDb>) {
         let status = state_db.path().display().to_string();
+        if !self.snapshot.session_id.is_empty() {
+            match self
+                .goal_handle
+                .restore_for_thread(&self.snapshot.session_id, state_db.clone())
+            {
+                Ok(goal) => self.goal = goal,
+                Err(error) => {
+                    log::warn!("Failed to bind thread goal persistence: {error:#}");
+                    self.goal_handle
+                        .disable_after_persistence_failure(format!("{error:#}"));
+                    self.goal = None;
+                    self.push_notice(
+                        NoticeLevel::Error,
+                        format!("Goal persistence unavailable: {error:#}"),
+                    );
+                }
+            }
+        }
         self.state_db = Some(state_db);
         self.refresh_recent_threads();
         self.state_db_status = Some(status);
@@ -310,7 +333,7 @@ impl TuiApp {
             .entries
             .iter()
             .map(|entry| PersistedTurnEntry {
-                role: entry.role.clone(),
+                role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
             .collect::<Vec<_>>();
@@ -342,7 +365,7 @@ impl TuiApp {
         let entries = entries
             .iter()
             .map(|entry| PersistedTurnEntry {
-                role: entry.role.clone(),
+                role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
             .collect::<Vec<_>>();

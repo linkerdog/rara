@@ -4,17 +4,19 @@ use super::{
     InteractionKind, PendingInteractionSnapshot, TuiApp,
 };
 use crate::agent::{AgentExecutionMode, BashApprovalMode};
+use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::TranscriptEntry;
 
-fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> &'static str {
+fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> MessageRole {
     match kind {
-        InteractionKind::Approval => "Shell Approval Completed",
-        InteractionKind::PlanApproval => "Plan Decision",
+        InteractionKind::Approval => MessageRole::ShellApprovalCompleted,
+        InteractionKind::PlanApproval => MessageRole::PlanDecision,
         InteractionKind::RequestInput => match source {
-            Some("plan_agent") => "Planning Question Answered",
-            Some("explore_agent") => "Exploration Question Answered",
-            Some(_) => "Sub-agent Question Answered",
-            None => "Question Answered",
+            Some("plan_agent") => MessageRole::PlanningQuestionAnswered,
+            Some("explore_agent") => MessageRole::ExplorationQuestionAnswered,
+            Some(_) => MessageRole::SubAgentQuestionAnswered,
+            None => MessageRole::QuestionAnswered,
         },
     }
 }
@@ -27,7 +29,7 @@ impl TuiApp {
         summary: &str,
         source: Option<&str>,
     ) {
-        let role = completed_interaction_role(kind, source).to_string();
+        let role = completed_interaction_role(kind, source);
         let message = format!("{title}: {summary}");
         let exists = self
             .active_turn
@@ -71,9 +73,9 @@ impl TuiApp {
 
     pub fn show_pending_plan_approval(&mut self, tool_use_id: Option<&str>) {
         self.clear_plan_approval_interaction();
-        self.snapshot
-            .pending_interactions
-            .push(self.plan_approval_interaction(tool_use_id));
+        let interaction = self.plan_approval_interaction(tool_use_id);
+        self.snapshot.pending_interactions.push(interaction);
+        self.approval_picker_idx = 0;
         self.persist_runtime_state();
     }
 
@@ -95,7 +97,7 @@ impl TuiApp {
     }
 
     pub fn permission_mode_label(&self) -> &'static str {
-        self.permission_mode.label()
+        self.effective_permission_mode().label()
     }
 
     pub fn bash_approval_mode_label(&self) -> &'static str {
@@ -276,7 +278,7 @@ impl TuiApp {
                 source: Some(source.into()),
                 created_at_epoch_seconds: Some(current_unix_timestamp_secs()),
             });
-        self.bottom_pane.notice = Some(title.clone());
+        self.push_notice(NoticeLevel::Info, title.clone());
         self.persist_runtime_state();
     }
 

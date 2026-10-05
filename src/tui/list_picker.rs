@@ -55,7 +55,9 @@ impl ListPickerKind {
     /// Number of selectable items.
     pub fn item_count(self, app: &TuiApp) -> usize {
         match self {
-            Self::Provider => super::state::PROVIDER_FAMILIES.len(),
+            Self::Provider => {
+                super::state::PROVIDER_FAMILIES.len() + app.registry_provider_ids().len()
+            }
             Self::Model => app.current_model_picker_len(),
             Self::OpenAiEndpointKind => super::state::openai_profile_setup_kinds().len(),
             Self::OpenAiProfile => app.selected_openai_profiles().len() + 1,
@@ -134,7 +136,7 @@ impl ListPickerKind {
 
     fn render_provider_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
         use super::state::PROVIDER_FAMILIES;
-        PROVIDER_FAMILIES
+        let mut items: Vec<_> = PROVIDER_FAMILIES
             .iter()
             .enumerate()
             .map(|(idx, (family, label, desc))| {
@@ -170,7 +172,25 @@ impl ListPickerKind {
                 ));
                 ListItem::new(vec![name_line, desc_line]).style(Self::selected_style(idx, selected))
             })
-            .collect()
+            .collect();
+        for (offset, id) in app.registry_provider_ids().iter().enumerate() {
+            let index = PROVIDER_FAMILIES.len() + offset;
+            let definition = &app.config.provider_registry.document.provider[id];
+            let label = definition.name.as_deref().unwrap_or(id);
+            let state = if app.config.provider_registry.available(id) {
+                "configured"
+            } else {
+                "API key required"
+            };
+            items.push(
+                ListItem::new(vec![
+                    Line::raw(format!("    {} ({id})", label)),
+                    Line::raw(format!("      {state}")),
+                ])
+                .style(Self::selected_style(index, selected)),
+            );
+        }
+        items
     }
 
     fn render_model_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
@@ -574,7 +594,7 @@ fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
     let query = if app.resume_search_query.is_empty() {
         "type to filter".to_string()
     } else {
-        app.resume_search_query.clone()
+        crate::tui::display_sanitize::sanitize_display_line(&app.resume_search_query)
     };
     let sort_status = if app.resume_sort_by_created {
         "sort=updated [created]"

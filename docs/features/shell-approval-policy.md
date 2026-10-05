@@ -13,6 +13,7 @@ approve unrelated segments joined with shell control operators.
 - Reusable command-prefix approvals persisted in RARA config.
 - Legacy shell command strings and structured `program` plus `args` calls.
 - Read-only command auto-allow classification.
+- Recovery of persisted session bash approval modes.
 
 ## Non-Goals
 
@@ -48,6 +49,21 @@ may still be stored as the exact command summary. Exact-command approvals are
 replayed only for the same normalized summary. They do not become starts-with
 prefix rules and do not cover additional shell segments.
 
+### Persisted Mode Recovery
+
+Session restoration accepts exactly `once`, `always`, and `suggestion`. Unknown
+values, including empty strings, do not grant session approval: restore
+`Suggestion`, record a warning in the transcript, and show the same warning in
+the status notice. Keep any other recovery warnings in that notice. Do not echo
+the invalid persisted value into diagnostics.
+
+The agent, TUI state, and next persisted runtime snapshot must agree on the
+recovered mode. A subsequent resume of that repaired record needs no new warning.
+Under normal permissions, an unapproved mutating bash request must still stop
+for approval after recovery. Existing read-only and prefix grants remain valid.
+An explicitly selected global Full Access profile retains its existing override
+semantics; recovering a bash setting does not select or revoke that profile.
+
 ## Control-Plane Readiness
 
 Shell approval remains a runtime policy decision, not a TUI-only shortcut. The
@@ -71,16 +87,40 @@ preserving one centralized approval boundary.
 
 ## TUI Surface
 
-The local TUI presents a pending shell approval as one transcript card. That
+The local TUI presents a pending shell approval as one bottom-pane card. That
 card is the canonical local approval surface:
 
-- the card renders the full command context and the four approval choices;
-- when the composer is empty, Up/Down or `j`/`k` move the selected approval
-  choice on the card;
-- `Enter` applies the selected choice directly from the card;
+- the card renders the full command context and four explicit scopes: allow
+  once, allow the matching prefix, allow for the current session, or reject;
+- Left/Right or `h`/`l` move the selected approval choice to match the
+  horizontal action row; Up/Down and `j`/`k` remain compatible alternatives
+  when the composer is empty;
+- `Enter` applies the selected choice directly from the card when the composer
+  is empty;
 - numeric shortcuts `1` through `4` remain valid direct-selection shortcuts;
+- `Esc` rejects the request;
 - the TUI must not open a second picker or modal for the same pending shell
   approval.
+- the dock uses the standard bottom-pane surface rather than a full-width alert
+  background; its heading and selected action use the semantic warning color,
+  matching the lightweight section headers and selection treatment elsewhere
+  in the TUI.
+
+The global `/permissions` profile chooser and an individual command approval
+are separate actions. Selecting `Full Access` changes the profile but does not
+silently answer an already-pending command. Likewise, selecting the
+session-scoped approval action changes only bash approval behavior; it does
+not implicitly enable global full-access mode or network access.
+
+The legacy `/approval` command follows the same boundary: it toggles only the
+session bash policy; the TUI derives the matching preset or reports `Custom`
+when no preset matches. It cannot promote the session to `Full Access`.
+A session already using `Full Access` must use
+`/permissions` to change that profile deliberately.
+
+The TUI [permission interaction contract](../interaction/permissions.md) defines
+effective/pending feedback and task-boundary application. Changing a preset
+does not answer or clear a pending plan or shell decision.
 
 ## Contracts
 
@@ -99,6 +139,9 @@ card is the canonical local approval surface:
   the normal shell approval flow.
 - The local TUI must keep shell approval on a single actionable transcript card
   instead of duplicating the same decision through an additional picker surface.
+- Every approval selection must retain its declared scope. A global profile
+  change cannot consume a pending command approval, and a session-scoped bash
+  grant cannot widen network or filesystem access.
 
 ## Validation Matrix
 
@@ -110,8 +153,13 @@ card is the canonical local approval surface:
   reusable prefix.
 - Agent-loop tests cover the real suggestion-mode regression where an approved
   `git push` prefix must not allow `git push && rm -rf target`.
-- TUI tests cover shell approval card navigation, direct `Enter` selection, and
-  render output without duplicated approval-choice summaries.
+- TUI tests cover shell approval card navigation, direct `Enter` selection,
+  `Esc` rejection, scope preservation, and render output without duplicated
+  approval-choice summaries.
+- Restore tests cover all three known values, unknown and malformed strings,
+  requested/latest thread entry points, durable repair, combined recovery
+  warnings, explicit Full Access preservation, and a real agent-loop request
+  that remains pending approval after recovery.
 
 ## Open Risks
 
@@ -126,3 +174,5 @@ card is the canonical local approval surface:
 
 - `docs/journal/2026-05-04-shell-approval-segments.md`
 - `docs/journal/2026-05-24-shell-approval-card-selection.md`
+- `docs/journal/2026-09-16-goal-resume-permission-tui.md`
+- `docs/journal/2026-10-05-session-approval-recovery.md`

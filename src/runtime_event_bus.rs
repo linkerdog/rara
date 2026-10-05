@@ -1,10 +1,7 @@
-use std::collections::VecDeque;
-use std::sync::Mutex;
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::Arc;
 
+pub(crate) use rara_runtime::ReplayGap as RuntimeReplayGap;
+use rara_runtime::{EventLog, SequencedEvent};
 use tokio::sync::broadcast;
 
 use crate::agent::AgentEvent;
@@ -12,156 +9,106 @@ use crate::runtime_control::{
     RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, wrap_agent_event,
 };
 
-/// Shared runtime event bus for raw agent events and structured protocol
-/// subscribers. Presentation consumers subscribe to the structured control
-/// stream and do not reconstruct semantics from transcript text.
-///
-/// Built on a `tokio::sync::broadcast` channel so subscribers receive every
-/// event without the bus needing to know about them ahead of time.  Slow
-/// subscribers will see `broadcast::error::Lagged` and should decide whether
-/// to catch up or reconnect.
+impl SequencedEvent for RuntimeControlEvent {
+    fn sequence(&self) -> u64 {
+        self.sequence
+    }
+}
+
+pub(crate) struct RuntimeEventCapacity {
+    pub(crate) broadcast: usize,
+    pub(crate) replay: usize,
+}
+
+/// Native event projection over the shared ordered session event log.
 #[derive(Clone, Debug)]
 pub struct RuntimeEventBus {
     raw_sender: broadcast::Sender<AgentEvent>,
+    control: Arc<EventLog<RuntimeControlEvent>>,
+    #[cfg(test)]
     control_sender: broadcast::Sender<RuntimeControlEvent>,
-    next_sequence: Arc<AtomicU64>,
-    publication: Arc<Mutex<()>>,
-    replay_capacity: usize,
-    replay: Arc<Mutex<VecDeque<RuntimeControlEvent>>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct RuntimeReplayGap {
-    pub(crate) requested: u64,
-    pub(crate) oldest_available: u64,
-    pub(crate) latest: u64,
 }
 
 impl RuntimeEventBus {
-    /// Create a new bus with a fixed ring-buffer capacity.  When the buffer
-    /// is full the oldest event is dropped for the slowest subscriber.
+    #[cfg(test)]
     pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
-        let (raw_sender, _) = broadcast::channel(capacity);
-        let (control_sender, _) = broadcast::channel(capacity);
+        Self::with_capacity(RuntimeEventCapacity {
+            broadcast: capacity,
+            replay: capacity,
+        })
+    }
+
+    pub(crate) fn with_capacity(capacity: RuntimeEventCapacity) -> Self {
+        let (raw_sender, _) = broadcast::channel(capacity.broadcast.max(1));
+        let (control_sender, _) = broadcast::channel(capacity.broadcast.max(1));
         Self {
             raw_sender,
+            control: Arc::new(EventLog::with_sender(
+                control_sender.clone(),
+                capacity.replay,
+            )),
+            #[cfg(test)]
             control_sender,
-            next_sequence: Arc::new(AtomicU64::new(0)),
-            publication: Arc::new(Mutex::new(())),
-            replay_capacity: capacity,
-            replay: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
         }
     }
 
-    /// Push an event with explicit provenance for protocol-ready subscribers.
     pub fn send_with_provenance(&self, event: AgentEvent, provenance: RuntimeProvenance) -> usize {
         self.send_with_turn(event, provenance, None)
     }
 
-    /// Push an event in the ordered session stream with optional turn identity.
     pub(crate) fn send_with_turn(
         &self,
         event: AgentEvent,
         provenance: RuntimeProvenance,
         turn_id: Option<&str>,
     ) -> usize {
-        let _publication = self.lock_publication();
-        let raw_receivers = self.raw_sender.receiver_count();
-        let control_receivers = self.control_sender.receiver_count();
-        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-        let event_id = format!("evt-{sequence:016x}");
-        let mut control_event = wrap_agent_event(event_id, sequence, provenance, event.clone());
-        control_event.turn_id = turn_id.map(str::to_string);
-        self.record_control_event(control_event.clone());
-        let raw_count = if raw_receivers > 0 {
-            self.raw_sender.send(event).unwrap_or(0)
-        } else {
-            0
-        };
-        let control_count = if control_receivers > 0 {
-            self.control_sender.send(control_event).unwrap_or(0)
-        } else {
-            0
-        };
+        let mut raw_count = 0;
+        let control_count = self.control.publish(
+            |sequence| {
+                let event_id = format!("evt-{sequence:016x}");
+                let mut control_event =
+                    wrap_agent_event(event_id, sequence, provenance, event.clone());
+                control_event.turn_id = turn_id.map(str::to_string);
+                raw_count = self.raw_sender.send(event).unwrap_or(0);
+                control_event
+            },
+            |_| {},
+        );
         raw_count + control_count
     }
 
-    /// Publish only to legacy raw-event consumers.
-    ///
-    /// The in-process control-plane dispatcher publishes its own structured
-    /// lifecycle events. This path keeps hooks and legacy consumers informed
-    /// without duplicating those lifecycle boundaries on the ordered control
-    /// stream.
+    /// Publish only to compatibility subscribers; canonical lifecycle events use the log.
     pub(crate) fn publish_raw(&self, event: AgentEvent) -> usize {
-        if self.raw_sender.receiver_count() == 0 {
-            return 0;
-        }
         self.raw_sender.send(event).unwrap_or(0)
     }
 
-    /// Create a new receiver that will see all future events.  Past events
-    /// are not replayed.
     pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
         self.raw_sender.subscribe()
     }
 
-    /// Create a structured receiver for ACP/Wire/appserver adapters.
-    ///
-    /// Past events are not replayed. Use the embedded sequence and event id to
-    /// preserve stream order and adapter acknowledgements.
     pub fn subscribe_control(&self) -> broadcast::Receiver<RuntimeControlEvent> {
-        self.control_sender.subscribe()
+        self.control.subscribe()
     }
 
-    /// Return the number of active subscribers.
     pub fn receiver_count(&self) -> usize {
-        self.raw_sender.receiver_count() + self.control_sender.receiver_count()
+        self.raw_sender.receiver_count() + self.control.receiver_count()
     }
 
-    /// Return the latest sequence assigned in this bus ordering domain.
     pub fn current_sequence(&self) -> u64 {
-        let _publication = self.lock_publication();
-        self.next_sequence.load(Ordering::SeqCst)
+        self.control.current_sequence()
     }
 
     pub(crate) fn replay_after(
         &self,
         sequence: u64,
     ) -> Result<Vec<RuntimeControlEvent>, RuntimeReplayGap> {
-        let _publication = self.lock_publication();
-        let latest = self.next_sequence.load(Ordering::SeqCst);
-        if sequence >= latest {
-            return Ok(Vec::new());
-        }
-        let replay = match self.replay.lock() {
-            Ok(replay) => replay,
-            Err(poisoned) => {
-                log::warn!("runtime event replay lock was poisoned; recovering");
-                poisoned.into_inner()
-            }
-        };
-        let oldest_available = replay
-            .front()
-            .map(|event| event.sequence)
-            .unwrap_or(latest + 1);
-        if sequence.saturating_add(1) < oldest_available {
-            return Err(RuntimeReplayGap {
-                requested: sequence,
-                oldest_available,
-                latest,
-            });
-        }
-        Ok(replay
-            .iter()
-            .filter(|event| event.sequence > sequence)
-            .cloned()
-            .collect())
+        self.control.replay_after(sequence)
     }
 
-    /// Publish a structured `RuntimeEvent` on the control bus without wrapping
-    /// an `AgentEvent`. Used for protocol-native events (MCP, hooks, etc.) that
-    /// originate from the runtime itself rather than from agent execution.
+    pub(crate) fn control_log(&self) -> Arc<EventLog<RuntimeControlEvent>> {
+        self.control.clone()
+    }
+
     pub fn publish_control(&self, event: RuntimeEvent) -> usize {
         self.publish_control_with_turn(event, RuntimeProvenance::runtime(None), None)
     }
@@ -172,78 +119,38 @@ impl RuntimeEventBus {
         provenance: RuntimeProvenance,
         turn_id: Option<&str>,
     ) -> usize {
-        let _publication = self.lock_publication();
-        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-        let event_id = format!("ctl-{sequence:016x}");
-        let control_event = RuntimeControlEvent {
-            event_id,
-            provenance,
-            turn_id: turn_id.map(str::to_string),
-            sequence,
-            event,
-        };
-        self.record_control_event(control_event.clone());
-        if self.control_sender.receiver_count() > 0 {
-            self.control_sender.send(control_event).unwrap_or(0)
-        } else {
-            0
-        }
+        self.control.publish(
+            |sequence| RuntimeControlEvent {
+                event_id: format!("ctl-{sequence:016x}"),
+                provenance,
+                turn_id: turn_id.map(str::to_string),
+                sequence,
+                event,
+            },
+            |_| {},
+        )
     }
 
-    /// Publish an adapter-produced event without changing its provenance or
-    /// sequence. Protocol adapters use this after `control_plane::dispatch`
-    /// has already wrapped an agent event for the originating session.
     #[cfg(test)]
     pub fn publish_control_event(&self, event: RuntimeControlEvent) -> usize {
-        if self.control_sender.receiver_count() == 0 {
-            return 0;
-        }
         self.control_sender.send(event).unwrap_or(0)
     }
 
-    /// Publish an in-process control event using the bus-owned ordering domain.
-    ///
-    /// Control-plane dispatch assigns request-local sequence numbers. Local
-    /// runtime consumers need one monotonically increasing stream across
-    /// requests.
+    /// Retain a control-plane receipt before broadcasting in the session ordering domain.
+    /// The callback must not re-enter this bus.
     pub(crate) fn publish_resequenced_control_event(
         &self,
         mut event: RuntimeControlEvent,
+        retain_receipt: impl FnOnce(RuntimeControlEvent),
     ) -> usize {
-        let _publication = self.lock_publication();
-        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst) + 1;
-        event.event_id = format!("ctl-{sequence:016x}");
-        event.sequence = sequence;
-        self.record_control_event(event.clone());
-        if self.control_sender.receiver_count() > 0 {
-            self.control_sender.send(event).unwrap_or(0)
-        } else {
-            0
-        }
-    }
-
-    fn record_control_event(&self, event: RuntimeControlEvent) {
-        let mut replay = match self.replay.lock() {
-            Ok(replay) => replay,
-            Err(poisoned) => {
-                log::warn!("runtime event replay lock was poisoned; recovering");
-                poisoned.into_inner()
-            }
-        };
-        replay.push_back(event);
-        while replay.len() > self.replay_capacity {
-            replay.pop_front();
-        }
-    }
-
-    fn lock_publication(&self) -> std::sync::MutexGuard<'_, ()> {
-        match self.publication.lock() {
-            Ok(publication) => publication,
-            Err(poisoned) => {
-                log::warn!("runtime event publication lock was poisoned; recovering");
-                poisoned.into_inner()
-            }
-        }
+        self.control.publish(
+            |sequence| {
+                event.event_id = format!("ctl-{sequence:016x}");
+                event.sequence = sequence;
+                event
+            },
+            |event| retain_receipt(event.clone()),
+        )
     }
 }
 
@@ -423,7 +330,10 @@ mod tests {
                 sequence: 1,
                 event,
             };
-            assert_eq!(bus.publish_resequenced_control_event(local_event), 1);
+            assert_eq!(
+                bus.publish_resequenced_control_event(local_event, |_| {}),
+                1
+            );
         }
 
         let started = control.try_recv().expect("turn started");
@@ -433,6 +343,29 @@ mod tests {
         assert_eq!(finished.event_id, "ctl-0000000000000002");
         assert_eq!(started.provenance, provenance);
         assert_eq!(finished.provenance, provenance);
+    }
+
+    #[test]
+    fn query_receipt_is_retained_before_its_broadcast_is_visible() {
+        let bus = RuntimeEventBus::new(8);
+        let mut control = bus.subscribe_control();
+        let mut retained = None;
+        bus.publish_resequenced_control_event(
+            wrap_agent_event(
+                "dispatch",
+                99,
+                RuntimeProvenance::local_tui("session"),
+                AgentEvent::AgentStart,
+            ),
+            |receipt| {
+                assert!(matches!(
+                    control.try_recv(),
+                    Err(broadcast::error::TryRecvError::Empty)
+                ));
+                retained = Some(receipt);
+            },
+        );
+        assert_eq!(control.try_recv().unwrap(), retained.unwrap());
     }
 
     #[test]

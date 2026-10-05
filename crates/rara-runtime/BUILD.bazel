@@ -1,0 +1,46 @@
+load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "rara_runtime",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "rara_runtime",
+    edition = "2024",
+    deps = all_crate_deps(normal = True) + [
+        "//crates/rara-agent:rara_agent",
+        "//crates/rara-core:rara_core",
+        "//crates/rara-observability:rara_observability",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "rara_runtime_tests",
+    crate = ":rara_runtime",
+    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    edition = "2024",
+    deps = all_crate_deps(normal_dev = True) + [
+        "//crates/rara-agent:rara_agent",
+        "//crates/rara-core:rara_core",
+        "//crates/rara-observability:rara_observability",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+)
+
+rust_test(
+    name = "host_tests",
+    srcs = ["tests/host.rs"],
+    crate_name = "host_tests",
+    aliases = aliases(
+        normal = True,
+        normal_dev = True,
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    edition = "2024",
+    deps = all_crate_deps(normal = True, normal_dev = True) + [":rara_runtime"],
+    proc_macro_deps = all_crate_deps(proc_macro = True, proc_macro_dev = True),
+)

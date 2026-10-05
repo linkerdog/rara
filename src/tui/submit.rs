@@ -4,10 +4,9 @@ use super::command::parse_local_command;
 use super::input_control;
 use super::runtime::execute_local_command;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
-use super::state::{
-    ActivePendingInteractionKind, LocalCommandKind, OpenAiModelPickerAction, TuiApp,
-};
+use super::state::{ActivePendingInteractionKind, OpenAiModelPickerAction, TuiApp};
 use crate::agent::Agent;
+use crate::tui::state::NoticeLevel;
 
 mod pending;
 
@@ -34,7 +33,11 @@ async fn handle_submit_inner(
     oauth_manager: &Arc<crate::oauth::OAuthManager>,
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
-    if app.bottom_pane.input.is_empty() {
+    app.flush_composer_paste();
+    app.bottom_pane.expand_large_paste();
+    let input = std::mem::take(&mut app.bottom_pane.input);
+    app.clear_composer();
+    if input.is_empty() {
         if let Some(interaction) = app.active_pending_interaction()
             && matches!(
                 interaction.kind,
@@ -42,49 +45,30 @@ async fn handle_submit_inner(
             )
         {
             app.push_notice(
-                "Approval pending. Use Up/Down and Enter, or press 1-4 to choose an option.",
+                NoticeLevel::Info,
+                "Approval pending. Use Left/Right and Enter, or press 1-4 to choose an option.",
             );
             return Ok(false);
         }
         // Lightweight feedback so the user knows Enter was received.
         // Don't overwrite existing notices (e.g., status-info after a command).
-        if app.bottom_pane.notice.is_none() {
-            app.bottom_pane.notice = Some("Ready.".into());
+        if app.notice_text().is_none() {
+            app.push_notice(NoticeLevel::Info, "Ready.");
         }
         return Ok(false);
     }
-    let input = std::mem::take(&mut app.bottom_pane.input);
-    app.bottom_pane.input_cursor_offset = None;
     let trimmed = input.trim().to_string();
     if trimmed.is_empty() {
         // Whitespace-only input: same lightweight feedback.
-        if app.bottom_pane.notice.is_none() {
-            app.bottom_pane.notice = Some("Ready.".into());
+        if app.notice_text().is_none() {
+            app.push_notice(NoticeLevel::Info, "Ready.");
         }
-        app.bottom_pane.input.clear();
         return Ok(false);
     }
     app.record_input_history(&trimmed);
 
-    if app.is_busy() {
-        if trimmed.starts_with('/') {
-            if let Some(command) = parse_local_command(&trimmed)
-                && matches!(command.kind, LocalCommandKind::Quit)
-            {
-                save_before_quit(app);
-                return execute_local_command_with_port(
-                    command,
-                    app,
-                    agent_slot,
-                    oauth_manager,
-                    runtime_port,
-                )
-                .await;
-            }
-            app.push_notice(
-                "A task is already running. Wait for it to finish before running a slash command.",
-            );
-        } else if let Some(runtime_port) = runtime_port {
+    if app.is_busy() && !trimmed.starts_with('/') {
+        if let Some(runtime_port) = runtime_port {
             runtime_port
                 .send(RuntimeCommand::Input(
                     crate::runtime_control::InputControlRequest::SubmitUserPrompt {
@@ -114,7 +98,10 @@ async fn handle_submit_inner(
             return Ok(true);
         }
     } else if trimmed.starts_with('/') {
-        app.push_notice(format!("Unknown command '{}'. Use /help.", trimmed));
+        app.push_notice(
+            NoticeLevel::Warning,
+            format!("Unknown command '{}'. Use /help.", trimmed),
+        );
     } else if pending::handle_pending_option_submit(app, agent_slot, &trimmed, runtime_port).await?
     {
         return Ok(false);
@@ -173,7 +160,10 @@ pub(crate) async fn apply_openai_model_picker_action(
             if let Some(label) = app.select_openai_model_picker_profile() {
                 app.config_manager.save(&app.config)?;
                 if app.openai_profile_needs_setup() {
-                    app.bottom_pane.notice = Some(format!("Selected endpoint profile: {label}"));
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        format!("Selected endpoint profile: {label}"),
+                    );
                     app.begin_active_openai_profile_setup();
                 } else {
                     if let Some(runtime_port) = runtime_port {
@@ -195,10 +185,16 @@ pub(crate) async fn apply_openai_model_picker_action(
             if let Some(label) = app.delete_active_openai_profile() {
                 app.config_manager.save(&app.config)?;
                 if app.openai_profile_needs_setup() {
-                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        format!("Deleted endpoint profile: {label}"),
+                    );
                     app.begin_active_openai_profile_setup();
                 } else {
-                    app.bottom_pane.notice = Some(format!("Deleted endpoint profile: {label}"));
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        format!("Deleted endpoint profile: {label}"),
+                    );
                     if let Some(runtime_port) = runtime_port {
                         runtime_port
                             .send(RuntimeCommand::Maintenance(
@@ -213,7 +209,10 @@ pub(crate) async fn apply_openai_model_picker_action(
                     }
                 }
             } else {
-                app.push_notice("Cannot delete the only endpoint profile.");
+                app.push_notice(
+                    NoticeLevel::Warning,
+                    "Cannot delete the only endpoint profile.",
+                );
             }
         }
     }
@@ -221,7 +220,7 @@ pub(crate) async fn apply_openai_model_picker_action(
 }
 
 fn handle_pending_plan_approval_submit(app: &mut TuiApp) {
-    app.push_notice(
+    app.push_notice(NoticeLevel::Info,
         "A plan is waiting for review. Use 1 approve, 2 keep planning <feedback>, or 3 reject <feedback>.",
     );
 }

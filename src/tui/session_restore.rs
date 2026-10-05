@@ -3,22 +3,61 @@ use std::sync::Arc;
 use anyhow::Result;
 use rara_state::state_db::StateDb;
 
-use super::state::{GoalStatus, RalphGoal, TranscriptEntry, TranscriptTurn, TuiApp};
+use super::state::{TranscriptEntry, TranscriptTurn, TuiApp};
 use crate::agent::{
     Agent, AgentExecutionMode, BashApprovalMode, CompactBoundaryMetadata, CompletedInteraction,
     PendingApproval, PendingUserInput, PlanStep, PlanStepStatus, latest_compact_boundary_metadata,
 };
 use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
 use crate::tools::bash::BashCommandInput;
+use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
+
+#[cfg(test)]
+mod recovery_tests;
+
+#[cfg(test)]
+mod approval_tests;
+
+pub(super) fn apply_startup_resume(
+    target: &super::event_loop::StartupResumeTarget,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+) {
+    use super::event_loop::StartupResumeTarget;
+    let result = match target {
+        StartupResumeTarget::Fresh => return,
+        StartupResumeTarget::Picker => {
+            app.open_overlay(super::state::Overlay::ListPicker(
+                super::state::ListPickerKind::Resume,
+            ));
+            return;
+        }
+        StartupResumeTarget::Latest => match app.state_db.as_ref().cloned() {
+            Some(state_db) => restore_latest_thread(&state_db, app, agent_slot),
+            None => Err(anyhow::anyhow!("session storage is unavailable")),
+        },
+        StartupResumeTarget::ThreadId(thread_id) => {
+            restore_thread_by_id(thread_id, app, agent_slot)
+        }
+    };
+    if let Err(error) = result {
+        log::warn!("Startup resume failed: {error:#}");
+        app.push_notice(
+            NoticeLevel::Error,
+            format!("Could not resume thread; continuing with the current session: {error:#}"),
+        );
+    }
+}
 
 pub(super) fn restore_latest_thread(
     state_db: &Arc<StateDb>,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
     let store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let Some(thread) = store.latest_thread_summary()? else {
         return Ok(());
@@ -31,14 +70,35 @@ pub(super) fn restore_thread_by_id(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_mut() else {
-        return Ok(());
-    };
-    let Some(state_db) = app.state_db.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
+    let state_db = app
+        .state_db
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("session storage is unavailable"))?;
     let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let thread = thread_store.load_thread(thread_id)?;
+    let todo_state = agent.session_manager.load_todo_state(thread_id)?;
+    let runtime_state = state_db.load_session_runtime_state(thread_id)?;
+    // Required thread reads succeed before rebinding optional goal state.
+    let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let mut resume_level = NoticeLevel::Info;
+    let restored_goal = match app
+        .goal_handle
+        .restore_for_thread(thread_id, state_db.clone())
+    {
+        Ok(goal) => goal,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            log::warn!("Goal persistence unavailable for resumed thread {thread_id}: {reason}");
+            app.goal_handle
+                .disable_after_persistence_failure(reason.clone());
+            resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            resume_level = NoticeLevel::Warning;
+            None
+        }
+    };
     let crate::thread_store::ThreadSnapshot {
         metadata,
         provenance: _,
@@ -51,11 +111,20 @@ pub(super) fn restore_thread_by_id(
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
-    agent.todo_state = agent.session_manager.load_todo_state(thread_id)?;
-    if let Some(runtime_state) = state_db.load_session_runtime_state(thread_id)? {
-        agent.set_bash_approval_mode(parse_bash_approval_mode(
-            runtime_state.bash_approval.as_str(),
-        ));
+    agent.todo_state = todo_state;
+    if let Some(runtime_state) = runtime_state {
+        let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
+            Some(mode) => mode,
+            None => {
+                let warning = "Unknown saved bash approval mode; restored suggestion mode.";
+                log::warn!("{warning}");
+                resume_notice.push(' ');
+                resume_notice.push_str(warning);
+                resume_level = NoticeLevel::Warning;
+                BashApprovalMode::Suggestion
+            }
+        };
+        agent.set_bash_approval_mode(approval_mode);
         let mut prompt_config = agent.prompt_config().clone();
         prompt_config.append_system_prompt = runtime_state.prompt_runtime.append_system_prompt;
         prompt_config.warnings = runtime_state.prompt_runtime.warnings;
@@ -184,7 +253,12 @@ pub(super) fn restore_thread_by_id(
                 let entries = turn
                     .entries
                     .into_iter()
-                    .map(|entry| TranscriptEntry::new(entry.role, entry.message))
+                    .map(|entry| {
+                        TranscriptEntry::new(
+                            MessageRole::from_persisted(&entry.role),
+                            entry.message,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 turns.push(TranscriptTurn {
                     thinking_duration: None,
@@ -205,12 +279,22 @@ pub(super) fn restore_thread_by_id(
     } else {
         app.reset_transcript();
     }
-    let live_entries =
-        rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
-    if !live_entries.is_empty() {
-        app.active_turn.entries = live_entries
+    let live_log = rara_persistence::thread_turn_log::load_live_entries_with_recovery(
+        &rollout_root,
+        thread_id,
+    );
+    if let Some(warning) = live_log.warning() {
+        resume_notice.push(' ');
+        resume_notice.push_str(&warning);
+        resume_level = NoticeLevel::Warning;
+    }
+    if !live_log.entries.is_empty() {
+        app.active_turn.entries = live_log
+            .entries
             .into_iter()
-            .map(|entry| TranscriptEntry::new(entry.role, entry.message))
+            .map(|entry| {
+                TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message)
+            })
             .collect();
     }
     app.apply_runtime_snapshot(
@@ -240,32 +324,10 @@ pub(super) fn restore_thread_by_id(
         );
     }
 
-    // Restore any persisted goal so it survives across sessions.
-    if let Some(db) = app.state_db.as_ref()
-        && let Some(goal_json) = db.load_goal(thread_id)
-    {
-        let objective = goal_json["objective"].as_str().unwrap_or("");
-        let budget: Option<u32> = goal_json["token_budget"].as_u64().map(|v| v as u32);
-        if !objective.is_empty() {
-            let mut goal = RalphGoal::new(objective.to_string(), budget);
-            if let Some(condition) = goal_json["condition"].as_str() {
-                goal.condition = Some(condition.to_string());
-            }
-            goal.tokens_used = goal_json["tokens_used"].as_u64().unwrap_or(0) as u32;
-            goal.turns_completed = goal_json["turns_completed"].as_u64().unwrap_or(0) as u32;
-            if let Some(status) = goal_json["status"].as_str() {
-                goal.status = match status {
-                    "Complete" => GoalStatus::Complete,
-                    "Paused" => GoalStatus::Paused,
-                    _ => GoalStatus::Pursuing,
-                };
-            }
-            *app.goal_handle.write().unwrap() = Some(goal.clone());
-            app.goal = Some(goal);
-        }
-    }
+    app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(format!("Resumed thread {thread_id}."));
+    app.push_notice(resume_level, resume_notice);
+    super::goal_resume::arm_after_restore(app);
     Ok(())
 }
 
@@ -284,11 +346,12 @@ fn apply_compaction_record(agent: &mut Agent, compaction: &CompactionRecord) {
     agent.compact_state.last_compaction_after_tokens = compaction.after_tokens;
 }
 
-fn parse_bash_approval_mode(mode: &str) -> BashApprovalMode {
+fn parse_bash_approval_mode(mode: &str) -> Option<BashApprovalMode> {
     match mode {
-        "once" => BashApprovalMode::Once,
-        "suggestion" => BashApprovalMode::Suggestion,
-        _ => BashApprovalMode::Always,
+        "once" => Some(BashApprovalMode::Once),
+        "always" => Some(BashApprovalMode::Always),
+        "suggestion" => Some(BashApprovalMode::Suggestion),
+        _ => None,
     }
 }
 
@@ -300,693 +363,8 @@ pub(crate) fn provider_requires_api_key(provider: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
+#[path = "session_restore_goal_tests.rs"]
+mod goal_tests;
 
-    use rara_memory::memory_handle::MemoryHandle;
-    use rara_state::state_db::{PersistedTurnEntry, StateDb};
-    use rara_tools::tool::ToolManager;
-    use serde_json::json;
-    use tempfile::tempdir;
-
-    use super::*;
-    use crate::agent::{AgentExecutionMode, Message};
-    use crate::config::ConfigManager;
-    use crate::llm::MockLlm;
-    use crate::prompt::PromptRuntimeConfig;
-    use crate::todo::{TodoItem, TodoState, TodoStatus};
-    use crate::tui::state::{ActivePendingInteractionKind, InteractionKind, TuiApp};
-    use crate::workspace::WorkspaceMemory;
-
-    #[test]
-    fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-        fs::write(root.join("AGENTS.md"), "repo rules").expect("agents");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-restore-1".to_string();
-        original_agent.execution_mode = AgentExecutionMode::Plan;
-        original_agent.set_prompt_config(PromptRuntimeConfig {
-            append_system_prompt: Some("appendix".to_string()),
-            warnings: vec!["missing custom prompt file".to_string()],
-            ..PromptRuntimeConfig::default()
-        });
-        original_agent.current_plan = vec![PlanStep {
-            step: "Align runtime restore with shared context".to_string(),
-            status: PlanStepStatus::Pending,
-        }];
-        original_agent.plan_explanation =
-            Some("Restore should rebuild the same context surface.".to_string());
-        original_agent.todo_state = Some(TodoState {
-            version: 1,
-            updated_at: 42,
-            items: vec![TodoItem {
-                id: "todo-1".to_string(),
-                content: "Restore todo state".to_string(),
-                active_form: None,
-                status: TodoStatus::InProgress,
-                updated_at: 42,
-            }],
-        });
-        session_manager
-            .save_todo_state(
-                &original_agent.session_id,
-                original_agent.todo_state.as_ref().expect("todo state"),
-            )
-            .expect("save todo state");
-        original_agent.compact_state.compaction_count = 1;
-        original_agent.compact_state.last_compaction_before_tokens = Some(2400);
-        original_agent.compact_state.last_compaction_after_tokens = Some(900);
-        original_agent.compact_state.last_compaction_boundary = Some(CompactBoundaryMetadata {
-            version: 2,
-            before_tokens: 2400,
-            recent_file_count: 3,
-        });
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"resume me"}]),
-        });
-        session_manager
-            .save_session(&original_agent.session_id, &original_agent.history)
-            .expect("save session");
-
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-
-        original_agent.execution_mode = AgentExecutionMode::Execute;
-        let expected_runtime = original_agent.shared_runtime_context();
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-
-        restore_thread_by_id(
-            expected_runtime.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        let restored_agent = restored_slot.expect("restored agent");
-        let restored_runtime = restored_agent.shared_runtime_context();
-
-        assert_eq!(restored_agent.execution_mode, AgentExecutionMode::Execute);
-        assert_eq!(restored_runtime.cwd, expected_runtime.cwd);
-        assert_eq!(restored_runtime.branch, expected_runtime.branch);
-        assert_eq!(restored_runtime.session_id, expected_runtime.session_id);
-        assert_eq!(restored_runtime.history_len, expected_runtime.history_len);
-        assert_eq!(
-            restored_runtime.prompt.base_prompt_kind,
-            expected_runtime.prompt.base_prompt_kind
-        );
-        assert_eq!(
-            restored_runtime.prompt.section_keys,
-            expected_runtime.prompt.section_keys
-        );
-        assert_eq!(
-            restored_runtime.prompt.source_entries,
-            expected_runtime.prompt.source_entries
-        );
-        assert_eq!(
-            restored_runtime.prompt.append_system_prompt,
-            expected_runtime.prompt.append_system_prompt
-        );
-        assert_eq!(
-            restored_runtime.prompt.warnings,
-            expected_runtime.prompt.warnings
-        );
-        assert_eq!(restored_runtime.plan.steps, expected_runtime.plan.steps);
-        assert_eq!(
-            restored_runtime.plan.explanation,
-            expected_runtime.plan.explanation
-        );
-        assert_eq!(restored_runtime.todo, expected_runtime.todo);
-        assert_eq!(
-            restored_runtime.assembly.entries,
-            expected_runtime.assembly.entries
-        );
-        assert_eq!(
-            restored_runtime.compaction.last_compaction_boundary_version,
-            expected_runtime.compaction.last_compaction_boundary_version
-        );
-
-        assert_eq!(
-            restored_app.snapshot.prompt_source_entries,
-            restored_runtime.prompt.source_entries
-        );
-        assert_eq!(
-            restored_app.snapshot.prompt_append_system_prompt,
-            restored_runtime.prompt.append_system_prompt
-        );
-        assert_eq!(
-            restored_app.snapshot.plan_steps,
-            restored_runtime.plan.steps
-        );
-        assert_eq!(
-            restored_app.snapshot.plan_explanation,
-            restored_runtime.plan.explanation
-        );
-        assert_eq!(
-            restored_app.snapshot.assembly_entries,
-            restored_runtime.assembly.entries
-        );
-        assert_eq!(
-            restored_app.snapshot.last_compaction_boundary_version,
-            restored_runtime.compaction.last_compaction_boundary_version
-        );
-    }
-
-    #[test]
-    fn restore_session_keeps_target_session_id_even_without_history_file() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-        fs::write(root.join("AGENTS.md"), "repo rules").expect("agents");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-without-history".to_string();
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"restore this exact session"}]),
-        });
-
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-
-        let rollout_dir = rara_dir
-            .join("rollouts")
-            .join(original_agent.session_id.as_str());
-        if rollout_dir.exists() {
-            fs::remove_dir_all(&rollout_dir).expect("remove rollout history");
-        }
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-        restored_app.bottom_pane.pending_planning_suggestion =
-            Some("stale planning suggestion".to_string());
-        restored_app.queue_follow_up_message("stale queued follow-up");
-
-        restore_thread_by_id(
-            original_agent.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        let restored_agent = restored_slot.expect("restored agent");
-        assert_eq!(restored_agent.session_id, "session-without-history");
-        assert_eq!(restored_app.snapshot.session_id, "session-without-history");
-    }
-
-    #[test]
-    fn restore_session_recovers_live_active_turn_entries() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-live-active-turn".to_string();
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"recover active turn"}]),
-        });
-        session_manager
-            .save_session(&original_agent.session_id, &original_agent.history)
-            .expect("save session");
-
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-        rara_persistence::thread_turn_log::append_rollout_fragment(
-            &state_db.rollout_root(),
-            &original_agent.session_id,
-            &PersistedTurnEntry {
-                role: "You".to_string(),
-                message: "recover active turn".to_string(),
-            },
-        )
-        .expect("write live user entry");
-        rara_persistence::thread_turn_log::append_rollout_fragment(
-            &state_db.rollout_root(),
-            &original_agent.session_id,
-            &PersistedTurnEntry {
-                role: "Agent".to_string(),
-                message: "partial answer".to_string(),
-            },
-        )
-        .expect("write live agent entry");
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-
-        restore_thread_by_id(
-            original_agent.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        assert_eq!(restored_app.committed_turns.len(), 0);
-        assert_eq!(restored_app.active_turn.entries.len(), 2);
-        assert!(
-            restored_app
-                .bottom_pane
-                .pending_planning_suggestion
-                .is_none()
-        );
-        assert!(restored_app.pop_queued_follow_up_message().is_none());
-        assert_eq!(restored_app.active_turn.entries[0].role, "You");
-        assert_eq!(
-            restored_app.active_turn.entries[0].message,
-            "recover active turn"
-        );
-        assert_eq!(restored_app.active_turn.entries[1].role, "Agent");
-        assert_eq!(
-            restored_app.active_turn.entries[1].message,
-            "partial answer"
-        );
-    }
-
-    #[test]
-    fn restore_session_surfaces_pending_interactions_in_assembled_context() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-        fs::write(root.join("AGENTS.md"), "repo rules").expect("agents");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-pending-context".to_string();
-        original_agent.current_plan = vec![PlanStep {
-            step: "Restore pending approval".to_string(),
-            status: PlanStepStatus::Pending,
-        }];
-        original_agent.plan_explanation = Some("Keep restore and context aligned.".to_string());
-        original_agent.compact_state.compaction_count = 1;
-        original_agent.compact_state.last_compaction_before_tokens = Some(1800);
-        original_agent.compact_state.last_compaction_after_tokens = Some(900);
-        original_agent.pending_user_input = Some(PendingUserInput {
-            question: "Which path should we keep?".to_string(),
-            options: vec![("1".to_string(), "shared".to_string())],
-            note: Some("Need the user's decision before continuing.".to_string()),
-        });
-        original_agent.pending_approval = Some(PendingApproval {
-            tool_use_id: "tool-approval-1".to_string(),
-            request: BashCommandInput {
-                command: Some("cargo test".to_string()),
-                program: Some("cargo".to_string()),
-                args: vec!["test".to_string()],
-                cwd: Some(root.display().to_string()),
-                env: Default::default(),
-                allow_net: false,
-                run_in_background: false,
-                ..Default::default()
-            },
-        });
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"resume the blocked thread"}]),
-        });
-        session_manager
-            .save_session(&original_agent.session_id, &original_agent.history)
-            .expect("save session");
-
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-
-        restore_thread_by_id(
-            original_agent.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        let restored_agent = restored_slot.expect("restored agent");
-        let runtime = restored_agent.shared_runtime_context();
-        assert!(
-            runtime
-                .assembly
-                .entries
-                .iter()
-                .any(|entry| entry.layer == "active_turn_state"
-                    && entry.kind == "request_input"
-                    && entry.injected)
-        );
-        assert!(
-            runtime
-                .assembly
-                .entries
-                .iter()
-                .any(|entry| entry.layer == "active_turn_state"
-                    && entry.kind == "approval"
-                    && entry.injected)
-        );
-        assert_eq!(
-            restored_app.snapshot.assembly_entries,
-            runtime.assembly.entries
-        );
-    }
-
-    #[test]
-    fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-        fs::write(root.join("AGENTS.md"), "repo rules").expect("agents");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-pending-plan-approval".to_string();
-        original_agent.set_execution_mode(AgentExecutionMode::Plan);
-        original_agent.current_plan = vec![PlanStep {
-            step: "Restore plan approval".to_string(),
-            status: PlanStepStatus::Pending,
-        }];
-        original_agent.plan_explanation = Some("Recover the pending approval card.".to_string());
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"resume approval"}]),
-        });
-        session_manager
-            .save_session(&original_agent.session_id, &original_agent.history)
-            .expect("save session");
-
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-        original_app.show_pending_plan_approval(Some("exit-plan-restore"));
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-
-        restore_thread_by_id(
-            original_agent.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        let restored_agent = restored_slot.expect("restored agent");
-        assert_eq!(restored_agent.execution_mode, AgentExecutionMode::Plan);
-        assert!(restored_agent.has_pending_plan_exit_approval());
-        assert_eq!(
-            restored_agent.pending_plan_exit_tool_id(),
-            Some("exit-plan-restore")
-        );
-        assert!(restored_app.has_pending_plan_approval());
-        assert_eq!(
-            restored_app
-                .active_pending_interaction()
-                .map(|interaction| interaction.kind),
-            Some(ActivePendingInteractionKind::PlanApproval)
-        );
-        assert_eq!(
-            restored_app
-                .pending_plan_approval_interaction()
-                .and_then(|interaction| interaction.source.as_deref()),
-            Some("exit_plan_mode:exit-plan-restore")
-        );
-    }
-
-    #[test]
-    fn restore_session_does_not_reopen_completed_plan_approval() {
-        let temp = tempdir().expect("tempdir");
-        let root = temp.path().join("repo");
-        let rara_dir = root.join(".rara");
-        fs::create_dir_all(rara_dir.join("rollouts")).expect("rollouts");
-        fs::create_dir_all(rara_dir.join("sessions")).expect("sessions");
-        fs::create_dir_all(rara_dir.join("tool-results")).expect("tool results");
-        fs::write(root.join("AGENTS.md"), "repo rules").expect("agents");
-
-        let session_manager = Arc::new(crate::session::SessionManager {
-            storage_dir: rara_dir.join("rollouts"),
-            legacy_storage_dir: rara_dir.join("sessions"),
-        });
-        let workspace = Arc::new(WorkspaceMemory::from_paths(root.clone(), rara_dir.clone()));
-        let backend = Arc::new(MockLlm);
-        let state_db = Arc::new(StateDb::new_for_root_dir(rara_dir.clone()).expect("state db"));
-
-        let mut original_agent = Agent::new(
-            ToolManager::new(),
-            backend.clone(),
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager.clone(),
-            workspace.clone(),
-        );
-        original_agent.session_id = "session-completed-plan-approval".to_string();
-        original_agent.set_execution_mode(AgentExecutionMode::Plan);
-        original_agent.current_plan = vec![PlanStep {
-            step: "Do not reopen approval".to_string(),
-            status: PlanStepStatus::Pending,
-        }];
-        original_agent.plan_explanation = Some("Completed approvals stay completed.".to_string());
-        original_agent.history.push(Message {
-            role: "user".to_string(),
-            content: json!([{"type":"text","text":"resume completed approval"}]),
-        });
-        session_manager
-            .save_session(&original_agent.session_id, &original_agent.history)
-            .expect("save session");
-
-        let mut original_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config.json"),
-        })
-        .expect("app");
-        original_app.attach_state_db(state_db.clone());
-        original_app.apply_runtime_snapshot(
-            &original_agent,
-            crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
-        );
-        original_app.show_pending_plan_approval(Some("exit-plan-completed"));
-        original_app.clear_pending_plan_approval();
-        original_app.record_completed_interaction(
-            InteractionKind::PlanApproval,
-            "Plan Decision",
-            "copy can change",
-            Some("plan_approval:approve".to_string()),
-        );
-
-        let restored_agent = Agent::new(
-            ToolManager::new(),
-            backend,
-            Arc::new(MemoryHandle::new(
-                &rara_dir.join("memory").display().to_string(),
-            )),
-            session_manager,
-            workspace,
-        );
-        let mut restored_slot = Some(restored_agent);
-        let mut restored_app = TuiApp::new(ConfigManager {
-            path: temp.path().join("config-restored.json"),
-        })
-        .expect("restored app");
-        restored_app.attach_state_db(state_db);
-
-        restore_thread_by_id(
-            original_agent.session_id.as_str(),
-            &mut restored_app,
-            &mut restored_slot,
-        )
-        .expect("restore thread");
-
-        let restored_agent = restored_slot.expect("restored agent");
-        assert!(!restored_agent.has_pending_plan_exit_approval());
-        assert!(!restored_app.has_pending_plan_approval());
-    }
-}
+#[cfg(test)]
+mod tests;

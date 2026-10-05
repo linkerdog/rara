@@ -304,7 +304,11 @@ async fn stable_schemas_do_not_allow_review_writes_or_mode_changes() {
             input: json!({}),
         },
     ];
-    let results = agent.execute_tool_calls(calls, &mut |_| {}).await.unwrap();
+    let results = agent
+        .execute_tool_calls(calls, &mut |_| {})
+        .await
+        .unwrap()
+        .messages;
     assert_eq!(results.len(), 3);
     assert!(
         results

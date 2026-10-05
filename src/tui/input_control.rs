@@ -1,16 +1,16 @@
 use crate::agent::{Agent, BashApprovalDecision};
 use crate::runtime_client::RuntimeTaskServices;
 use crate::runtime_control::{
-    InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, SessionEvent,
-    ShellApprovalDecision,
+    InputEvent, PlanApprovalDecision, RuntimeEvent, SessionControlRequest, ShellApprovalDecision,
 };
 use crate::tui::runtime::{
-    request_running_task_cancellation, start_input_control_task, start_pending_approval_task,
-    start_plan_approval_resume_task, start_query_task,
+    QueryStopKind, request_running_task_cancellation, start_input_control_task,
+    start_pending_approval_task, start_plan_approval_resume_task, start_query_task,
     tasks::start_input_control_task_with_services,
     tasks::start_pending_approval_task_with_services,
     tasks::start_plan_approval_resume_task_with_services, tasks::start_query_task_with_services,
 };
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{
     ActivePendingInteractionKind, InteractionKind, RuntimePhase, TaskKind, TuiApp,
 };
@@ -41,8 +41,8 @@ pub(crate) fn submit_user_prompt_with_services(
 ) -> InputControlOutcome {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
-        if app.bottom_pane.notice.is_none() {
-            app.bottom_pane.notice = Some("Ready.".into());
+        if app.notice_text().is_none() {
+            app.push_notice(NoticeLevel::Info, "Ready.");
         }
         return InputControlOutcome::Noop;
     }
@@ -71,7 +71,10 @@ pub(crate) fn submit_user_prompt_with_services(
         } else {
             String::new()
         };
-        app.bottom_pane.notice = Some(format!("Agent not ready — rebuilding now{suffix}."));
+        app.push_notice(
+            NoticeLevel::Info,
+            format!("Agent not ready — rebuilding now{suffix}."),
+        );
         publish_input_event(
             app,
             InputEvent::FollowUpQueued {
@@ -117,18 +120,21 @@ pub(crate) fn submit_follow_up(
     } else {
         " 1 follow-up message is queued.".to_string()
     };
-    app.bottom_pane.notice = Some(format!(
-        "{}{suffix}",
-        if release_after_next_tool_boundary {
-            "Queued for after the next tool call boundary."
-        } else if app.active_pending_interaction().is_some()
-            && app.pending_request_input().is_none()
-        {
-            "Queued until the pending interaction is answered."
-        } else {
-            "Queued for after the current task finishes."
-        }
-    ));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!(
+            "{}{suffix}",
+            if release_after_next_tool_boundary {
+                "Queued for after the next tool call boundary."
+            } else if app.active_pending_interaction().is_some()
+                && app.pending_request_input().is_none()
+            {
+                "Queued until the pending interaction is answered."
+            } else {
+                "Queued for after the current task finishes."
+            }
+        ),
+    );
     publish_input_event(
         app,
         InputEvent::FollowUpQueued {
@@ -210,11 +216,11 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
     services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     if !app.has_pending_plan_approval() {
-        app.push_notice("No pending plan approval.");
+        app.push_notice(NoticeLevel::Info, "No pending plan approval.");
         return InputControlOutcome::Rejected;
     }
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Approval is still preparing. Try again.");
+        app.push_notice(NoticeLevel::Info, "Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
     let (summary, notice) = match decision {
@@ -239,7 +245,10 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
     if decision == PlanApprovalDecision::Reject {
         let mut agent = agent;
         if let Err(err) = agent.reject_pending_plan_approval(feedback.as_deref()) {
-            app.push_notice(format!("Failed to record plan rejection: {err}"));
+            app.push_notice(
+                NoticeLevel::Error,
+                format!("Failed to record plan rejection: {err}"),
+            );
             *agent_slot = Some(agent);
             return InputControlOutcome::Rejected;
         }
@@ -253,7 +262,7 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
             None,
         );
         app.set_agent_execution_mode(agent.execution_mode);
-        app.bottom_pane.notice = Some(notice.to_string());
+        app.push_notice(NoticeLevel::Info, notice.to_string());
         app.set_runtime_phase(RuntimePhase::Idle, Some("plan cancelled".into()));
         *agent_slot = Some(agent);
         return InputControlOutcome::Answered;
@@ -298,6 +307,16 @@ pub(crate) fn plan_approval_decision_for_index(index: usize) -> Option<PlanAppro
     }
 }
 
+pub(crate) fn shell_approval_decision_for_index(index: usize) -> Option<ShellApprovalDecision> {
+    match index {
+        0 => Some(ShellApprovalDecision::Once),
+        1 => Some(ShellApprovalDecision::Prefix),
+        2 => Some(ShellApprovalDecision::Always),
+        3 => Some(ShellApprovalDecision::Suggestion),
+        _ => None,
+    }
+}
+
 pub(crate) fn answer_shell_approval(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
@@ -313,15 +332,15 @@ pub(crate) fn answer_shell_approval_with_services(
     services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     let Some(interaction) = app.active_pending_interaction() else {
-        app.push_notice("No pending shell approval.");
+        app.push_notice(NoticeLevel::Info, "No pending shell approval.");
         return InputControlOutcome::Rejected;
     };
     if interaction.kind != ActivePendingInteractionKind::ShellApproval {
-        app.push_notice("No pending shell approval.");
+        app.push_notice(NoticeLevel::Info, "No pending shell approval.");
         return InputControlOutcome::Rejected;
     }
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Approval is still preparing. Try again.");
+        app.push_notice(NoticeLevel::Info, "Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
     let decision = BashApprovalDecision::from(decision);
@@ -338,29 +357,13 @@ pub(crate) fn handle_session_control(
     request: SessionControlRequest,
 ) -> InputControlOutcome {
     match request {
-        SessionControlRequest::CancelCurrentTurn => {
-            request_running_task_cancellation(app);
-            if app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .is_some_and(|notice| notice == "Cancellation requested.")
-            {
-                publish_session_event(app, SessionEvent::TurnCancelled);
-                InputControlOutcome::CancelRequested
+        SessionControlRequest::CancelCurrentTurn | SessionControlRequest::InterruptCurrentTurn => {
+            let kind = if matches!(request, SessionControlRequest::CancelCurrentTurn) {
+                QueryStopKind::Cancel
             } else {
-                InputControlOutcome::Rejected
-            }
-        }
-        SessionControlRequest::InterruptCurrentTurn => {
-            request_running_task_cancellation(app);
-            if app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .is_some_and(|notice| notice == "Cancellation requested.")
-            {
-                publish_session_event(app, SessionEvent::TurnInterrupted);
+                QueryStopKind::Interrupt
+            };
+            if request_running_task_cancellation(app, kind) {
                 InputControlOutcome::CancelRequested
             } else {
                 InputControlOutcome::Rejected
@@ -420,12 +423,6 @@ fn publish_input_event(app: &TuiApp, event: InputEvent) {
     }
 }
 
-fn publish_session_event(app: &TuiApp, event: SessionEvent) {
-    if let Some(bus) = app.event_bus.as_ref() {
-        bus.publish_control(RuntimeEvent::Session(event));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -457,8 +454,31 @@ mod tests {
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token,
-            cancellation_requested: false,
+            query_control: Some(crate::tui::runtime::QueryTaskControl::new(
+                "test-session".into(),
+            )),
         });
+    }
+
+    #[test]
+    fn shell_approval_options_keep_rejection_explicit() {
+        assert_eq!(
+            shell_approval_decision_for_index(0),
+            Some(ShellApprovalDecision::Once)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(1),
+            Some(ShellApprovalDecision::Prefix)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(2),
+            Some(ShellApprovalDecision::Always)
+        );
+        assert_eq!(
+            shell_approval_decision_for_index(3),
+            Some(ShellApprovalDecision::Suggestion)
+        );
+        assert_eq!(shell_approval_decision_for_index(4), None);
     }
 
     #[tokio::test]
@@ -481,7 +501,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_current_turn_publishes_session_event_when_cancelled() {
+    async fn cancel_current_turn_waits_for_task_return_before_terminal_publication() {
         let mut app = test_app();
         let bus = Arc::new(RuntimeEventBus::new(8));
         let mut rx = bus.subscribe_control();
@@ -493,11 +513,10 @@ mod tests {
 
         assert_eq!(outcome, InputControlOutcome::CancelRequested);
         assert!(token.load(Ordering::SeqCst));
-        let event = rx.try_recv().expect("session event");
-        assert!(matches!(
-            event.event,
-            RuntimeEvent::Session(SessionEvent::TurnCancelled)
-        ));
+        assert!(
+            rx.try_recv().is_err(),
+            "a stop request is not a terminal event"
+        );
     }
 
     #[tokio::test]
@@ -546,7 +565,7 @@ mod tests {
             started_at: Instant::now(),
             next_heartbeat_after_secs: 2,
             cancellation_token: None,
-            cancellation_requested: false,
+            query_control: None,
         });
 
         let outcome = submit_user_prompt(&mut app, &mut None, "hello".to_string());

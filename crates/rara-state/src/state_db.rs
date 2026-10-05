@@ -15,6 +15,12 @@ pub use rara_persistence::thread_data::{
 pub use rara_persistence::{thread_rollout_log, thread_turn_log};
 use rusqlite::{Connection, params};
 
+mod goals;
+mod rollout_migration;
+mod schema;
+
+use rollout_migration::canonical_rollout_events_for_legacy_migration;
+
 #[cfg(test)]
 mod tests;
 
@@ -251,64 +257,6 @@ impl StateDb {
         }
         tx.commit()?;
         Ok(())
-    }
-    /// Persist a session goal so it survives restarts.
-    /// Uses separate INSERT (first time) + UPDATE (subsequent) so
-    /// created_at is never overwritten.
-    pub fn save_goal(&self, session_id: &str, goal: &serde_json::Value) -> Result<()> {
-        let conn = self.conn.lock().expect("state db mutex poisoned");
-        let now = epoch_seconds();
-        // Keep original created_at if this is an update, else use now.
-        let created: i64 = conn
-            .query_row(
-                "SELECT created_at FROM goals WHERE session_id = ?",
-                params![session_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(now);
-        conn.execute(
-            "INSERT OR REPLACE INTO goals
-             (session_id, objective, condition, status, token_budget,
-              tokens_used, turns_completed, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                session_id,
-                goal["objective"].as_str().unwrap_or(""),
-                goal["condition"].as_str(),
-                goal["status"].as_str().unwrap_or("Pursuing"),
-                goal["token_budget"].as_i64(),
-                goal["tokens_used"].as_i64().unwrap_or(0),
-                goal["turns_completed"].as_i64().unwrap_or(0),
-                created,
-                now,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// Load a previously saved goal for this session, if any.
-    pub fn load_goal(&self, session_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().expect("state db mutex poisoned");
-        let mut stmt = conn
-            .prepare(
-                "SELECT objective, condition, status, token_budget,
-                        tokens_used, turns_completed
-                 FROM goals WHERE session_id = ?",
-            )
-            .ok()?;
-        let row = stmt
-            .query_row(params![session_id], |row| {
-                Ok(serde_json::json!({
-                    "objective": row.get::<_, String>(0)?,
-                    "condition": row.get::<_, Option<String>>(1)?,
-                    "status": row.get::<_, String>(2).unwrap_or_else(|_| "Pursuing".into()),
-                    "token_budget": row.get::<_, Option<i64>>(3)?,
-                    "tokens_used": row.get::<_, i64>(4).unwrap_or(0),
-                    "turns_completed": row.get::<_, i64>(5).unwrap_or(0),
-                }))
-            })
-            .ok()?;
-        Some(row)
     }
     pub fn replace_interactions(
         &self,
@@ -956,144 +904,6 @@ impl StateDb {
     ) -> Result<()> {
         thread_rollout_log::append_rollout_event_line(&self.rollout_root(), session_id, item)
     }
-
-    fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().expect("state db mutex poisoned");
-        conn.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                cwd TEXT NOT NULL,
-                branch TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                base_url TEXT,
-                agent_mode TEXT NOT NULL,
-                bash_approval TEXT NOT NULL,
-                origin_kind TEXT NOT NULL DEFAULT 'fresh',
-                forked_from_thread_id TEXT,
-                plan_explanation TEXT,
-                prompt_runtime_json TEXT,
-                history_len INTEGER NOT NULL DEFAULT 0,
-                transcript_len INTEGER NOT NULL DEFAULT 0,
-                compaction_count INTEGER NOT NULL DEFAULT 0,
-                last_compaction_before_tokens INTEGER,
-                last_compaction_after_tokens INTEGER,
-                last_compaction_recent_file_count INTEGER,
-                last_compaction_boundary_version INTEGER,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS turns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                ordinal INTEGER NOT NULL,
-                event_count INTEGER NOT NULL DEFAULT 0,
-                artifact_path TEXT NOT NULL,
-                preview TEXT NOT NULL DEFAULT '',
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                UNIQUE(session_id, ordinal)
-            );
-
-            CREATE TABLE IF NOT EXISTS plan_steps (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                step_index INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                step TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                title TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                payload_json TEXT,
-                updated_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS spawn_agent_edges (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                parent_session_id TEXT NOT NULL,
-                event_id TEXT NOT NULL,
-                agent_id TEXT NOT NULL,
-                name TEXT,
-                child_session_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                summary TEXT,
-                token_budget INTEGER,
-                recorded_at INTEGER,
-                updated_at INTEGER NOT NULL,
-                UNIQUE(parent_session_id, event_id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_turns_session_ordinal
-                ON turns(session_id, ordinal);
-            CREATE INDEX IF NOT EXISTS idx_plan_steps_session_step
-                ON plan_steps(session_id, step_index);
-            CREATE INDEX IF NOT EXISTS idx_interactions_session_kind
-                ON interactions(session_id, kind);
-            CREATE INDEX IF NOT EXISTS idx_spawn_agent_edges_parent_agent
-                ON spawn_agent_edges(parent_session_id, agent_id);
-            CREATE INDEX IF NOT EXISTS idx_spawn_agent_edges_child
-                ON spawn_agent_edges(child_session_id);
-
-            CREATE TABLE IF NOT EXISTS goals (
-                session_id TEXT PRIMARY KEY,
-                objective TEXT NOT NULL,
-                condition TEXT,
-                status TEXT NOT NULL DEFAULT 'Pursuing',
-                token_budget INTEGER,
-                tokens_used INTEGER NOT NULL DEFAULT 0,
-                turns_completed INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            );
-            ",
-        )?;
-        ensure_column(&conn, "sessions", "plan_explanation", "TEXT")?;
-        ensure_column(&conn, "sessions", "prompt_runtime_json", "TEXT")?;
-        ensure_column(
-            &conn,
-            "sessions",
-            "origin_kind",
-            "TEXT NOT NULL DEFAULT 'fresh'",
-        )?;
-        ensure_column(&conn, "sessions", "forked_from_thread_id", "TEXT")?;
-        ensure_column(&conn, "spawn_agent_edges", "token_budget", "INTEGER")?;
-        ensure_column(
-            &conn,
-            "sessions",
-            "compaction_count",
-            "INTEGER NOT NULL DEFAULT 0",
-        )?;
-        ensure_column(
-            &conn,
-            "sessions",
-            "last_compaction_before_tokens",
-            "INTEGER",
-        )?;
-        ensure_column(&conn, "sessions", "last_compaction_after_tokens", "INTEGER")?;
-        ensure_column(
-            &conn,
-            "sessions",
-            "last_compaction_recent_file_count",
-            "INTEGER",
-        )?;
-        ensure_column(
-            &conn,
-            "sessions",
-            "last_compaction_boundary_version",
-            "INTEGER",
-        )?;
-        ensure_column(&conn, "interactions", "payload_json", "TEXT")?;
-        Ok(())
-    }
 }
 
 fn epoch_seconds() -> i64 {
@@ -1101,68 +911,6 @@ fn epoch_seconds() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
-}
-
-fn canonical_rollout_events_for_legacy_migration(
-    migration: &PersistedLegacyRolloutMigration,
-) -> Vec<PersistedStructuredRolloutEvent> {
-    let mut events = migration.structured_events.clone();
-    if events
-        .iter()
-        .any(|event| matches!(event, PersistedStructuredRolloutEvent::RuntimeState { .. }))
-    {
-        return events;
-    }
-
-    let saw_plan_state = events
-        .iter()
-        .any(|event| matches!(event, PersistedStructuredRolloutEvent::PlanState { .. }));
-    let saw_interaction = events
-        .iter()
-        .any(|event| matches!(event, PersistedStructuredRolloutEvent::Interaction { .. }));
-
-    if !saw_plan_state
-        && let Some((explanation, steps)) = legacy_runtime_plan_state(&migration.runtime_rollout)
-    {
-        events.push(PersistedStructuredRolloutEvent::PlanState {
-            recorded_at: None,
-            explanation,
-            steps,
-        });
-    }
-    if !saw_interaction {
-        events.extend(
-            legacy_runtime_interactions(&migration.runtime_rollout)
-                .into_iter()
-                .map(|interaction| PersistedStructuredRolloutEvent::Interaction {
-                    recorded_at: None,
-                    interaction,
-                }),
-        );
-    }
-
-    events
-}
-
-fn legacy_runtime_plan_state(
-    items: &[PersistedRuntimeRolloutItem],
-) -> Option<(Option<String>, Vec<PersistedPlanStep>)> {
-    items.iter().find_map(|item| match item {
-        PersistedRuntimeRolloutItem::PlanState { explanation, steps } => {
-            Some((explanation.clone(), steps.clone()))
-        }
-        PersistedRuntimeRolloutItem::Interaction(_) => None,
-    })
-}
-
-fn legacy_runtime_interactions(items: &[PersistedRuntimeRolloutItem]) -> Vec<PersistedInteraction> {
-    items
-        .iter()
-        .filter_map(|item| match item {
-            PersistedRuntimeRolloutItem::Interaction(interaction) => Some(interaction.clone()),
-            PersistedRuntimeRolloutItem::PlanState { .. } => None,
-        })
-        .collect()
 }
 
 fn spawn_agent_edges_from_events(
@@ -1205,19 +953,4 @@ fn spawn_agent_edges_from_events(
             .then_with(|| left.event_id.cmp(&right.event_id))
     });
     edges
-}
-
-fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    for row in rows {
-        if row? == column {
-            return Ok(());
-        }
-    }
-    conn.execute(
-        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-        [],
-    )?;
-    Ok(())
 }

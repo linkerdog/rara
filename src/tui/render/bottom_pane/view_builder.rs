@@ -2,15 +2,19 @@
 use ratatui::style::Color;
 
 use super::super::super::state::{
-    ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
-    TaskKind, TuiApp,
+    ActivePendingInteractionKind, GoalStatus, NoticeLevel, PendingInteractionSnapshot, RalphGoal,
+    RuntimePhase, TaskKind, TuiApp,
 };
 use super::view::{
     ActivityView, BottomPaneView, FooterView, InteractionAction, InteractionPanelView,
+    ShellApprovalView,
 };
 use crate::tui::theme::{
-    INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
+    INTERACTION_SUB_AGENT, STATUS_ERROR, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING,
+    TEXT_ACCENT,
 };
+
+const PERMISSION_BADGE_BREAKPOINT: u16 = 80;
 
 pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> BottomPaneView {
     BottomPaneView {
@@ -20,7 +24,7 @@ pub(super) fn build_bottom_pane_view(app: &TuiApp, width: u16, _height: u16) -> 
     }
 }
 
-fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
+fn build_activity_view(app: &TuiApp, width: u16) -> ActivityView {
     let (label, label_color, detail) = activity_status_line(app);
     let spinner = should_show_spinner(app, label);
     let spinner_elapsed = app
@@ -37,7 +41,7 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
         )
     ) || matches!(label, "Planning");
     let plan_badge = app.agent_execution_mode_label() == "plan" && !label_already_reflects_planning;
-    let perm_badge = app.permission_mode_label() != "auto";
+    let perm_badge = width < PERMISSION_BADGE_BREAKPOINT && app.permission_mode_label() != "auto";
     let perm_label = app.permission_mode_label();
     let goal_label = app.goal.as_ref().map(|goal| goal_label_text(goal.status));
     let goal_detail = app.goal.as_ref().map(goal_detail_text);
@@ -47,7 +51,7 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
         label_color,
         spinner,
         spinner_elapsed,
-        detail,
+        detail: crate::tui::display_sanitize::sanitize_display_line(&detail),
         plan_badge,
         perm_badge,
         perm_label,
@@ -57,12 +61,12 @@ fn build_activity_view(app: &TuiApp, _width: u16) -> ActivityView {
 }
 
 fn goal_label_text(status: GoalStatus) -> (&'static str, Color) {
-    match status {
-        GoalStatus::Pursuing => ("pursuing", STATUS_INFO),
-        GoalStatus::Paused => ("paused", STATUS_WARNING),
-        GoalStatus::Complete => ("done", STATUS_SUCCESS),
-        GoalStatus::BudgetLimited => ("budget", STATUS_WARNING),
-    }
+    let color = match status {
+        GoalStatus::Pursuing => STATUS_INFO,
+        GoalStatus::Paused | GoalStatus::Blocked | GoalStatus::BudgetLimited => STATUS_WARNING,
+        GoalStatus::Complete => STATUS_SUCCESS,
+    };
+    (crate::tui::goal_ui::status_label(status), color)
 }
 
 fn goal_detail_text(goal: &RalphGoal) -> String {
@@ -75,7 +79,11 @@ fn goal_detail_text(goal: &RalphGoal) -> String {
             goal.remaining_tokens().unwrap_or(0)
         )
     } else {
-        format!("t{} · {} tokens", goal.turns_completed, goal.tokens_used)
+        format!(
+            "{}s · {} tokens",
+            goal.time_used_seconds(),
+            goal.tokens_used
+        )
     }
 }
 
@@ -154,6 +162,16 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         );
     }
 
+    if let Some(notice) = app.notice() {
+        match notice.level() {
+            NoticeLevel::Warning => {
+                return ("Warning", STATUS_WARNING, notice.message().to_string());
+            }
+            NoticeLevel::Error => return ("Error", STATUS_ERROR, notice.message().to_string()),
+            NoticeLevel::Info => {}
+        }
+    }
+
     if app.agent_execution_mode_label() == "plan" {
         return (
             "Planning",
@@ -162,24 +180,10 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         );
     }
 
-    if let Some(warning) = app
-        .bottom_pane
-        .notice
-        .as_deref()
-        .filter(|value| value.starts_with("Warning:"))
-    {
-        return ("Warning", STATUS_WARNING, warning.to_string());
-    }
-
     (
         "Ready",
         STATUS_READY,
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .filter(|notice| !matches!(*notice, "Prompt finished." | "Planning finished."))
-            .unwrap_or("waiting for input")
-            .to_string(),
+        app.notice_text().unwrap_or("waiting for input").to_string(),
     )
 }
 
@@ -190,7 +194,10 @@ pub(super) fn should_show_spinner(app: &TuiApp, label: &str) -> bool {
     let Some(task) = app.bottom_pane.running_task.as_ref() else {
         return false;
     };
-    matches!(task.kind, TaskKind::Query | TaskKind::Rebuild)
+    matches!(
+        task.kind,
+        TaskKind::Query | TaskKind::ReviewPreparation | TaskKind::Rebuild
+    )
 }
 
 fn build_footer_view(app: &TuiApp) -> FooterView {
@@ -204,6 +211,13 @@ fn build_footer_view(app: &TuiApp) -> FooterView {
 }
 
 pub(super) fn footer_summary_text(app: &TuiApp) -> String {
+    if let Some(key) = app.quit_shortcut.key() {
+        let key = match key {
+            crate::tui::state::QuitShortcutKey::CtrlC => "Ctrl-C",
+            crate::tui::state::QuitShortcutKey::CtrlD => "Ctrl-D",
+        };
+        return format!("Press {key} again to quit");
+    }
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(hint) = app.repo_context_hint() {
@@ -234,11 +248,15 @@ pub(super) fn footer_summary_text(app: &TuiApp) -> String {
 }
 
 fn footer_permission_status(app: &TuiApp) -> String {
-    format!(
+    let mut status = format!(
         "perm={} approval={}",
         app.permission_mode_label(),
         app.bash_approval_mode_label()
-    )
+    );
+    if let Some(mode) = app.pending_permission_mode {
+        status.push_str(&format!(" pending={} (after task)", mode.label()));
+    }
+    status
 }
 
 fn shows_live_task_stats(app: &TuiApp) -> bool {
@@ -251,36 +269,53 @@ fn shows_live_task_stats(app: &TuiApp) -> bool {
         )
 }
 
-fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
+pub(super) fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
     let pending = app.active_pending_interaction()?;
 
     match pending.kind {
-        ActivePendingInteractionKind::ShellApproval => Some(InteractionPanelView {
-            title: "Permission Required",
-            detail: compact_shell_approval_detail(app),
-            actions: vec![
-                InteractionAction {
-                    key: "1",
-                    label: "Allow once",
-                },
-                InteractionAction {
-                    key: "2",
-                    label: "Allow prefix",
-                },
-                InteractionAction {
-                    key: "3",
-                    label: "Allow always",
-                },
-                InteractionAction {
-                    key: "4",
-                    label: "Deny",
-                },
-            ],
-            selected: app.approval_picker_idx,
-        }),
+        ActivePendingInteractionKind::ShellApproval => {
+            let approval = pending._snapshot.approval.as_ref()?;
+            let cwd = approval
+                .payload
+                .cwd
+                .as_deref()
+                .filter(|cwd| !cwd.trim().is_empty())
+                .unwrap_or(".")
+                .to_owned();
+            Some(InteractionPanelView {
+                title: "Permission Required",
+                color: STATUS_WARNING,
+                detail: format!("{}\ncwd: {cwd}", approval.command),
+                shell_approval: Some(ShellApprovalView {
+                    tool_use_id: approval.tool_use_id.clone(),
+                    cwd,
+                }),
+                actions: vec![
+                    InteractionAction {
+                        key: "1",
+                        label: "Allow once",
+                    },
+                    InteractionAction {
+                        key: "2",
+                        label: "Allow prefix",
+                    },
+                    InteractionAction {
+                        key: "3",
+                        label: "Allow session",
+                    },
+                    InteractionAction {
+                        key: "4",
+                        label: "Reject",
+                    },
+                ],
+                selected: app.approval_picker_idx,
+            })
+        }
         ActivePendingInteractionKind::PlanApproval => Some(InteractionPanelView {
             title: "Plan Approval",
+            color: TEXT_ACCENT,
             detail: String::new(),
+            shell_approval: None,
             actions: vec![
                 InteractionAction {
                     key: "1",
@@ -299,10 +334,12 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         }),
         ActivePendingInteractionKind::PlanningQuestion => Some(InteractionPanelView {
             title: "Planning Question",
+            color: TEXT_ACCENT,
             detail: app
                 .pending_request_input()
                 .map(|interaction| interaction.title.clone())
                 .unwrap_or_default(),
+            shell_approval: None,
             actions: vec![
                 InteractionAction {
                     key: "Enter",
@@ -317,17 +354,4 @@ fn build_interaction_panel(app: &TuiApp) -> Option<InteractionPanelView> {
         }),
         _ => None,
     }
-}
-
-fn compact_shell_approval_detail(app: &TuiApp) -> String {
-    app.pending_command_approval()
-        .and_then(|i| i.approval.as_ref())
-        .map(|a| {
-            format!(
-                "{}\n  cwd: {}",
-                a.command,
-                a.payload.cwd.as_deref().unwrap_or(".")
-            )
-        })
-        .unwrap_or_default()
 }

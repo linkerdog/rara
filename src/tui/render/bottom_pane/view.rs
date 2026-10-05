@@ -18,9 +18,16 @@ pub(crate) struct BottomPaneView {
 
 pub(crate) struct InteractionPanelView {
     pub(crate) title: &'static str,
+    pub(crate) color: Color,
     pub(crate) detail: String,
+    pub(crate) shell_approval: Option<ShellApprovalView>,
     pub(crate) actions: Vec<InteractionAction>,
     pub(crate) selected: usize,
+}
+
+pub(crate) struct ShellApprovalView {
+    pub(crate) tool_use_id: String,
+    pub(crate) cwd: String,
 }
 
 pub(crate) struct InteractionAction {

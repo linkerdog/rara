@@ -41,7 +41,7 @@ the screen dirty only when one of those operations changes state.
 Runtime-to-TUI task delivery uses `RuntimeControlEvent` directly. The TUI
 matches `RuntimeEvent` variants for assistant, tool, memory, todo, warning,
 and error behavior; it does not infer those semantics from transcript roles or
-formatted message text. `Transcript` remains only for presentation-only
+formatted message text. Dedicated `DownloadProgress` and `OAuthProgress` events remain for presentation-only
 progress such as OAuth and model download messages.
 
 The controller boundary now has a narrow `RuntimeClientPort` contract. It

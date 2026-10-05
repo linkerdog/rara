@@ -6,7 +6,7 @@ use nom::error::{Error, ErrorKind};
 use nom::{Err as NomErr, IResult, Parser};
 use serde_json::Value;
 
-const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
+pub(crate) const DSML_TOKENS: [&str; 2] = ["｜DSML｜", "|DSML|"];
 const DSML_TAG_PREFIXES: [&str; 12] = [
     "<｜DSML｜tool_calls>",
     "<｜DSML｜invoke",
@@ -86,6 +86,39 @@ pub(crate) fn strip_tool_call_blocks(text: &str) -> Cow<'_, str> {
     } else {
         Cow::Owned(extraction.visible_text)
     }
+}
+
+const DSML_OPEN_TOOL_CALLS_TAGS: [(&str, &str); 2] = [
+    ("<｜DSML｜tool_calls>", "</｜DSML｜tool_calls>"),
+    ("<|DSML|tool_calls>", "</|DSML|tool_calls>"),
+];
+
+/// Byte index in `text` from which more streamed input could still rewrite
+/// the DSML scrub result: either an open `tool_calls` block with no closing
+/// tag yet, or a trailing `<` that could still grow into one. `None` means
+/// `text` is settled and safe to scrub and emit as-is.
+pub(crate) fn pending_tool_call_boundary(text: &str) -> Option<usize> {
+    let mut boundary: Option<usize> = None;
+
+    for (open, close) in DSML_OPEN_TOOL_CALLS_TAGS {
+        if let Some(idx) = text.rfind(open)
+            && !text[idx + open.len()..].contains(close)
+        {
+            boundary = Some(boundary.map_or(idx, |b| b.min(idx)));
+        }
+    }
+
+    if let Some(start) = text.rfind('<') {
+        let suffix = &text[start..];
+        if DSML_OPEN_TOOL_CALLS_TAGS
+            .into_iter()
+            .any(|(open, _)| open.starts_with(suffix))
+        {
+            boundary = Some(boundary.map_or(start, |b| b.min(start)));
+        }
+    }
+
+    boundary
 }
 
 pub(crate) fn strip_orphaned_tool_call_tail(text: &str) -> Cow<'_, str> {

@@ -2,10 +2,16 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Result, anyhow};
 
-use crate::agent::{Agent, AgentEvent, AgentOutputMode, BashApprovalDecision};
+use crate::agent::{Agent, AgentEvent, AgentExecutionMode, AgentOutputMode, BashApprovalDecision};
 use crate::runtime_control::{InputControlRequest, PlanApprovalDecision, SessionControlRequest};
 
 impl Agent {
+    pub(crate) fn discard_pending_interactions(&mut self) {
+        self.pending_user_input = None;
+        self.pending_approval = None;
+        self.pending_plan_exit_tool_id = None;
+    }
+
     /// Handle a session control request.
     pub async fn handle_session_control(&mut self, request: &SessionControlRequest) -> Result<()> {
         match request {
@@ -33,11 +39,46 @@ impl Agent {
     pub async fn handle_input_control<F>(
         &mut self,
         request: &InputControlRequest,
-        report: F,
+        mut report: F,
     ) -> Result<()>
     where
         F: FnMut(AgentEvent) + Send,
     {
+        let _lease = match request {
+            InputControlRequest::AnswerPlanApproval { decision, .. } => {
+                // Local TUI continuation can approve a generated plan without an exit tool.
+                // External session replies are fenced to a pending interaction by the actor.
+                if !self.has_pending_plan_exit_approval()
+                    && !(self.execution_mode == AgentExecutionMode::Plan
+                        && !self.current_plan.is_empty())
+                {
+                    return Err(anyhow!("no pending plan approval"));
+                }
+                let lease = self.begin_inference_turn();
+                if !matches!(decision, PlanApprovalDecision::Reject) {
+                    self.refresh_protocol_prompt_sources_for_query().await;
+                    self.refresh_protocol_skill_sources_for_query().await?;
+                }
+                Some(lease)
+            }
+            InputControlRequest::AnswerShellApproval { .. } => {
+                if self.pending_approval.is_none() {
+                    return Err(anyhow!("no pending shell approval"));
+                }
+                let lease = self.begin_inference_turn();
+                self.refresh_protocol_prompt_sources_for_query().await;
+                self.refresh_protocol_skill_sources_for_query().await?;
+                Some(lease)
+            }
+            InputControlRequest::AnswerPendingInput { .. } => {
+                if self.pending_user_input.is_none() {
+                    return Err(anyhow!("no pending user input"));
+                }
+                None
+            }
+            InputControlRequest::SubmitUserPrompt { .. }
+            | InputControlRequest::SubmitFollowUp { .. } => None,
+        };
         match request {
             InputControlRequest::SubmitUserPrompt { prompt } => {
                 self.query_with_mode_and_events(prompt.clone(), AgentOutputMode::Silent, report)
@@ -67,7 +108,14 @@ impl Agent {
                     .await?;
                 }
                 PlanApprovalDecision::Reject => {
+                    let approval_id = self.pending_plan_exit_tool_id().map(str::to_owned);
                     self.reject_pending_plan_approval(feedback.as_deref())?;
+                    if let Some(approval_id) = approval_id {
+                        report(AgentEvent::ApprovalAnswered {
+                            approval_id,
+                            approved: false,
+                        });
+                    }
                 }
             },
             InputControlRequest::AnswerShellApproval { decision } => {

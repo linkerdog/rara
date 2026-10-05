@@ -23,10 +23,15 @@ members = [
     "crates/rara-app-server",
     "crates/rara-background-tasks",
     "crates/rara-core",
+    "crates/rara-agent",
+    "crates/rara-runtime",
 ]
-resolver = "2"
+default-members = ["."]
+resolver = "3"
 
 [workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"
 expect_used = "deny"
 unwrap_used = "deny"
 panic = "deny"
@@ -50,10 +55,10 @@ tempfile = "3.17"
 ignore = "0.4.26"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 rmcp = { version = "3.0", features = ["client", "transport-child-process"] }
-codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.147.0" }
-codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.147.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.147.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.147.0" }
+codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
+codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
 rara-instructions = { path = "crates/instructions" }
 
 [package]
@@ -62,6 +67,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+rara-runtime = { path = "crates/rara-runtime" }
 rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
 rara-memory = { path = "crates/rara-memory" }
@@ -72,6 +78,7 @@ rara-plugins = { path = "crates/rara-plugins" }
 rara-app-server = { path = "crates/rara-app-server" }
 rara-state = { path = "crates/rara-state" }
 rara-core = { path = "crates/rara-core" }
+rara-agent = { path = "crates/rara-agent" }
 rara-background-tasks = { path = "crates/rara-background-tasks" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -92,7 +99,7 @@ tiktoken-rs = "0.12"
 open = "5.0"
 rand = "0.10"
 libc = "0.2"
-nix = { version = "0.31.2", default-features = false, features = ["process", "signal"] }
+nix = { version = "0.31.2", default-features = false, features = ["process", "signal", "term"] }
 fs2 = "0.4"
 base64 = "0.22"
 sha2 = "0.11"
@@ -119,8 +126,10 @@ futures = "0.3"
 eventsource-stream = "0.2.3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 pulldown-cmark = "0.13"
+unicase = "2.9"
 textwrap = "0.16.2"
 unicode-width = "0.2"
+unicode-segmentation = "1.13"
 nom = "8.0"
 syntect = "5"
 portable-pty = "0.9"
@@ -138,8 +147,13 @@ backon = "1.6.0"
 ethnum = "1.5.3"
 
 [dev-dependencies]
+tokio = { version = "1.0", features = ["test-util"] }
 tempfile = "3.17"
 insta = "1.43"
+vt100 = "0.16.2"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
 
 [target.'cfg(all(target_os = "linux", any(target_arch = "aarch64", target_env = "musl")))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

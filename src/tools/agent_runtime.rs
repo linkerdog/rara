@@ -805,6 +805,7 @@ pub(super) fn register_scoped_plugin_skill_tool(
         skill_manager: Arc::new(RwLock::new(scoped)),
         plugin_roots: Vec::new(),
         reload_policy: SkillReloadPolicy::Disabled,
+        protocol_events: None,
     }));
     Ok(())
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::message_role::MessageRole;
 
 #[test]
 fn active_turn_cell_renders_plan_approval_as_interaction_card() {
@@ -11,11 +12,12 @@ fn active_turn_cell_renders_plan_approval_as_interaction_card() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![
         ("pending".into(), "Generalize instruction discovery".into()),
         (
@@ -53,11 +55,12 @@ fn active_turn_cell_renders_updated_plan_checklist() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Improve the plan rendering".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![
         ("completed".into(), "Inspect the current plan UI".into()),
         (
@@ -96,11 +99,12 @@ fn active_turn_cell_hides_stale_updated_plan_after_plan_turn_finishes() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Implement the approved fix".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.snapshot.plan_steps = vec![("pending".into(), "Inspect the config loading flow".into())];
     app.snapshot.plan_explanation = Some("This should not keep rendering after plan exit.".into());
 
@@ -127,17 +131,18 @@ fn active_turn_cell_hides_stale_exploring_after_live_phase_finishes() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Inspect the repository".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Exploring".into(),
+                role: MessageRole::Exploring,
                 message: "└ Read src/main.rs".into(),
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -161,17 +166,18 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Run the migration helper".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Tool Progress".into(),
+                role: MessageRole::ToolProgress,
                 message: "background task stdout:\n    Checking nix v0.30.1".into(),
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.snapshot
         .pending_interactions
         .push(crate::tui::state::PendingInteractionSnapshot {
@@ -208,11 +214,11 @@ fn active_turn_cell_renders_shell_approval_as_interaction_card() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Responding via dock"));
-    // Detail text (Command:, Working directory:, options) now rendered in dock panel.
-    assert!(!rendered.contains("Command:"));
-    assert!(!rendered.contains("bash ./scripts/migrate.sh"));
-    assert!(!rendered.contains("1. Allow once"));
+    assert!(!rendered.contains("Responding via dock"));
+    assert!(rendered.contains("Command:"));
+    assert!(rendered.contains("Working directory:"));
+    assert!(rendered.contains("bash ./scripts/migrate.sh"));
+    assert!(rendered.contains("1. Allow once"));
     assert!(
         !rendered
             .contains("approval required  1 allow once  2 allow prefix  3 allow session  4 deny")
@@ -231,11 +237,12 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Run a shell command".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.queue_follow_up_message("then review the diff");
     app.snapshot
         .pending_interactions
@@ -263,7 +270,8 @@ fn active_turn_cell_renders_queued_follow_up_without_hiding_shell_approval() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Responding via dock"));
+    assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
+    assert!(rendered.contains("Working directory:"));
     assert!(rendered.contains("# Queued"));
     assert!(rendered.contains("after turn"));
     assert!(!rendered.contains("Queued follow-up messages"));
@@ -280,11 +288,12 @@ fn active_turn_cell_does_not_render_completed_plan_decision() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::PlanApproval,
         "Plan Decision",
@@ -314,23 +323,24 @@ fn active_turn_cell_does_not_render_completed_shell_approval_while_live() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Run the migration helper".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Shell Approval Completed".into(),
+                role: MessageRole::ShellApprovalCompleted,
                 message: "Bash approval: Approved once for command: bash ./scripts/migrate.sh"
                     .into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Running".into(),
+                role: MessageRole::Running,
                 message: "bash ./scripts/migrate.sh".into(),
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
@@ -360,27 +370,28 @@ fn active_turn_cell_falls_back_to_previous_completion_when_shell_approval_is_liv
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "Answer and run".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Question Answered".into(),
+                role: MessageRole::QuestionAnswered,
                 message: "User answered: yes".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Shell Approval Completed".into(),
+                role: MessageRole::ShellApprovalCompleted,
                 message: "Bash approval: Approved once for command: cargo check".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Running".into(),
+                role: MessageRole::Running,
                 message: "cargo check".into(),
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("resuming after approval".into()),
@@ -410,17 +421,18 @@ fn active_turn_cell_keeps_streaming_response_without_responding_card() {
         thinking_duration: None,
         entries: vec![
             TranscriptEntry {
-                role: "You".into(),
+                role: MessageRole::User,
                 message: "你好".into(),
                 payload: None,
             },
             TranscriptEntry {
-                role: "Tool Result".into(),
+                role: MessageRole::ToolResult,
                 message: "bash stdout: partial".into(),
                 payload: None,
             },
         ],
-    };
+    }
+    .into();
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("streaming model output".into()),
@@ -451,11 +463,12 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Approve the plan".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::PlanApproval,
         "Plan Decision",
@@ -466,11 +479,12 @@ fn active_turn_cell_does_not_repeat_stale_plan_decision_from_snapshot() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Continue with the next task".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
 
     let rendered = ActiveTurnCell::new(&app, Some(Path::new(".")))
         .display_lines(100)
@@ -492,11 +506,12 @@ fn active_turn_cell_labels_delegated_plan_questions() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_local_request_input(
         "plan_agent",
         "Which discovery strategy should we keep?",
@@ -532,11 +547,12 @@ fn active_turn_cell_labels_delegated_completed_questions() {
     app.active_turn = TranscriptTurn {
         thinking_duration: None,
         entries: vec![TranscriptEntry {
-            role: "You".into(),
+            role: MessageRole::User,
             message: "Review the codebase and propose changes".into(),
             payload: None,
         }],
-    };
+    }
+    .into();
     app.record_completed_interaction(
         crate::tui::state::InteractionKind::RequestInput,
         "Which discovery strategy should we keep?",

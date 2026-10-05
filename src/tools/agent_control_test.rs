@@ -346,3 +346,182 @@ async fn shutdown_cancels_and_waits_for_active_children() {
     assert!(inner.closing);
     assert!(inner.active_tasks.is_empty());
 }
+
+struct UnusedShutdownBackend;
+
+#[async_trait]
+impl LlmBackend for UnusedShutdownBackend {
+    async fn ask(
+        &self,
+        _messages: &[crate::Message],
+        _tools: &[Value],
+    ) -> anyhow::Result<crate::LlmResponse> {
+        panic!("shutdown must not call a provider")
+    }
+
+    async fn summarize(
+        &self,
+        _messages: &[crate::Message],
+        _instruction: &str,
+    ) -> anyhow::Result<String> {
+        panic!("shutdown must not summarize")
+    }
+}
+
+async fn shutdown_session(root: &std::path::Path, id: &str) -> crate::RuntimeSession {
+    crate::RuntimeSessionBuilder::for_host(
+        crate::RaraConfig::default(),
+        root,
+        Arc::new(UnusedShutdownBackend),
+        crate::ToolManager::new(),
+    )
+    .with_state_root(root.join(format!("state-{id}")))
+    .with_session_id(id)
+    .build()
+    .await
+    .expect("isolated session")
+}
+
+fn poison_child_store(control: Arc<AgentTreeControl>) {
+    let result = std::thread::spawn(move || {
+        let _guard = control.inner.lock().expect("child store");
+        panic!("inject child store failure");
+    })
+    .join();
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn session_shutdown_retains_cleanup_failure_for_concurrent_and_later_callers() {
+    let root = tempfile::tempdir().expect("workspace");
+    let session = shutdown_session(root.path(), "failed").await;
+    poison_child_store(session.agent_tree_control());
+
+    let (first, concurrent) = tokio::join!(session.shutdown(), session.shutdown());
+    assert!(matches!(
+        first,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert!(matches!(
+        concurrent,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert!(matches!(
+        session.snapshot().phase,
+        crate::RuntimeSessionPhase::Closed
+    ));
+    assert!(matches!(
+        session.shutdown().await,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+}
+
+#[tokio::test]
+async fn host_shutdown_retains_failed_sessions_and_drains_healthy_sessions() {
+    let root = tempfile::tempdir().expect("workspace");
+    let failed = shutdown_session(root.path(), "failed").await;
+    let healthy = shutdown_session(root.path(), "healthy").await;
+    let replacement = shutdown_session(root.path(), "replacement").await;
+    poison_child_store(failed.agent_tree_control());
+    let host = crate::RuntimeHost::new();
+    host.insert(failed.clone())
+        .await
+        .expect("insert failed session");
+    host.insert(healthy.clone())
+        .await
+        .expect("insert healthy session");
+
+    assert!(matches!(
+        host.shutdown().await,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert_eq!(host.session_ids().await, vec![failed.id().clone()]);
+    assert!(matches!(
+        healthy.snapshot().phase,
+        crate::RuntimeSessionPhase::Closed
+    ));
+    assert!(matches!(
+        host.shutdown().await,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert!(matches!(
+        host.remove(failed.id()).await,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert!(matches!(
+        host.insert(replacement.clone()).await,
+        Err(crate::RuntimeSessionError::ShutdownFailed)
+    ));
+    assert_eq!(host.session_ids().await, vec![failed.id().clone()]);
+    replacement.shutdown().await.expect("replacement cleanup");
+}
+
+#[tokio::test]
+async fn host_shutdown_waits_for_children_and_survives_caller_cancellation() {
+    let root = tempfile::tempdir().expect("workspace");
+    let session = shutdown_session(root.path(), "parent-a").await;
+    let replacement = shutdown_session(root.path(), "replacement").await;
+    let control = session.agent_tree_control();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    {
+        let mut inner = control.inner.lock().expect("child store");
+        inner
+            .tasks
+            .insert("agent-a".to_string(), record("agent-a", "parent-a"));
+        inner
+            .cancellations
+            .insert("agent-a".to_string(), cancellation.clone());
+        inner.active_tasks.insert("agent-a".to_string());
+    }
+    let host = crate::RuntimeHost::new();
+    host.insert(session.clone()).await.expect("insert session");
+    let first_host = host.clone();
+    let mut first = tokio::spawn(async move { first_host.shutdown().await });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !cancellation.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("child cancellation");
+    let second_host = host.clone();
+    let mut second = tokio::spawn(async move { second_host.shutdown().await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut first)
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut second)
+            .await
+            .is_err()
+    );
+    assert_eq!(host.session_ids().await, vec![session.id().clone()]);
+    assert!(matches!(
+        host.insert(replacement.clone()).await,
+        Err(crate::RuntimeSessionError::Closed)
+    ));
+    first.abort();
+    assert!(first.await.expect_err("caller aborted").is_cancelled());
+    control.finish(
+        "agent-a",
+        &Ok(completed_result("agent-a")),
+        AgentResultDelivery::Direct,
+    );
+    tokio::time::timeout(Duration::from_secs(2), second)
+        .await
+        .expect("cleanup completes")
+        .expect("second caller")
+        .expect("shutdown");
+    assert!(host.session_ids().await.is_empty());
+    host.shutdown().await.expect("retained success");
+    host.insert(replacement.clone())
+        .await
+        .expect("host reused after successful cleanup");
+    host.shutdown().await.expect("next generation cleanup");
+    assert!(host.session_ids().await.is_empty());
+    assert!(matches!(
+        replacement.snapshot().phase,
+        crate::RuntimeSessionPhase::Closed
+    ));
+}

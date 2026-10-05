@@ -507,7 +507,7 @@ async fn scoped_plugin_skill_tool_exposes_only_allowlisted_plugin_skills() {
             .await
             .expect_err("reload should be denied")
             .to_string()
-            .contains("not available in this subagent")
+            .contains("not available in this session")
     );
 }
 

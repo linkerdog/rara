@@ -71,13 +71,19 @@ Selecting the DeepSeek family sets:
 - `provider = "openai-compatible"`
 - `endpoint_kind = "deepseek"`
 - `base_url = "https://api.deepseek.com/v1"` unless a DeepSeek profile override exists
-- `model = "deepseek-chat"` unless a DeepSeek profile override exists
+- `model = "deepseek-flash"` unless a DeepSeek profile override exists
 - `revision = None`
 
 DeepSeek model discovery should call `GET /models` against the DeepSeek API
 root with the active API key. If the model-list request fails, the picker may
 fall back to the built-in DeepSeek model list, but the failure must stay visible
 as a notice or system message.
+
+The built-in fallback catalog advertises the current official model IDs
+`deepseek-flash` and `deepseek-v4-pro`, each with a 1M-token context window.
+`deepseek-flash` is the canonical ID for DeepSeek-V4.1-Flash. Retired V4 Flash
+aliases remain accepted as saved or manually entered configuration and retain
+their 1M-token budget, but the picker must not recommend them.
 
 Selecting the Moonshot AI profile sets:
 

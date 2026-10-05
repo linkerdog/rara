@@ -1,5 +1,5 @@
 use super::selection::ScreenPosition;
-use super::state::{HelpTab, Overlay, StatusTab};
+use super::state::{ApprovalDetailNavigation, HelpTab, Overlay, QuitShortcutKey, StatusTab};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -9,6 +9,7 @@ pub enum AppEvent {
     #[allow(dead_code)] // Reserved for protocol/UI-control callers (docs/todo.md)
     OpenOverlay(Overlay),
     CloseOverlay,
+    Goal(super::goal_ui::GoalUiAction),
     SubmitComposer,
     InsertNewline,
     InputChar(char),
@@ -25,16 +26,16 @@ pub enum AppEvent {
     StartTranscriptSelection(ScreenPosition),
     DragTranscriptSelection(ScreenPosition),
     FinishTranscriptSelection(ScreenPosition),
-    ScrollContext(i32),
+    NavigateOverlay(super::state::OverlayNavigation),
     MoveCommandSelection(i32),
     MoveApprovalSelection(i32),
+    ScrollApprovalDetails(ApprovalDetailNavigation),
     MovePermissionSelection(i32),
     SetPermissionSelection(usize),
     MoveSkillsSelection(i32),
     /// Generic list-picker move/set events — used by Overlay::ListPicker.
     MoveListPickerSelection(i32),
     SetListPickerSelection(usize),
-    ToggleSkillSelection,
     SelectPendingOption(usize),
     /// Reserved for legacy setup picker navigation until provider selection is
     /// fully consolidated into list-picker events (docs/todo.md).
@@ -62,6 +63,7 @@ pub enum AppEvent {
     CycleResumeSort,
     ClearResumeSearch,
     CancelRunningTask,
+    QuitShortcut(QuitShortcutKey),
     ClearComposer,
     ToggleSidebar,
     ToggleThinking,
