@@ -193,6 +193,53 @@ impl TuiApp {
         }
     }
 
+    /// Starts the debounced query once it is due. Returns true when the
+    /// request failed to start and its error was already applied.
+    ///
+    /// Kept separate from the result poll so a fast worker cannot complete the
+    /// request inside the same call that dispatches it.
+    pub(crate) fn dispatch_due_resume_query(&mut self) -> bool {
+        if !self
+            .resume_query
+            .due
+            .is_some_and(|due| due <= Instant::now())
+        {
+            return false;
+        }
+        self.resume_query.due = None;
+        let Some(db) = self.state_db.clone() else {
+            return false;
+        };
+        let Some(storage) = &self.storage else {
+            return false;
+        };
+        let request = ResumeRequest {
+            generation: self.resume_query.generation,
+            session_id: self.snapshot.session_id.clone(),
+            cwd: self.snapshot.cwd.clone(),
+            search: self.resume_search_query.clone(),
+            sort: if self.resume_sort_by_created {
+                ThreadListSort::Created
+            } else {
+                ThreadListSort::Updated
+            },
+            scope: self.resume_query.scope,
+            after: self.resume_query.next.clone(),
+            effective_cwd: self.resume_query.effective_cwd.clone(),
+        };
+        let work = request.clone();
+        match storage.read(move || work.load(&db)) {
+            Ok(receiver) => {
+                self.resume_query.pending = Some(PendingResumeQuery { request, receiver });
+                false
+            }
+            Err(error) => {
+                self.finish_resume_query(request, Err(error));
+                true
+            }
+        }
+    }
+
     pub(crate) fn poll_resume_queries(&mut self) -> bool {
         let source_changed = self
             .resume_query
@@ -204,42 +251,8 @@ impl TuiApp {
         if source_changed {
             self.refresh_recent_threads_for_resume_picker();
         }
-        if self
-            .resume_query
-            .due
-            .is_some_and(|due| due <= Instant::now())
-        {
-            self.resume_query.due = None;
-            let Some(db) = self.state_db.clone() else {
-                return source_changed;
-            };
-            let Some(storage) = &self.storage else {
-                return source_changed;
-            };
-            let request = ResumeRequest {
-                generation: self.resume_query.generation,
-                session_id: self.snapshot.session_id.clone(),
-                cwd: self.snapshot.cwd.clone(),
-                search: self.resume_search_query.clone(),
-                sort: if self.resume_sort_by_created {
-                    ThreadListSort::Created
-                } else {
-                    ThreadListSort::Updated
-                },
-                scope: self.resume_query.scope,
-                after: self.resume_query.next.clone(),
-                effective_cwd: self.resume_query.effective_cwd.clone(),
-            };
-            let work = request.clone();
-            match storage.read(move || work.load(&db)) {
-                Ok(receiver) => {
-                    self.resume_query.pending = Some(PendingResumeQuery { request, receiver })
-                }
-                Err(error) => {
-                    self.finish_resume_query(request, Err(error));
-                    return true;
-                }
-            }
+        if self.dispatch_due_resume_query() {
+            return true;
         }
         let Some(pending) = &mut self.resume_query.pending else {
             return source_changed;

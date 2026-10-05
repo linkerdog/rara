@@ -110,7 +110,7 @@ async fn pending_page_cannot_cross_search_or_workspace_boundaries() {
     app.finish_resume_query_for_test().await;
     app.resume_picker_idx = 49;
     app.move_resume_selection(1);
-    app.poll_resume_queries();
+    app.dispatch_due_resume_query();
     let old = app.resume_query.pending.take().unwrap();
     app.insert_active_input_text("saved-050");
     app.finish_resume_query(old.request, old.receiver.await.unwrap());
@@ -119,7 +119,7 @@ async fn pending_page_cannot_cross_search_or_workspace_boundaries() {
     assert_eq!(ids(&app), ["saved-050"]);
 
     app.clear_resume_search();
-    app.poll_resume_queries();
+    app.dispatch_due_resume_query();
     let old = app.resume_query.pending.take().unwrap();
     app.snapshot.cwd = "/b/app".into();
     app.finish_resume_query(old.request, old.receiver.await.unwrap());
@@ -133,7 +133,7 @@ async fn pending_page_cannot_cross_search_or_workspace_boundaries() {
 async fn query_failure_is_visible_and_refresh_recovers() {
     let (_dir, db, mut app) = fixture();
     session(&db, "local", "/a/app");
-    app.poll_resume_queries();
+    app.dispatch_due_resume_query();
     let pending = app.resume_query.pending.take().unwrap();
     app.finish_resume_query(
         pending.request,
