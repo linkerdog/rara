@@ -1,29 +1,42 @@
-//! Extend canonical plain paragraph rows until appended syntax requires replay.
+//! Extend a canonical paragraph text tail until appended syntax requires replay.
 
 use ratatui::text::{Line, Span};
 
-pub(super) struct PlainParagraph {
+pub(super) struct ParagraphTail {
     at_line_start: bool,
+    formatted: bool,
     pending_spaces: usize,
     pub row_start: usize,
     pub row_end: usize,
 }
 
-impl PlainParagraph {
+impl ParagraphTail {
     pub fn from_rendered(source: &str, lines: &[Line<'static>]) -> Option<Self> {
         if source.is_empty() {
             return None;
         }
-        let mut plain = Self {
+        let mut tail = Self {
             at_line_start: true,
+            formatted: false,
             pending_spaces: 0,
             row_start: 0,
             row_end: 0,
         };
-        plain.validate(source)?;
-        plain.row_start = lines.len().checked_sub(source.lines().count())?;
-        plain.row_end = lines.len().checked_sub(usize::from(!plain.at_line_start))?;
-        Some(plain)
+        tail.validate(source)?;
+        tail.row_start = lines.len().checked_sub(source.lines().count())?;
+        tail.row_end = lines.len().checked_sub(usize::from(!tail.at_line_start))?;
+        Some(tail)
+    }
+
+    pub fn from_text_tail(pending_spaces: usize, lines: &[Line<'static>]) -> Option<Self> {
+        let row_start = lines.len().checked_sub(1)?;
+        Some(Self {
+            at_line_start: false,
+            formatted: true,
+            pending_spaces,
+            row_start,
+            row_end: row_start,
+        })
     }
 
     /// Validate before mutating rows, so fallback sees the original cache.
@@ -37,7 +50,7 @@ impl PlainParagraph {
             if at_line_start {
                 lines.push(Line::from(Span::raw(String::new())));
             }
-            let content = lines.last_mut()?.spans.first_mut()?.content.to_mut();
+            let content = lines.last_mut()?.spans.last_mut()?.content.to_mut();
             if !text.is_empty() {
                 content.extend(std::iter::repeat_n(' ', pending_spaces));
                 content.push_str(text);
@@ -74,7 +87,8 @@ impl PlainParagraph {
                     return None;
                 }
                 self.at_line_start = true;
-            } else if ch.is_control()
+            } else if (self.formatted && matches!(ch, '(' | ')' | '\"' | '\''))
+                || ch.is_control()
                 || (ch.is_whitespace() && ch != ' ')
                 || matches!(
                     ch,
