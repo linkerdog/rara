@@ -16,7 +16,12 @@ use super::app_event::AppEvent;
 use super::custom_terminal::Frame;
 use super::state::{ListPickerKind, TuiApp};
 use super::theme::{ThemeToken, theme_color};
-use crate::thread_store::ThreadSummary;
+mod resume;
+#[cfg(test)]
+mod resume_tests;
+#[cfg(test)]
+use resume::render_resume_summary_lines;
+pub(crate) use resume::{resumable_threads, selected_resumable_thread_id};
 
 const AUTH_MODE_ITEM_COUNT: usize = 4;
 
@@ -115,7 +120,7 @@ impl ListPickerKind {
             Self::Model => Self::render_model_items(app, selected),
             Self::AuthMode => Self::render_auth_mode_items(selected),
             Self::ReasoningEffort => Self::render_reasoning_effort_items(app, selected),
-            Self::Resume => Self::render_resume_items(app, selected),
+            Self::Resume => resume::render_items(app, selected),
             Self::OpenAiEndpointKind => Self::render_endpoint_kind_items(app, selected),
             Self::OpenAiProfile => Self::render_openai_profile_items(app, selected),
             Self::UnifiedModel => Self::render_unified_model_items(app, selected),
@@ -343,30 +348,6 @@ impl ListPickerKind {
             .collect()
     }
 
-    fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
-        if app.resume_query.loading {
-            return vec![ListItem::new("Loading saved threads...")];
-        }
-        if let Some(error) = &app.resume_query.error {
-            return vec![ListItem::new(
-                crate::tui::display_sanitize::sanitize_display_text(error),
-            )];
-        }
-        let summaries = resumable_threads(app);
-        if summaries.is_empty() {
-            return vec![ListItem::new("No threads available.")];
-        }
-        let now = current_unix_time_secs();
-        summaries
-            .iter()
-            .enumerate()
-            .map(|(idx, summary)| {
-                ListItem::new(render_resume_summary_lines(idx, summary, now))
-                    .style(Self::selected_style(idx, selected))
-            })
-            .collect()
-    }
-
     fn render_endpoint_kind_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
         use super::state::openai_profile_setup_kinds;
         openai_profile_setup_kinds()
@@ -416,127 +397,6 @@ impl ListPickerKind {
     }
 }
 
-pub(crate) fn selected_resumable_thread_id(app: &TuiApp) -> Option<String> {
-    if app.resume_query.loading || app.resume_query.error.is_some() {
-        return None;
-    }
-    resumable_threads(app)
-        .get(app.resume_picker_idx)
-        .map(|summary| summary.metadata.session_id.clone())
-}
-
-pub(crate) fn resumable_threads(app: &TuiApp) -> Vec<&ThreadSummary> {
-    app.recent_threads
-        .iter()
-        .filter(|summary| summary.metadata.session_id != app.snapshot.session_id)
-        .filter(|summary| {
-            resume_workspace_label(&summary.metadata.cwd)
-                == resume_workspace_label(&app.snapshot.cwd)
-        })
-        .collect()
-}
-
-fn render_resume_summary_lines(
-    idx: usize,
-    summary: &ThreadSummary,
-    now: u64,
-) -> Vec<Line<'static>> {
-    let preview = normalized_resume_preview(summary);
-    let metadata = &summary.metadata;
-    let workspace = resume_workspace_label(&metadata.cwd);
-    let updated = format_resume_age(metadata.updated_at, now);
-    let counts = format!(
-        "hist={} trans={} compact={}",
-        metadata.history_len, metadata.transcript_len, summary.compaction.compaction_count
-    );
-    let compaction = resume_compaction_detail(summary);
-
-    let title = Line::from(vec![
-        Span::raw(format!("[{}] ", idx + 1)),
-        Span::styled(preview, Style::default().add_modifier(Modifier::BOLD)),
-    ]);
-    let metadata = Line::from(format!(
-        "     {updated}  {}/{}  mode={} approval={}  cwd={} branch={}  {counts}",
-        metadata.provider,
-        metadata.model,
-        metadata.agent_mode,
-        metadata.bash_approval,
-        workspace,
-        metadata.branch,
-    ));
-
-    let mut lines = vec![title, metadata];
-    if let Some(compaction) = compaction {
-        lines.push(Line::from(format!("     {compaction}")));
-    }
-    lines
-}
-
-fn normalized_resume_preview(summary: &ThreadSummary) -> String {
-    let preview = summary.preview.replace('\n', " ");
-    let preview = preview.trim();
-    if preview.is_empty() {
-        "(no transcript preview)".to_string()
-    } else {
-        preview.to_string()
-    }
-}
-
-fn resume_workspace_label(cwd: &str) -> String {
-    std::path::Path::new(cwd)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| cwd.to_string())
-}
-
-fn current_unix_time_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
-}
-
-fn format_resume_age(updated_at: i64, now: u64) -> String {
-    if updated_at <= 0 {
-        return "updated unknown".to_string();
-    }
-    let age = now.saturating_sub(updated_at as u64);
-    let label = if age < 60 {
-        "just now".to_string()
-    } else if age < 3600 {
-        format!("{}m ago", age / 60)
-    } else if age < 86400 {
-        format!("{}h ago", age / 3600)
-    } else {
-        format!("{}d ago", age / 86400)
-    };
-    format!("updated {label}")
-}
-
-fn resume_compaction_detail(summary: &ThreadSummary) -> Option<String> {
-    let compaction = &summary.compaction;
-    if compaction.compaction_count == 0 {
-        return None;
-    }
-    let mut parts = Vec::new();
-    if let Some(version) = compaction.boundary_version {
-        parts.push(format!("boundary=v{version}"));
-    }
-    if let Some(count) = compaction.recent_file_count {
-        parts.push(format!("recent_files={count}"));
-    }
-    if let (Some(before), Some(after)) = (compaction.before_tokens, compaction.after_tokens) {
-        parts.push(format!("tokens={before}->{after}"));
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(format!("compact {}", parts.join(" ")))
-    }
-}
-
 // ---------------------------------------------------------------------------
 use crate::tui::render::popup_block;
 
@@ -544,10 +404,14 @@ use crate::tui::render::popup_block;
 // Unified render — one function for all ListPicker variants
 // ---------------------------------------------------------------------------
 
-pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, area: Rect) {
+pub fn render_list_picker(
+    f: &mut Frame,
+    app: &mut TuiApp,
+    kind: ListPickerKind,
+    area: Rect,
+) -> Option<(u16, u16)> {
     if kind == ListPickerKind::Resume {
-        render_resume_picker(f, app, area);
-        return;
+        return resume::render_picker(f, app, area);
     }
 
     let items = kind.render_items(app);
@@ -586,74 +450,7 @@ pub fn render_list_picker(f: &mut Frame, app: &TuiApp, kind: ListPickerKind, are
         Paragraph::new(kind.help_text()).alignment(Alignment::Center),
         chunks[2],
     );
-}
-
-fn render_resume_picker(f: &mut Frame, app: &TuiApp, area: Rect) {
-    let items = ListPickerKind::Resume.render_items(app);
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4),
-            Constraint::Min(8),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    let query = if app.resume_search_query.is_empty() {
-        "type to filter".to_string()
-    } else {
-        crate::tui::display_sanitize::sanitize_display_line(&app.resume_search_query)
-    };
-    let sort_status = if app.resume_sort_by_created {
-        "sort=updated [created]"
-    } else {
-        "sort=[updated] created"
-    };
-    let total = resumable_threads(app).len();
-    let current = if total == 0 {
-        0
-    } else {
-        app.resume_picker_idx + 1
-    };
-    let search_line = Line::from(vec![
-        Span::styled("Search: ", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(query),
-        Span::raw(format!("  showing {current}/{total}")),
-    ]);
-    let status_line = Line::from(format!("{sort_status}  left/right sort"));
-
-    f.render_widget(
-        Paragraph::new(vec![search_line, status_line]).block(
-            Block::default()
-                .style(Style::default().bg(theme_color(ThemeToken::UiElementBg)))
-                .padding(Padding::horizontal(1))
-                .title(ListPickerKind::Resume.title()),
-        ),
-        chunks[0],
-    );
-
-    let mut state = list_picker_state(app.resume_picker_idx, total);
-    f.render_stateful_widget(
-        List::new(items)
-            .block(Block::default().padding(Padding::horizontal(1)))
-            .highlight_style(list_picker_highlight_style())
-            .highlight_symbol("› "),
-        chunks[1],
-        &mut state,
-    );
-
-    let footer = if app.resume_search_query.is_empty() {
-        "type search  tab cwd/all  left/right sort  up/down move  enter resume  esc close"
-    } else {
-        "type search  backspace edit  esc clear search  enter resume"
-    };
-    f.render_widget(
-        Paragraph::new(footer).alignment(Alignment::Center),
-        chunks[2],
-    );
+    None
 }
 
 fn list_picker_state(selected: usize, item_count: usize) -> ListState {
@@ -721,8 +518,14 @@ fn resume_picker_key_event(code: KeyCode) -> AppEvent {
         KeyCode::Esc => AppEvent::ClearResumeSearch,
         KeyCode::Up => AppEvent::MoveListPickerSelection(-1),
         KeyCode::Down => AppEvent::MoveListPickerSelection(1),
-        KeyCode::Tab => AppEvent::CycleResumeSort,
-        KeyCode::BackTab | KeyCode::Left | KeyCode::Right => AppEvent::CycleResumeSort,
+        KeyCode::Tab | KeyCode::BackTab => AppEvent::ToggleResumeScope,
+        KeyCode::Left => AppEvent::MoveCursorLeft,
+        KeyCode::Right => AppEvent::MoveCursorRight,
+        KeyCode::Home => AppEvent::MoveCursorHome,
+        KeyCode::End => AppEvent::MoveCursorEnd,
+        KeyCode::Delete => AppEvent::DeleteForward,
+        KeyCode::PageUp => AppEvent::ResumePageUp,
+        KeyCode::PageDown => AppEvent::ResumePageDown,
         KeyCode::Backspace => AppEvent::Backspace,
         KeyCode::Enter => AppEvent::ApplyOverlaySelection,
         KeyCode::Char(c) if !c.is_control() => AppEvent::InputChar(c),
@@ -737,7 +540,7 @@ mod tests {
 
     use super::*;
     use crate::config::ConfigManager;
-    use crate::thread_store::{CompactionRecord, ThreadMetadata};
+    use crate::thread_store::{CompactionRecord, ThreadMetadata, ThreadSummary};
 
     #[test]
     fn resume_summary_lines_surface_runtime_location_and_compaction_metadata() {
@@ -782,11 +585,11 @@ mod tests {
         assert!(rendered.contains("[1] User: improve resume picker"));
         assert!(rendered.contains("updated unknown  codex/gpt-5.2"));
         assert!(rendered.contains("mode=execute approval=suggestion"));
-        assert!(rendered.contains("cwd=rara branch=feature/resume-picker"));
+        assert!(rendered.contains("cwd=/Users/test/projects/rara branch=feature/resume-picker"));
         assert!(rendered.contains("hist=8 trans=5 compact=2"));
         assert!(rendered.contains("compact boundary=v1 recent_files=3 tokens=12000->4000"));
         assert!(!rendered.contains("compaction runs=2"));
-        assert_eq!(rendered.lines().count(), 3);
+        assert_eq!(rendered.lines().count(), 4);
     }
 
     #[test]
@@ -805,7 +608,7 @@ mod tests {
         ));
         assert!(matches!(
             list_picker_key_event(ListPickerKind::Resume, KeyCode::Tab),
-            AppEvent::CycleResumeSort
+            AppEvent::ToggleResumeScope
         ));
     }
 
@@ -845,12 +648,12 @@ mod tests {
 
         assert_eq!(
             selected_resumable_thread_id(&app).as_deref(),
-            Some("resumable-thread")
+            Some("other-workspace")
         );
-        assert_eq!(ListPickerKind::Resume.item_count(&app), 1);
+        assert_eq!(ListPickerKind::Resume.item_count(&app), 2);
     }
 
-    fn thread_summary(session_id: &str, cwd: &str) -> ThreadSummary {
+    pub(super) fn thread_summary(session_id: &str, cwd: &str) -> ThreadSummary {
         ThreadSummary {
             metadata: ThreadMetadata {
                 session_id: session_id.to_string(),

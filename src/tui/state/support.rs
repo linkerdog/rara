@@ -58,6 +58,7 @@ pub(super) fn state_db_status_error(prefix: &str, message: impl Into<String>) ->
 pub(super) enum TextInputTarget {
     Composer,
     ModelSearch,
+    ResumeSearch,
     BaseUrl,
     ApiKey,
     ModelName,
