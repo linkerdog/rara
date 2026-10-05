@@ -94,6 +94,12 @@ not inherit the plain-list j/k shortcuts.
   traversed results while loading. Draft/cursor/overlay changes invalidate
   delayed Up recall. Persistence, privacy filters, bounds, disabled behavior,
   and shutdown ordering are defined in [Prompt History](../features/prompt-history.md).
+- Ctrl+G opens the expanded draft in a nonempty VISUAL, falling back to EDITOR.
+  The shortcut applies to the composer and its completion surfaces; other
+  overlays and pending decisions retain ownership. It does not submit. Failure
+  or an unchanged result preserves cursor and owned paste ranges. Successful
+  edits return through paste sanitization; stale results receive a recovery file
+  without replacing the current draft. See [External Editor](../features/external-editor.md).
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.

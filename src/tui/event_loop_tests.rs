@@ -48,6 +48,8 @@ impl LlmBackend for UnusedBackend {
 struct SourceProbe {
     maintenance_ticks: Cell<usize>,
     fail_maintenance: Cell<bool>,
+    editor_seeds: RefCell<Vec<String>>,
+    editor_result: RefCell<Option<tokio::sync::oneshot::Receiver<anyhow::Result<String>>>>,
     #[cfg(unix)]
     suspends: Cell<usize>,
 }
@@ -70,6 +72,23 @@ impl EventSource<EmulatorBackend> for FakeEventSource {
             return Err(io::Error::other("injected mode maintenance failure"));
         }
         Ok(())
+    }
+
+    async fn edit_external(
+        &mut self,
+        terminal: &mut Terminal<EmulatorBackend>,
+        request: crate::tui::external_editor::EditorRequest,
+    ) -> io::Result<anyhow::Result<String>> {
+        terminal.finish_inline_viewport()?;
+        self.probe
+            .editor_seeds
+            .borrow_mut()
+            .push(request.seed.to_string());
+        let receiver = self.probe.editor_result.borrow_mut().take();
+        match receiver {
+            Some(receiver) => Ok(receiver.await.map_err(io::Error::other)?),
+            None => Ok(Err(anyhow::anyhow!("no scripted editor result"))),
+        }
     }
 
     #[cfg(unix)]
@@ -543,3 +562,55 @@ mod session_tests;
 
 #[path = "event_loop_feedback_tests.rs"]
 mod feedback_tests;
+
+#[tokio::test]
+async fn external_editor_drains_runtime_without_painting_until_handoff_finishes() {
+    let mut fixture = Fixture::new().await;
+    fixture
+        .controller
+        .app_mut()
+        .set_input("original draft".into());
+    let input = fixture.input.clone();
+    let screen = fixture.screen.clone();
+    let commands = fixture.commands.clone();
+    let probe = fixture.source.probe.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    *probe.editor_result.borrow_mut() = Some(receiver);
+    tokio::time::pause();
+    {
+        let future = fixture.run();
+        tokio::pin!(future);
+        assert!(poll!(&mut future).is_pending());
+        input
+            .send(Ok(Event::Key(KeyEvent::new(
+                KeyCode::Char('g'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+        assert!(poll!(&mut future).is_pending());
+        assert_eq!(*probe.editor_seeds.borrow(), ["original draft"]);
+        let bytes = screen.borrow().output.len();
+        let maintenance = probe.maintenance_ticks.get();
+        commands
+            .send(RuntimeCommand::SetPermissionMode(PermissionMode::ReadOnly))
+            .unwrap();
+        assert!(poll!(&mut future).is_pending());
+        advance(Duration::from_secs(1)).await;
+        assert!(poll!(&mut future).is_pending());
+        assert_eq!(screen.borrow().output.len(), bytes);
+        assert_eq!(probe.maintenance_ticks.get(), maintenance);
+        sender.send(Ok("edited draft".into())).unwrap();
+        assert!(poll!(&mut future).is_pending());
+        advance(Duration::from_millis(18)).await;
+        assert!(poll!(&mut future).is_pending());
+        let contents = screen.borrow().parser.screen().contents();
+        assert!(contents.contains("edited draft"), "{contents}");
+        assert!(contents.contains("read-only planning"), "{contents}");
+    }
+    assert_eq!(fixture.controller.app().bottom_pane.input, "edited draft");
+    assert_eq!(
+        fixture.controller.app().permission_mode,
+        PermissionMode::ReadOnly
+    );
+    assert!(fixture.port.commands().is_empty());
+}

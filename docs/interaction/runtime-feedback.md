@@ -290,6 +290,19 @@ Suspension does not issue a runtime cancellation or change goal policy.
 Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
 control are outside this keyboard-driven contract.
 
+### External Editor Handoff
+
+Ctrl+G follows the same terminal ownership boundary as suspension: drop the
+input reader, finish the inline frame, restore modes, then run the editor.
+Runtime events continue to drain while terminal drawing, input, feedback, and
+mode-maintenance ticks are paused. Completion restores cooked termios on Unix,
+returns from the editor's alternate screen, reacquires keyboard/title/input
+modes, and creates a new reader. The next frame uses the current size. A mode
+reacquisition error exits through the ordinary restoration boundary.
+
+See [External Editor](../features/external-editor.md) for configuration, draft,
+cleanup, and recovery contracts.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -324,3 +337,4 @@ control are outside this keyboard-driven contract.
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
 - [Keyboard enhancement and suspend ownership](../journal/2026-10-05-keyboard-enhancement.md)
+- [External editor handoff](../journal/2026-10-05-external-editor.md)

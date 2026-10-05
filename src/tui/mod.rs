@@ -34,6 +34,7 @@ mod display_tail;
 mod event_dispatch;
 mod event_loop;
 mod event_stream;
+mod external_editor;
 mod file_mentions;
 mod format;
 mod frame_scheduler;

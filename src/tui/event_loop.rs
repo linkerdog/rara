@@ -14,6 +14,7 @@ use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 use super::controller::{RuntimeActivity, TuiController};
 use super::custom_terminal::Terminal;
 use super::event_stream::{UiEvent, translate_event};
+use super::external_editor::{EditorCommand, EditorDraft, EditorRequest, PreparedEdit};
 use super::frame_scheduler::FrameScheduler;
 use super::render::render;
 use super::runtime::RuntimeCommandProcessor;
@@ -196,11 +197,17 @@ async fn run_tui_session(
 }
 
 /// Owns terminal input and mode handoff. Implementors must release the input
-/// reader before suspension and surface maintenance/reacquisition errors.
+/// reader before terminal handoff and surface maintenance/reacquisition errors.
 /// Input reads must be cancellation-safe because select drops losing futures.
 pub(super) trait EventSource<B: Backend<Error = io::Error> + Write> {
     async fn next_event(&mut self) -> Option<io::Result<Event>>;
     fn maintain_raw_mode(&mut self) -> io::Result<()>;
+    /// Suspend presentation/input for an editor; outer errors mean terminal ownership was lost.
+    async fn edit_external(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        request: EditorRequest,
+    ) -> io::Result<anyhow::Result<String>>;
     #[cfg(unix)]
     fn suspend(&mut self, terminal: &mut Terminal<B>) -> io::Result<()>;
 }
@@ -226,6 +233,29 @@ impl EventSource<CrosstermBackend<io::Stdout>> for TerminalEventSource<'_> {
 
     fn maintain_raw_mode(&mut self) -> io::Result<()> {
         self.modes.maintain_raw_mode()
+    }
+
+    async fn edit_external(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        request: EditorRequest,
+    ) -> io::Result<anyhow::Result<String>> {
+        let command = match EditorCommand::from_environment() {
+            Ok(command) => command,
+            Err(error) => return Ok(Err(error)),
+        };
+        let edit = match PreparedEdit::prepare(request, command).await {
+            Ok(edit) => edit,
+            Err(error) => return Ok(Err(error)),
+        };
+        let events = self
+            .events
+            .take()
+            .ok_or_else(|| io::Error::other("terminal reader unavailable for editor"))?;
+        let (events, result) =
+            super::external_editor::edit_with_terminal(terminal, self.modes, events, edit).await?;
+        self.events = Some(events);
+        Ok(result)
     }
 
     #[cfg(unix)]
@@ -362,24 +392,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 needs_redraw |= changed;
             }
             runtime_activity = maintainer.wait_for_runtime_activity(), if exit_flush.is_none() => {
-                match runtime_activity {
-                    RuntimeActivity::Event(Some(event)) => {
-                        needs_redraw |= maintainer.apply_runtime_event(event);
-                        needs_redraw |= maintainer.complete_query_if_ready(processor).await?;
-                    }
-                    RuntimeActivity::Event(None) => {}
-                    RuntimeActivity::Completed(completion) => {
-                        needs_redraw |= maintainer
-                            .receive_runtime_task_completion(processor, completion)
-                            .await?;
-                    }
-                    RuntimeActivity::Command(Some(command)) => {
-                        maintainer.apply_runtime_command(processor, command).await?;
-                        needs_redraw = true;
-                    }
-                    RuntimeActivity::Command(None) => {}
-                }
-                needs_redraw |= maintainer.resync_after_event_loss(processor);
+                needs_redraw |= apply_runtime_activity(maintainer, processor, runtime_activity).await?;
             }
             maybe_event = events.next_event(), if !input_closed => {
                 if exit_flush.is_some() {
@@ -418,6 +431,24 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                                     Err(error) => app.bottom_pane.notice = Some(format!("Could not save session; exit cancelled: {error:#}")),
                                 }
                             }
+                            needs_redraw = true;
+                        }
+                        Some(UiEvent::ExternalEditor) => {
+                            let (draft, request) = EditorDraft::capture(maintainer.app_mut());
+                            let result = {
+                                let edit = events.edit_external(terminal, request);
+                                tokio::pin!(edit);
+                                loop {
+                                    tokio::select! {
+                                        result = &mut edit => break result?,
+                                        activity = maintainer.wait_for_runtime_activity() => {
+                                            apply_runtime_activity(maintainer, processor, activity).await?;
+                                        }
+                                    }
+                                }
+                            };
+                            draft.finish(maintainer.app_mut(), result).await;
+                            feedback.resumed();
                             needs_redraw = true;
                         }
                         Some(UiEvent::Draw) => {
@@ -461,6 +492,33 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
         maintainer.needs_redraw |= needs_redraw;
     }
     Ok(())
+}
+
+async fn apply_runtime_activity(
+    maintainer: &mut TuiController,
+    processor: &mut RuntimeCommandProcessor,
+    activity: RuntimeActivity,
+) -> anyhow::Result<bool> {
+    let mut changed = false;
+    match activity {
+        RuntimeActivity::Event(Some(event)) => {
+            changed |= maintainer.apply_runtime_event(event);
+            changed |= maintainer.complete_query_if_ready(processor).await?;
+        }
+        RuntimeActivity::Event(None) => {}
+        RuntimeActivity::Completed(completion) => {
+            changed |= maintainer
+                .receive_runtime_task_completion(processor, completion)
+                .await?;
+        }
+        RuntimeActivity::Command(Some(command)) => {
+            maintainer.apply_runtime_command(processor, command).await?;
+            changed = true;
+        }
+        RuntimeActivity::Command(None) => {}
+    }
+    changed |= maintainer.resync_after_event_loss(processor);
+    Ok(changed)
 }
 
 fn should_start_initial_rebuild(explicit_plugin_dirs: &[PathBuf]) -> bool {

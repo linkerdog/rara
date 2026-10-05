@@ -9011,6 +9011,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.11.0",
+ "shlex 2.0.1",
  "signal-hook",
  "syntect",
  "tempfile",
