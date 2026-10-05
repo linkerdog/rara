@@ -51,6 +51,20 @@ resolve prior definitions without parsing retained source. Resolution preserves
 the parser's Unicode case folding and first-definition precedence. Source
 replacement resets source, references, and row boundaries together.
 
+An unindented plain paragraph may extend the rows produced by its first
+canonical parse. Eligibility examines all source in the candidate once, then
+only appended characters. Every physical line must start with an ASCII letter
+or a non-ASCII character other than whitespace, controls, or a BOM. Markdown
+delimiters, escapes, entities, control characters, blank lines, indentation,
+and hard-break spaces leave this path. Rejected candidates
+are not rescanned until the canonical stable source boundary advances. Pending
+trailing spaces remain separate from displayed text until subsequent content
+makes them visible. Completed plain lines may be promoted to shared visual
+blocks, but structural syntax arriving later advances the replay epoch before
+canonical rendering can revise those rows. No fixed-length syntax sample is
+used. This bounds eligible paragraph source work and completed-line reuse;
+wrapping a single growing physical line remains a separate cost.
+
 Reference reuse is conservative about the parser's expansion budget. The
 number of closing brackets multiplied by the largest decoded destination-plus-
 title size bounds possible expansion. Check this bound against each parser's
@@ -197,6 +211,7 @@ boundaries for issue #921:
 | Late frames and deadline stability | No catch-up burst; repeated requests do not postpone the pending deadline |
 | Event preservation | Apply all ordered deltas; fewer paints still show the complete final response |
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
+| Plain paragraphs | Linear parse/eligibility bytes and rendered rows for word and soft-break deltas; late syntax, whitespace, Unicode splits, replacement, and theme invalidation agree with canonical rows |
 | Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
 | Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
@@ -245,7 +260,7 @@ on a slow output device.
   canonical mutable-tail or full-source replay. Ordinary blocks after retained
   definitions reuse the reference context; replay is not permanent merely
   because a document contains references.
-  Long single paragraphs/lists still require mutable-tail work; this is not
+  Ineligible long paragraphs/lists still require mutable-tail work; this is not
   an unconditional O(new-delta) guarantee for every Markdown document.
 - Source-cache work counters exclude the display sanitizer and control-token
   scrubber. Terminal-control parsing is incremental with constant-size carry;
@@ -261,6 +276,7 @@ on a slow output device.
 - [Markdown content preservation](../journal/2026-10-05-markdown-content-preservation.md)
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
+- [Plain paragraph streaming](../journal/2026-10-05-long-mutable-markdown.md)
 - [Streaming reference context](../journal/2026-10-04-streaming-reference-context.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)

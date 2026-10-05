@@ -1,5 +1,6 @@
 //! One append-only source and one materialized row cache per live stream.
 mod code_fence;
+mod plain_paragraph;
 
 use std::{
     ops::Range,
@@ -7,6 +8,7 @@ use std::{
 };
 
 use code_fence::OpenCodeFence;
+use plain_paragraph::PlainParagraph;
 use ratatui::text::Line;
 
 #[cfg(test)]
@@ -42,6 +44,8 @@ pub(crate) struct MarkdownStreamCollector {
     reference_replay: bool,
     closing_brackets: usize,
     open_fence: Option<OpenCodeFence>,
+    plain_paragraph: Option<PlainParagraph>,
+    plain_candidate_start: Option<usize>,
     width: Option<usize>,
     cwd: PathBuf,
     lines: Vec<Line<'static>>,
@@ -60,6 +64,7 @@ pub(crate) struct MarkdownWork {
     pub rendered_rows: usize,
     pub fence_bytes: usize,
     pub reference_bytes: usize,
+    pub plain_bytes: usize,
 }
 
 impl MarkdownStreamCollector {
@@ -77,6 +82,8 @@ impl MarkdownStreamCollector {
             reference_replay: false,
             closing_brackets: 0,
             open_fence: None,
+            plain_paragraph: None,
+            plain_candidate_start: None,
             width,
             cwd: cwd.to_path_buf(),
             lines: Vec::new(),
@@ -119,6 +126,8 @@ impl MarkdownStreamCollector {
         self.references = ReferenceContext::default();
         self.reference_replay = false;
         self.open_fence = None;
+        self.plain_paragraph = None;
+        self.plain_candidate_start = None;
         self.lines.clear();
     }
 
@@ -153,6 +162,11 @@ impl MarkdownStreamCollector {
             .open_fence
             .as_ref()
             .map_or(self.stable_line_len, |fence| fence.row_end)
+            .max(
+                self.plain_paragraph
+                    .as_ref()
+                    .map_or(0, |plain| plain.row_end),
+            )
             .min(self.lines.len());
         RenderedStream {
             epoch: self.row_epoch,
@@ -178,6 +192,22 @@ impl MarkdownStreamCollector {
                 .has_mutable_definition(self.stable_source_len)
         {
             self.invalidate_reference_prefix();
+        }
+        if let Some(mut plain) = self.plain_paragraph.take() {
+            #[cfg(test)]
+            {
+                self.work.plain_bytes += self.buffer.len() - self.rendered_source_len;
+            }
+            if let Some(changed_rows) =
+                plain.append(&self.buffer[self.rendered_source_len..], &mut self.lines)
+            {
+                self.record_rows(changed_rows);
+                self.plain_paragraph = Some(plain);
+                self.rendered_complete_len = self.complete_source_len;
+                return;
+            }
+            // Later syntax can revise all tentatively retained paragraph rows.
+            self.row_epoch = self.row_epoch.wrapping_add(1);
         }
         if let Some(mut fence) = self.open_fence.take() {
             if let Some(rows) = fence.update(&self.buffer, self.complete_source_len) {
@@ -236,6 +266,19 @@ impl MarkdownStreamCollector {
             } else {
                 self.render_tail(self.buffer.len(), RenderBoundary::Preview);
             }
+        }
+        if self.held_table_start.is_none()
+            && self.open_fence.is_none()
+            && !self.reference_replay
+            && self.plain_candidate_start != Some(self.stable_source_len)
+        {
+            self.plain_candidate_start = Some(self.stable_source_len);
+            let source = &self.buffer[self.stable_source_len..];
+            #[cfg(test)]
+            {
+                self.work.plain_bytes += source.len();
+            }
+            self.plain_paragraph = PlainParagraph::from_rendered(source, &self.lines);
         }
     }
 
@@ -346,6 +389,7 @@ impl MarkdownStreamCollector {
         self.stable_context = RenderContext::default();
         self.references = ReferenceContext::default();
         self.open_fence = None;
+        self.plain_paragraph = None;
     }
 
     #[cfg(test)]
@@ -353,6 +397,7 @@ impl MarkdownStreamCollector {
         self.row_epoch = self.row_epoch.wrapping_add(1);
         self.theme_revision = theme::revision();
         self.open_fence = None;
+        self.plain_paragraph = None;
         self.record_parse(self.buffer.len());
         self.lines =
             render_markdown_text_with_width_and_cwd(&self.buffer, self.width, Some(&self.cwd))

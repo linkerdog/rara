@@ -339,3 +339,46 @@ fn compact_growth_only_wraps_new_head_and_summary_rows() {
     assert!(work.cloned_rows <= 200 * 4, "{work:?}");
     assert_eq!(work.hashed_rows, 0);
 }
+
+#[test]
+fn plain_soft_break_rows_reuse_completed_lines_and_replay_late_heading() {
+    for width in [1, 8, 80] {
+        for view in [ResponseView::Full, ResponseView::Compact] {
+            let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+            let mut layout = StreamRowCache::default();
+            let mut source = "Ordinary paragraph line\n".to_string();
+            collector.push_delta(&source);
+            let original = materialize(&mut collector, &mut layout, width, view);
+            for _ in 0..200 {
+                let chunk = "Another paragraph line\n";
+                source.push_str(chunk);
+                collector.push_delta(chunk);
+                let rows = materialize(&mut collector, &mut layout, width, view);
+                assert!(std::ptr::eq(original.get(0).unwrap(), rows.get(0).unwrap()));
+            }
+            let work = layout.work.get();
+            assert!(work.cloned_rows <= 201, "{work:?}");
+            assert!(work.wrapped_lines <= 402, "{work:?}");
+            check_collector(&mut collector, &mut layout, width, view);
+
+            source.push_str("===\n");
+            collector.push_delta("===\n");
+            let full = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            )
+            .lines;
+            let replayed = materialize(&mut collector, &mut layout, width, view);
+            assert_rows(&replayed, &canonical_response(&full, width, view));
+            assert!(!std::ptr::eq(
+                original.get(0).unwrap(),
+                replayed.get(0).unwrap()
+            ));
+            assert_rows(
+                &original,
+                &canonical_response(&[Line::from("Ordinary paragraph line")], width, view),
+            );
+        }
+    }
+}

@@ -70,8 +70,12 @@ Active backlog only. Keep this file small and current.
       logarithmically. Unchanged active-prefix assembly and comparison are now
       bypassed using mutation identities. Live thinking content and clock updates
       replace only their visible row block, preserving both surrounding sections.
-      Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
-      mutable blocks, definition changes, and reference-expansion fallback still
+      Other changed-input assembly/comparison and rewrapping remain explicit costs.
+      Eligible plain paragraphs now examine only appended source after their first
+      canonical parse, and reuse completed physical lines. Single growing-line
+      wrapping and ineligible long mutable blocks still need work bounds; see
+      [the plain paragraph checkpoint](journal/2026-10-05-long-mutable-markdown.md).
+      Definition changes and reference-expansion fallback still
       need work bounds. Ordinary blocks after reference definitions now reuse
       their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
       ordinary angle brackets now avoid control-cleanup replay, while completed
