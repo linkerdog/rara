@@ -1,22 +1,19 @@
-//! Minimal MCP stdio client — connects to a configured MCP server process,
-//! calls `tools/list`, and returns tool definitions for caching.
+//! Owned MCP stdio connections and bounded tool catalogue discovery.
 //!
 //! Used by the MCP Tool Search feature to build the tool index at startup.
-//! Follows the same `rmcp`-based pattern used by Claude Code and Codex.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::time::Duration;
 
-use anyhow::{Context, Result};
-use rmcp::ServiceExt;
-use rmcp::transport::child_process::TokioChildProcess;
+use anyhow::Result;
 use tokio::process::Command;
-use tokio::time::timeout;
 
-/// Default timeout for connecting to an MCP server.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+mod bounded_reader;
+mod connection;
+
+pub use connection::StdioConnection;
+pub use rmcp::model::{CallToolResponse, Tool as McpToolDefinition};
 
 /// A single MCP tool record for caching.
 #[derive(Debug, Clone)]
@@ -49,30 +46,18 @@ pub async fn list_stdio_tools(
     if let Some(dir) = &cwd {
         cmd.current_dir(dir);
     }
-    cmd.kill_on_drop(true);
-
-    let transport = TokioChildProcess::new(cmd)
-        .with_context(|| format!("Failed to create MCP transport for {:?}", command))?;
-
-    let service = timeout(CONNECT_TIMEOUT, ().serve(transport))
-        .await
-        .context("MCP connect timed out")?
-        .with_context(|| format!("Failed to connect to MCP server {:?}", command))?;
-
-    let tools_result = service
-        .list_tools(Default::default())
-        .await
-        .context("MCP tools/list failed")?;
-
-    Ok(tools_result
-        .tools
-        .into_iter()
+    let mut connection = StdioConnection::connect(cmd).await?;
+    let tools = connection
+        .tools()
+        .iter()
         .map(|t| McpToolRecord {
             server: String::new(),
             name: t.name.to_string(),
             display_name: t.name.to_string(),
-            description: t.description.map(|d| d.to_string()).unwrap_or_default(),
+            description: t.description.as_deref().unwrap_or_default().to_owned(),
             input_schema: serde_json::Value::Object((*t.input_schema).clone()),
         })
-        .collect())
+        .collect();
+    connection.shutdown().await?;
+    Ok(tools)
 }
