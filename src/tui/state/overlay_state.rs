@@ -8,7 +8,12 @@ use crate::tui::is_ssh_session;
 impl TuiApp {
     pub fn open_overlay(&mut self, overlay: Overlay) {
         self.transcript_selection.clear();
-        if matches!(overlay, Overlay::CommandPalette | Overlay::ModelSearch) {
+        if matches!(
+            overlay,
+            Overlay::CommandPalette
+                | Overlay::ModelSearch
+                | Overlay::Help(super::HelpTab::Commands)
+        ) {
             self.command_palette_idx = 0;
         }
         if matches!(overlay, Overlay::ListPicker(ListPickerKind::Provider)) {
@@ -127,8 +132,8 @@ impl TuiApp {
             if matches!(self.overlay, Some(Overlay::CommandPalette)) {
                 self.hide_overlay();
             }
-            self.context_scroll = 0;
         }
+        self.overlay_scroll = Default::default();
         self.overlay_stack.push(overlay);
         self.overlay = Some(overlay);
     }
@@ -140,6 +145,7 @@ impl TuiApp {
     fn hide_overlay(&mut self) {
         self.overlay_stack.pop();
         self.overlay = self.overlay_stack.last().copied();
+        self.overlay_scroll = Default::default();
         self.command_palette_idx = 0;
     }
 

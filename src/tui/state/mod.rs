@@ -4,8 +4,10 @@ pub(crate) use approval_details::{ApprovalDetailNavigation, ApprovalDetailScroll
 mod bottom_pane_model;
 mod diagnostics;
 mod notices;
+mod overlay_scroll;
 pub(crate) use notices::NoticeLevel;
 mod overlay_state;
+pub(crate) use overlay_scroll::{OverlayNavigation, OverlayScroll, OverlayScrollLayout};
 mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
