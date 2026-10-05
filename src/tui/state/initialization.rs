@@ -102,6 +102,7 @@ impl TuiApp {
             scroll_acceleration: super::ScrollAcceleration::default(),
             overlay_scroll: Default::default(),
             terminal_width: 80,
+            terminal_capabilities: rara_terminal_detection::TerminalCapabilities::FULL,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: Default::default(),

@@ -25,6 +25,7 @@ expected visible result, and the cheapest layer that proves it.
 | Hidden, clipped, reordered, or misleading content | Production renderer into a Ratatui buffer; focused text/style assertions or reviewed snapshot |
 | Queue/cancel/approval ordering | Scripted runtime events and typed commands, followed by visible state |
 | Terminal encoding, wide-cell diffs, scrollback, resize | Production terminal output through the vt100-backed `EmulatorBackend` |
+| Color depth and ASCII display | Injected terminal profiles; full-frame buffer checks plus production SGR/glyph output, cursor columns, and original selection text |
 | OS terminal modes, process-group suspend, error/panic restoration | Isolated PTY child; manual acceptance for terminal-specific policy |
 
 State fixtures are allowed; replacing the production renderer with a parallel

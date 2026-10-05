@@ -129,3 +129,9 @@ keeps its own text and cursor, while composer input and search lifecycle hooks
 remain unchanged. All other indexed-search integration merged additively.
 The integrated TUI suite passed 1,139 tests, with seven child fixtures driven
 by parent tests.
+
+Main `a7fe5c6d` adds terminal color/glyph capability detection at production
+startup. Keep that initialization alongside prompt-history attachment and the
+diagnostic reader; neither concern replaces the other.
+Integrated validation passed 1,149 TUI tests, with seven parent-driven child
+fixtures.
