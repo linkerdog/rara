@@ -22,6 +22,8 @@ pub(crate) struct RenderedStream<'a> {
     pub epoch: u64,
     pub revision: usize,
     pub stable_lines: usize,
+    /// Plain rows grow without restyling until the replay epoch changes.
+    pub plain_start: Option<usize>,
     pub lines: &'a [Line<'static>],
 }
 
@@ -172,6 +174,7 @@ impl MarkdownStreamCollector {
             epoch: self.row_epoch,
             revision: self.rendered_source_len,
             stable_lines,
+            plain_start: self.plain_paragraph.as_ref().map(|plain| plain.row_start),
             lines: &self.lines,
         }
     }

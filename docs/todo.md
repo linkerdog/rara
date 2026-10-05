@@ -72,8 +72,11 @@ Active backlog only. Keep this file small and current.
       replace only their visible row block, preserving both surrounding sections.
       Other changed-input assembly/comparison and rewrapping remain explicit costs.
       Eligible plain paragraphs now examine only appended source after their first
-      canonical parse, and reuse completed physical lines. Single growing-line
-      wrapping and ineligible long mutable blocks still need work bounds; see
+      canonical parse, and reuse completed physical lines. Eligible growing
+      physical lines now retain visual rows before a three-row mutable window;
+      see [the line-layout checkpoint](journal/2026-10-05-growing-line-layout.md).
+      Large individual grapheme tails, normalization fallback, and ineligible
+      long mutable blocks still need work bounds; see
       [the plain paragraph checkpoint](journal/2026-10-05-long-mutable-markdown.md).
       Definition changes and reference-expansion fallback still
       need work bounds. Ordinary blocks after reference definitions now reuse
