@@ -76,3 +76,8 @@ now publish notices through the shared owner. Editor and stale-result warnings
 use typed notices; failure to preserve a recovery file is an error. Existing
 cleanup order remains storage shutdown, terminal restoration, history shutdown,
 and memory drain.
+
+Combined validation passed 1,187 TUI tests, with nine parent-driven child fixtures
+ignored. This includes the real editor PTY scenarios, idle diagnostics, transient
+notices, original draft ownership, and continued runtime processing during editor
+handoff.
