@@ -47,7 +47,7 @@ use self::bottom_pane::desired_bottom_pane_height;
 use self::cells::{ActiveTurnCell, CommittedTurnCell, StartupCardCell};
 pub(crate) use self::cells::{HistoryCell, RespondingCell};
 pub use self::layout::render;
-pub(crate) use self::overlay::popup_block;
+pub(crate) use self::overlay::{navigate_overlay, popup_block};
 pub(crate) use self::stream_rows::{ResponseView, StreamRowCache};
 pub(crate) use self::transcript_cache::CommittedTranscriptRenderCache;
 use self::viewport::TranscriptViewport;
@@ -82,15 +82,17 @@ fn render_startup_header(f: &mut Frame, app: &TuiApp, area: Rect) -> Rect {
 }
 
 fn shows_startup_header(app: &TuiApp) -> bool {
-    !app.has_any_transcript()
-        && app.active_turn.entries.is_empty()
+    app.committed_turns.is_empty()
+        && app.active_turn.entries.iter().all(|entry| {
+            entry.role == MessageRole::System && !cells::is_renderable_system_message(entry)
+        })
         && !app.is_busy()
         && !app.has_pending_planning_suggestion()
 }
 
 fn render_transcript(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let viewport = transcript_viewport(app, area.width, area.height);
-    if !app.has_any_transcript() && viewport.lines.is_empty() {
+    if shows_startup_header(app) && viewport.lines.is_empty() {
         app.transcript_selection.clear_snapshot();
         let lines = vec![
             Line::from("Ready."),

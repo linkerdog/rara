@@ -34,10 +34,11 @@ must not both dismiss an overlay and cancel a turn or approve a request.
 | Command palette or model search | Esc | Close the search surface |
 | Non-search list or permission picker | Up/Down or j/k | Move selection; Enter applies |
 | Resume picker | Printable characters | Search recent threads; Up/Down selects; Tab cycles sort |
-| General help | 1/2/3 | Choose General/Commands/Runtime tab |
-| Help Commands tab | Up/Down | Move through command entries |
+| Help | 1/2/3 | Choose General/Commands/Runtime tab |
+| Help Commands tab | Up/Down or j/k; wheel | Move through wrapped command entries |
 | Status | 1/2/3 or Left/Right/Tab/BackTab | Change status tab |
-| Context | Up/Down or j/k; PageUp/PageDown | Scroll context |
+| Help, Status, Context | PageUp/PageDown; Home/End | Page through the body; jump to its start/end |
+| Help General/Runtime, Status, Context | Up/Down or j/k; wheel | Scroll the body by visual rows |
 | Setup text editor | Printable characters, arrows, Home/End, Backspace/Delete | Edit that field; Enter saves, Esc cancels |
 
 The resume picker already has search-specific routing. Searchable surfaces must
@@ -129,6 +130,9 @@ are clipped rather than wrapped a second time at degenerate widths.
 
 ### INPUT-03: Overlay Lifecycle
 
+- Opening an overlay immediately cancels transcript selection and edge
+  autoscroll without copying. Dismissal does not resume the previous drag;
+  wheel input belongs to the current overlay or transcript.
 - A slash token opens the command palette; adding argument whitespace returns
   to the composer so arguments can be entered explicitly.
 - Explicit palette dismissal clears its slash input so it does not reopen
@@ -182,6 +186,28 @@ The focused fake-port check proves the request or setup transition. Runtime
 rebuild and persistence remain covered by their owning maintenance tests; the
 fake does not prove that a live provider accepted the new model.
 
+### INPUT-06: Read-Only Overlay Scrolling
+
+Help, Status, and Context keep their tabs and navigation hints outside one
+scrollable body. All body content uses the shared styled wrapping and display
+sanitization boundary, including long paths, URLs, command descriptions, and
+CJK text. Help Runtime presents its sections in reading order rather than
+fixed-height columns that can discard content.
+
+The same materialized rows determine rendering and scroll bounds. Offsets use
+`usize` and clamp to `content_rows - visible_rows` on both navigation and render;
+input refreshes content bounds using the last measured body dimensions. A page
+is the visible body height minus one overlapping row, with a minimum of one.
+Repeated scrolling at a boundary cannot accumulate debt. Width/height changes
+and shrinking runtime content clamp the current numeric row anchor.
+
+Opening an overlay or changing tabs starts at the top. Help Commands keeps its
+selected entry visible during entry navigation; page and boundary navigation
+keep a visible selection while allowing every wrapped row to be reached.
+Overlay navigation never edits the composer or moves the transcript viewport.
+Input before the first measured body cannot scroll its rows; command-entry
+navigation can still change the selection for the initial frame.
+
 ## Validation Matrix
 
 | Contract | Observable check |
@@ -193,11 +219,10 @@ fake does not prove that a live provider accepted the new model.
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
+| INPUT-06 | All seven Help/Status/Context bodies at 80x24, 60x20, and 40x12; final-row reachability, CJK/long-line wrapping, entry navigation, immediate scroll clamping, resize/content shrink, and draft/transcript isolation |
 
 ## Open Risks
 
-- Help General and Runtime do not yet support scrolling. Narrow/short terminal
-  acceptance needs clipping tests and an explicit scrolling design.
 - Resume search retains append/backspace editing; full cursor editing there
   remains a separate follow-up.
 - A configurable Vim mode remains outside the current editor contract.
@@ -218,3 +243,4 @@ fake does not prove that a live provider accepted the new model.
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
+- [Bounded read-only overlays](../journal/2026-10-05-overlay-scroll-bounds.md)

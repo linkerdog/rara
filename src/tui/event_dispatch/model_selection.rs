@@ -5,6 +5,7 @@ use crate::tui::provider_flow::{
     should_open_codex_auth_guide, sync_codex_credential_from_auth_store,
 };
 use crate::tui::runtime_port::{RuntimeClientPort, RuntimeMaintenanceCommand};
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{
     ApiKeyTarget, ListPickerKind, Overlay, ProviderFamily, TuiApp, UnifiedModelPreset,
 };
@@ -25,7 +26,10 @@ pub(super) async fn apply_model_selection(
                 && candidate.model_id == preset.model_id
         })
     else {
-        app.push_notice("The selected model is no longer available. Reopen /model.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "The selected model is no longer available. Reopen /model.",
+        );
         return Ok(());
     };
     if app
@@ -84,7 +88,10 @@ pub(super) async fn apply_model_selection(
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini));
         }
         ProviderFamily::CandleLocal => {
-            app.push_notice("Local models (alpha) are for preview only.");
+            app.push_notice(
+                NoticeLevel::Warning,
+                "Local models (alpha) are for preview only.",
+            );
             app.dismiss_overlay();
         }
         ProviderFamily::OpenAiCompatible

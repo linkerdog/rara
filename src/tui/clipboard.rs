@@ -10,7 +10,23 @@ mod osc52;
 use native::{NativeClipboard, PlatformClipboard};
 use osc52::{TerminalTarget, write_osc52};
 
+use super::state::NoticeLevel;
+
 const NATIVE_COPY_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub(crate) struct ClipboardFeedback {
+    pub level: NoticeLevel,
+    pub message: String,
+}
+
+impl ClipboardFeedback {
+    fn new(level: NoticeLevel, message: impl Into<String>) -> Self {
+        Self {
+            level,
+            message: message.into(),
+        }
+    }
+}
 
 struct ClipboardOptions {
     target: TerminalTarget,
@@ -54,7 +70,7 @@ impl Clipboard {
         }
     }
 
-    pub(crate) fn request(&mut self, text: String) -> String {
+    pub(crate) fn request(&mut self, text: String) -> ClipboardFeedback {
         let terminal = write_osc52(&text, self.options.target, self.options.writer.as_mut());
         if let Err(error) = &terminal {
             log::warn!("Terminal clipboard request failed: {error}");
@@ -65,10 +81,10 @@ impl Clipboard {
         }
         if self.active.is_some() {
             self.pending = Some(request);
-            "Clipboard copy queued.".into()
+            ClipboardFeedback::new(NoticeLevel::Info, "Clipboard copy queued.")
         } else {
             self.start(request);
-            "Copying text to clipboard...".into()
+            ClipboardFeedback::new(NoticeLevel::Info, "Copying text to clipboard...")
         }
     }
 
@@ -90,7 +106,7 @@ impl Clipboard {
     }
 
     /// Only await a completed task; slow clipboard helpers never stall input.
-    pub(crate) async fn poll(&mut self) -> Option<String> {
+    pub(crate) async fn poll(&mut self) -> Option<ClipboardFeedback> {
         if !self
             .active
             .as_ref()
@@ -111,14 +127,16 @@ impl Clipboard {
             return None;
         }
         Some(match result {
-            Ok(()) => "Copied text to clipboard.".into(),
+            Ok(()) => ClipboardFeedback::new(NoticeLevel::Info, "Copied text to clipboard."),
             Err(error) => match task.terminal {
-                Ok(()) => {
-                    format!("Sent text to terminal clipboard; native copy failed: {error}")
-                }
-                Err(terminal) => {
-                    format!("Failed to copy transcript selection: {terminal}; {error}")
-                }
+                Ok(()) => ClipboardFeedback::new(
+                    NoticeLevel::Warning,
+                    format!("Sent text to terminal clipboard; native copy failed: {error}"),
+                ),
+                Err(terminal) => ClipboardFeedback::new(
+                    NoticeLevel::Error,
+                    format!("Failed to copy text: {terminal}; {error}"),
+                ),
             },
         })
     }
@@ -132,10 +150,15 @@ impl Drop for Clipboard {
     }
 }
 
-fn terminal_notice(result: io::Result<()>) -> String {
+fn terminal_notice(result: io::Result<()>) -> ClipboardFeedback {
     match result {
-        Ok(()) => "Sent text to terminal clipboard (acceptance depends on terminal policy).".into(),
-        Err(error) => format!("Failed to copy transcript selection: {error}"),
+        Ok(()) => ClipboardFeedback::new(
+            NoticeLevel::Info,
+            "Sent text to terminal clipboard (acceptance depends on terminal policy).",
+        ),
+        Err(error) => {
+            ClipboardFeedback::new(NoticeLevel::Error, format!("Failed to copy text: {error}"))
+        }
     }
 }
 
