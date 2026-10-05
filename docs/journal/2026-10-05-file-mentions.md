@@ -93,3 +93,15 @@ insertion snaps forward, preserving the existing Unicode contract.
 
 No unrelated work is added. A targeted Nowledge lookup failed with
 `space_client_upgrade_required` (`exact-v1`); this journal retains decisions.
+
+## Prompt History Base Integration
+
+Merged the updated prompt-history base, retaining both file-search and diagnostic
+polling. Paste flushing keeps atomic range edits and owned payloads while
+returning notice text to the shared TUI notice owner. Display-boundary coverage
+uses the production flush wrapper and the named owned-paste content field.
+Search failures now use typed warnings.
+
+Integrated validation: all 1,140 TUI tests passed (seven parent-driven child
+fixtures ignored), including atomic paste ownership, notice expiry, display
+sanitization, and history recall. All nine file-search tests passed.

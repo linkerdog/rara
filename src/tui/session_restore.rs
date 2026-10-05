@@ -11,9 +11,13 @@ use crate::thread_store::CompactionRecord;
 use crate::tools::bash::BashCommandInput;
 #[cfg(test)]
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[cfg(test)]
 mod recovery_tests;
+
+#[cfg(test)]
+mod approval_tests;
 
 mod loading;
 pub(crate) use loading::PendingRestore;
@@ -35,12 +39,14 @@ fn apply_prepared_restore(
         turns,
         next_turn_ordinal,
         live_entries,
+        live_recovery_warning,
         latest_plan_lifecycle,
         goal,
     } = prepared;
     let thread_id = thread.metadata.session_id.clone();
     let thread_title = thread.metadata.title.clone();
     let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let mut resume_level = NoticeLevel::Info;
     let restored_goal = match goal {
         Ok(prepared) => app.goal_handle.apply_prepared_restore(prepared),
         Err(reason) => {
@@ -48,6 +54,7 @@ fn apply_prepared_restore(
             app.goal_handle
                 .disable_after_persistence_failure(reason.clone());
             resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            resume_level = NoticeLevel::Warning;
             None
         }
     };
@@ -66,9 +73,18 @@ fn apply_prepared_restore(
     app.terminal_feedback = Default::default();
     agent.todo_state = todo_state;
     if let Some(runtime_state) = runtime_state {
-        agent.set_bash_approval_mode(parse_bash_approval_mode(
-            runtime_state.bash_approval.as_str(),
-        ));
+        let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
+            Some(mode) => mode,
+            None => {
+                let warning = "Unknown saved bash approval mode; restored suggestion mode.";
+                log::warn!("{warning}");
+                resume_notice.push(' ');
+                resume_notice.push_str(warning);
+                resume_level = NoticeLevel::Warning;
+                BashApprovalMode::Suggestion
+            }
+        };
+        agent.set_bash_approval_mode(approval_mode);
         let mut prompt_config = agent.prompt_config().clone();
         prompt_config.append_system_prompt = runtime_state.prompt_runtime.append_system_prompt;
         prompt_config.warnings = runtime_state.prompt_runtime.warnings;
@@ -200,6 +216,11 @@ fn apply_prepared_restore(
     app.restore_committed_turns(turns);
     app.next_turn_ordinal = next_turn_ordinal;
     app.active_turn.entries = live_entries;
+    if let Some(warning) = live_recovery_warning {
+        resume_notice.push(' ');
+        resume_notice.push_str(&warning);
+        resume_level = NoticeLevel::Warning;
+    }
     app.apply_runtime_snapshot(
         agent,
         crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(agent, 0),
@@ -229,7 +250,7 @@ fn apply_prepared_restore(
 
     app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(resume_notice);
+    app.push_notice(resume_level, resume_notice);
     super::goal_resume::arm_after_restore(app);
     app.set_terminal_thread_title(thread_title);
     Ok(())
@@ -241,11 +262,12 @@ fn apply_compaction_record(agent: &mut Agent, compaction: &CompactionRecord) {
     agent.compact_state.last_compaction_after_tokens = compaction.after_tokens;
 }
 
-fn parse_bash_approval_mode(mode: &str) -> BashApprovalMode {
+fn parse_bash_approval_mode(mode: &str) -> Option<BashApprovalMode> {
     match mode {
-        "once" => BashApprovalMode::Once,
-        "suggestion" => BashApprovalMode::Suggestion,
-        _ => BashApprovalMode::Always,
+        "once" => Some(BashApprovalMode::Once),
+        "always" => Some(BashApprovalMode::Always),
+        "suggestion" => Some(BashApprovalMode::Suggestion),
+        _ => None,
     }
 }
 

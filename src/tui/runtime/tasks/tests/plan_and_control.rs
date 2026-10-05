@@ -201,7 +201,14 @@ async fn query_heartbeat_preserves_running_tool_phase() {
         Some("streaming bash output".into()),
     );
 
-    emit_query_heartbeat(&mut app);
+    app.push_notice(
+        crate::tui::state::NoticeLevel::Warning,
+        "Retain this warning",
+    );
+    let entry_count = app.transcript_entry_count();
+    assert!(emit_query_heartbeat(&mut app));
+    assert_eq!(app.notice_text(), Some("Retain this warning"));
+    assert_eq!(app.transcript_entry_count(), entry_count);
 
     assert_eq!(app.runtime_phase, RuntimePhase::RunningTool);
     assert_eq!(

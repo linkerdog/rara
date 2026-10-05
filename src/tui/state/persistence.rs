@@ -11,6 +11,7 @@ use super::{
     TuiApp, state_db_status_error,
 };
 use crate::thread_io::{RuntimeCheckpoint, ThreadIo, WriteOperation};
+use crate::tui::state::NoticeLevel;
 
 impl TuiApp {
     pub fn attach_state_db(&mut self, state_db: Arc<StateDb>) {
@@ -26,7 +27,10 @@ impl TuiApp {
                     self.goal_handle
                         .disable_after_persistence_failure(format!("{error:#}"));
                     self.goal = None;
-                    self.push_notice(format!("Goal persistence unavailable: {error:#}"));
+                    self.push_notice(
+                        NoticeLevel::Error,
+                        format!("Goal persistence unavailable: {error:#}"),
+                    );
                 }
             }
         }
@@ -321,12 +325,8 @@ impl TuiApp {
             let message = super::redact_secrets(format!(
                 "Storage write failed; pending changes are retained: {error}"
             ));
-            self.bottom_pane.notice = Some(message.clone());
             // A storage failure report must not recursively enqueue another write.
-            self.active_turn.entries.push(TranscriptEntry::new(
-                crate::tui::message_role::MessageRole::System,
-                message,
-            ));
+            self.push_unpersisted_notice(NoticeLevel::Error, message);
         } else if let Some(db) = &self.state_db {
             self.state_db_status = Some(db.path().display().to_string());
         }

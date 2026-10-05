@@ -230,11 +230,13 @@ async fn corrupt_goal_does_not_block_requested_or_latest_thread_restore() {
             assert!(app.goal.is_none());
             assert!(app.goal_handle.snapshot().is_none());
             assert!(
-                app.bottom_pane
-                    .notice
-                    .as_deref()
+                app.notice_text()
                     .expect("warning")
                     .contains("Goal persistence unavailable")
+            );
+            assert_eq!(
+                app.notice().unwrap().level(),
+                crate::tui::state::NoticeLevel::Warning
             );
             let error = app
                 .goal_handle

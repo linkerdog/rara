@@ -24,9 +24,10 @@ impl TuiApp {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
                 input_cursor_offset: None,
-                notice: startup_notice,
                 ..Default::default()
             },
+            notices: Default::default(),
+            diagnostics: None,
             input_history: Vec::new(),
             file_mentions: Default::default(),
             prompt_history: Default::default(),
@@ -95,14 +96,16 @@ impl TuiApp {
             resume_picker_idx: 0,
             resume_sort_by_created: false,
             resume_search_query: String::new(),
+            resume_search_cursor_offset: None,
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: TranscriptScroll::default(),
             transcript_selection: crate::tui::selection::TranscriptSelection::default(),
             clipboard: None,
             scroll_acceleration: super::ScrollAcceleration::default(),
-            context_scroll: 0,
+            overlay_scroll: Default::default(),
             terminal_width: 80,
+            terminal_capabilities: rara_terminal_detection::TerminalCapabilities::FULL,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: Default::default(),
@@ -161,6 +164,9 @@ impl TuiApp {
         app.refresh_provider_connection_status();
         app.refresh_recent_threads();
 
+        if let Some(message) = startup_notice {
+            app.push_notice(NoticeLevel::Warning, message);
+        }
         Ok(app)
     }
 

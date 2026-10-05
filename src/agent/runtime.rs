@@ -80,7 +80,7 @@ impl Agent {
                 |rara_dir| match StateDb::new_for_root_dir(rara_dir.to_path_buf()) {
                     Ok(state_db) => Some(Arc::new(state_db)),
                     Err(err) => {
-                        eprintln!(
+                        log::warn!(
                             "Warning: could not initialize session state db at {}: {err}",
                             rara_dir.display()
                         );
@@ -123,7 +123,7 @@ impl Agent {
                 }),
             )
             .unwrap_or_else(|err| {
-                eprintln!("Warning: could not create tool result store: {err}");
+                log::warn!("Warning: could not create tool result store: {err}");
                 ToolResultStore::new(std::env::temp_dir().join("rara-fallback")).unwrap_or_else(
                     |_| {
                         // Absolute last resort: use a /tmp subdir that should always work
@@ -338,7 +338,7 @@ impl Agent {
                             };
                             let prompt =
                                 rara_memory::dream_prompts::build_consolidation_prompt(&sessions);
-                            eprintln!(
+                            log::info!(
                                 "consolidation: {} sessions ready, dispatching subagent",
                                 sessions.len()
                             );
@@ -378,9 +378,9 @@ impl Agent {
                                             r.summary, r.total_cache_hit_tokens, r.total_cache_miss_tokens
                                         )
                                     };
-                                    eprintln!("{}", line);
+                                    log::info!("{}", line);
                                 }
-                                Err(e) => eprintln!("consolidation subagent failed: {e}"),
+                                Err(e) => log::warn!("consolidation subagent failed: {e}"),
                             }
                         });
                     });

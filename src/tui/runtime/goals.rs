@@ -3,6 +3,7 @@ use crate::agent::Agent;
 use crate::runtime_goals::{GoalStatus, RalphGoal};
 use crate::tui::goal_ui::{self, GoalDialog, GoalUiAction};
 use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand};
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{Overlay, TuiApp};
 
 pub(super) async fn handle_command(
@@ -19,7 +20,10 @@ pub(super) async fn handle_command(
                 if let Some(ticket) = app.goal_handle.resume_ticket() {
                     goal_ui::open(app, GoalDialog::Edit(ticket));
                 } else {
-                    app.push_notice("No goal to edit. Use /goal <objective> to create one.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "No goal to edit. Use /goal <objective> to create one.",
+                    );
                 }
             }
             "pause" => {
@@ -35,11 +39,14 @@ pub(super) async fn handle_command(
                     }
                 })?;
                 app.goal = app.goal_handle.snapshot();
-                app.push_notice(if paused {
-                    "Goal paused. Use /goal resume to continue."
-                } else {
-                    "Goal is not currently pursuing; nothing to pause."
-                });
+                app.push_notice(
+                    NoticeLevel::Info,
+                    if paused {
+                        "Goal paused. Use /goal resume to continue."
+                    } else {
+                        "Goal is not currently pursuing; nothing to pause."
+                    },
+                );
             }
             "resume" => resume_goal_continuation(app, agent_slot, runtime_port).await?,
             "clear" => {
@@ -47,9 +54,9 @@ pub(super) async fn handle_command(
                 if app.goal.is_some() {
                     app.goal_handle.replace(None)?;
                     app.goal = None;
-                    app.push_notice("Goal cleared.");
+                    app.push_notice(NoticeLevel::Info, "Goal cleared.");
                 } else {
-                    app.push_notice("No active goal to clear.");
+                    app.push_notice(NoticeLevel::Info, "No active goal to clear.");
                 }
             }
             objective => {
@@ -115,12 +122,15 @@ pub(crate) async fn apply_dialog_action(
     let selected = app.goal_ui.selected;
     if app.is_busy() && !matches!(dialog, GoalDialog::Summary) {
         app.goal_ui.dialog = Some(dialog);
-        app.push_notice("Wait for the current task before changing the goal.");
+        app.push_notice(
+            NoticeLevel::Info,
+            "Wait for the current task before changing the goal.",
+        );
         return;
     }
     if matches!(dialog, GoalDialog::Edit(_)) && input.is_empty() {
         app.goal_ui.dialog = Some(dialog);
-        app.push_notice("Goal objective cannot be empty.");
+        app.push_notice(NoticeLevel::Warning, "Goal objective cannot be empty.");
         return;
     }
     app.dismiss_overlay();
@@ -143,7 +153,7 @@ pub(crate) async fn apply_dialog_action(
                 if waiting {
                     crate::tui::goal_resume::arm_after_restore(app);
                 }
-                app.push_notice("Goal objective updated.");
+                app.push_notice(NoticeLevel::Info, "Goal objective updated.");
             }
             GoalDialog::Replace {
                 ticket,
@@ -168,7 +178,10 @@ pub(crate) async fn apply_dialog_action(
 fn report_error(app: &mut TuiApp, error: anyhow::Error) {
     log::warn!("Goal command failed: {error:#}");
     app.goal = app.goal_handle.snapshot();
-    app.push_notice(format!("Goal command failed: {error:#}"));
+    app.push_notice(
+        NoticeLevel::Error,
+        format!("Goal command failed: {error:#}"),
+    );
 }
 
 async fn start_new_goal(
@@ -189,7 +202,7 @@ async fn start_new_goal(
         start_goal_follow_up(app, agent_slot, runtime_port).await?;
         notice.push_str(". Continuing active goal.");
     }
-    app.push_notice(notice);
+    app.push_notice(NoticeLevel::Info, notice);
     Ok(())
 }
 
@@ -199,20 +212,29 @@ async fn resume_goal_continuation(
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<()> {
     if app.is_busy() {
-        app.push_notice("A task is already running. Wait for it to finish before resuming a goal.");
+        app.push_notice(
+            NoticeLevel::Info,
+            "A task is already running. Wait for it to finish before resuming a goal.",
+        );
         return Ok(());
     }
     if app.active_pending_interaction().is_some() {
-        app.push_notice("Resolve the pending interaction before resuming a goal.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "Resolve the pending interaction before resuming a goal.",
+        );
         return Ok(());
     }
     if agent_slot.is_none() {
-        app.push_notice("Goal resume is unavailable until the runtime agent is ready.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "Goal resume is unavailable until the runtime agent is ready.",
+        );
         return Ok(());
     }
 
     let Some(mut goal) = app.goal_handle.snapshot() else {
-        app.push_notice("No active goal to resume.");
+        app.push_notice(NoticeLevel::Warning, "No active goal to resume.");
         return Ok(());
     };
     let (previous_status, mut notice) = match goal.status {
@@ -226,7 +248,10 @@ async fn resume_goal_continuation(
             "Goal resumed. Continuing interrupted work.",
         ),
         GoalStatus::Complete | GoalStatus::BudgetLimited => {
-            app.push_notice("Goal is not paused or blocked; nothing to resume.");
+            app.push_notice(
+                NoticeLevel::Info,
+                "Goal is not paused or blocked; nothing to resume.",
+            );
             return Ok(());
         }
     };
@@ -252,7 +277,7 @@ async fn resume_goal_continuation(
         app.goal = app.goal_handle.snapshot();
         return Err(error);
     }
-    app.push_notice(notice);
+    app.push_notice(NoticeLevel::Info, notice);
     Ok(())
 }
 

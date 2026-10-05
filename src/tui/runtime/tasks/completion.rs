@@ -3,6 +3,7 @@ use crate::runtime_client::{GoalContinuation, RuntimeClient};
 use crate::tui::command;
 use crate::tui::message_role::MessageRole;
 use crate::tui::runtime::permissions;
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::Overlay;
 use crate::tui::terminal_feedback::TerminalNotification;
 
@@ -112,15 +113,16 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                 "The current backend is still available; retry the operation."
             };
             let message = format!("Runtime task failed: {error}. {recovery}");
-            app.push_notice(message);
+            app.push_notice(NoticeLevel::Error, message);
             if matches!(task.kind, TaskKind::Query) {
                 app.notify_terminal(TerminalNotification::Failed);
             }
             if let Some(mode) = app.pending_permission_mode.take() {
-                app.push_notice(format!(
+                let message = format!(
                     "Permissions not applied: {}. The task failed to return its runtime agent.",
                     mode.label()
-                ));
+                );
+                app.push_notice(NoticeLevel::Error, message);
             }
             return Ok(());
         }
@@ -142,10 +144,13 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                 crate::agent::AgentExecutionMode::Plan
             );
             if let Err(err) = RuntimeClient::persist_bash_prefixes(&app.config_manager, &agent) {
-                app.push_notice(format!(
-                    "Failed to persist bash approval rules: {}",
-                    format_error_chain(&err)
-                ));
+                app.push_notice(
+                    NoticeLevel::Error,
+                    format!(
+                        "Failed to persist bash approval rules: {}",
+                        format_error_chain(&err)
+                    ),
+                );
             }
             match result {
                 Ok(_) => {
@@ -174,9 +179,10 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                                 RuntimeClient::extension_snapshot_for_agent(&agent, 0),
                             );
                             log::warn!("Goal accounting failed; stopping continuation: {error:#}");
-                            app.push_notice(format!(
-                                "Goal accounting failed; continuation stopped: {error:#}"
-                            ));
+                            app.push_notice(
+                                NoticeLevel::Error,
+                                format!("Goal accounting failed; continuation stopped: {error:#}"),
+                            );
                             app.finalize_active_turn();
                             app.set_runtime_phase(
                                 RuntimePhase::Failed,
@@ -215,11 +221,14 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     match continuation {
                         GoalContinuation::BudgetLimited { goal, prompt } => {
                             app.goal = Some(goal.clone());
-                            app.push_notice(format!(
-                                "Goal budget exhausted: {} / {} tokens.",
-                                goal.tokens_used,
-                                goal.token_budget.unwrap_or(0)
-                            ));
+                            app.push_notice(
+                                NoticeLevel::Warning,
+                                format!(
+                                    "Goal budget exhausted: {} / {} tokens.",
+                                    goal.tokens_used,
+                                    goal.token_budget.unwrap_or(0)
+                                ),
+                            );
                             app.apply_runtime_snapshot(
                                 &agent,
                                 crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(
@@ -272,7 +281,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
                     if finished_plan_turn && app.has_pending_plan_approval() {
-                        app.bottom_pane.notice = Some("Plan ready for approval.".into());
+                        app.push_notice(NoticeLevel::Info, "Plan ready for approval.");
                         app.set_runtime_phase(
                             RuntimePhase::Idle,
                             Some("awaiting plan approval".into()),
@@ -281,10 +290,14 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         if finished_plan_turn
                             && app.agent_execution_mode == crate::agent::AgentExecutionMode::Plan
                         {
-                            app.push_notice("Planning finished. Staying in plan mode.");
+                            app.push_notice(
+                                NoticeLevel::Info,
+                                "Planning finished. Staying in plan mode.",
+                            );
+                        } else {
+                            app.push_notice(NoticeLevel::Info, "Prompt finished.");
                         }
                         app.finalize_active_turn();
-                        app.bottom_pane.notice = Some("Prompt finished.".into());
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
                         try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                     }
@@ -317,12 +330,12 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.release_pending_follow_ups();
                     app.finalize_agent_stream(None);
                     if let Some(kind) = stopped {
-                        app.finalize_active_turn();
                         let (notice, detail) = match kind {
                             QueryStopKind::Interrupt => ("Query interrupted.", "query interrupted"),
                             QueryStopKind::Cancel => ("Query cancelled.", "query cancelled"),
                         };
-                        app.bottom_pane.notice = Some(notice.into());
+                        app.push_notice(NoticeLevel::Info, notice);
+                        app.finalize_active_turn();
                         app.set_runtime_phase(RuntimePhase::Idle, Some(detail.into()));
                         try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                         return Ok(());
@@ -340,8 +353,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                             sanitize_url_for_display(base_url)
                         ));
                     }
-                    app.push_system(message.clone(), SystemMessageKind::Other);
-                    app.push_notice(message);
+                    app.push_system_notice(NoticeLevel::Error, message, SystemMessageKind::Other);
                     try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                     if !app.is_busy() {
                         app.notify_terminal(TerminalNotification::Failed);
@@ -370,11 +382,17 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         let message = format!(
                             "Conversation compacted.\nEstimated history tokens: {before} -> {after}"
                         );
-                        app.push_entry(MessageRole::Agent, message.clone());
-                        app.push_notice(message);
+                        app.push_system_notice(
+                            NoticeLevel::Info,
+                            message,
+                            SystemMessageKind::Other,
+                        );
                     } else {
-                        app.push_entry(MessageRole::Agent, "Conversation compacted.");
-                        app.push_notice("Conversation compacted.");
+                        app.push_system_notice(
+                            NoticeLevel::Info,
+                            "Conversation compacted.",
+                            SystemMessageKind::Other,
+                        );
                     }
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("history compacted".into()));
@@ -384,8 +402,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.clear_active_live_sections();
                     app.release_pending_follow_ups();
                     let message = "Conversation history did not need compaction.";
-                    app.push_entry(MessageRole::Agent, message);
-                    app.push_notice(message);
+                    app.push_system_notice(NoticeLevel::Info, message, SystemMessageKind::Other);
                     app.finalize_active_turn();
                     app.set_runtime_phase(RuntimePhase::Idle, Some("compact skipped".into()));
                     try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
@@ -395,8 +412,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.release_pending_follow_ups();
                     app.set_runtime_phase(RuntimePhase::Failed, Some("compact failed".into()));
                     let message = format!("Compaction failed:\n{}", format_error_chain(&err));
-                    app.push_system(message.clone(), SystemMessageKind::Other);
-                    app.push_notice(message);
+                    app.push_system_notice(NoticeLevel::Error, message, SystemMessageKind::Other);
                 }
             }
         }
@@ -446,7 +462,6 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     app.config.provider,
                     app.current_model_label()
                 ));
-                app.bottom_pane.notice = app.setup_status.clone();
                 *agent_slot = Some(agent);
                 if let Some(agent) = agent_slot.as_ref() {
                     app.apply_runtime_snapshot(
@@ -458,7 +473,8 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                 }
                 app.dismiss_overlay();
                 app.set_runtime_phase(RuntimePhase::BackendReady, Some("backend ready".into()));
-                app.push_system(
+                app.push_system_notice(
+                    NoticeLevel::Info,
                     app.setup_status.clone().unwrap_or_default(),
                     if is_bootstrap {
                         SystemMessageKind::BackendBootstrap
@@ -482,14 +498,14 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     } else {
                         format!("{warning_count} startup warnings added to transcript.")
                     };
-                    app.bottom_pane.notice = Some(notice);
+                    app.push_notice(NoticeLevel::Warning, notice);
                 }
                 if let Err(error) = RuntimeClient::persist_config(&app.config_manager, &app.config)
                 {
                     log::warn!("Backend applied but configuration was not saved: {error:#}");
                     let message =
                         format!("Backend applied, but configuration was not saved: {error:#}");
-                    app.push_notice(message);
+                    app.push_notice(NoticeLevel::Warning, message);
                 }
                 app.finalize_active_turn();
                 try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
@@ -498,7 +514,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                 app.set_runtime_phase(RuntimePhase::Failed, Some("backend rebuild failed".into()));
                 let message = format!("Failed to apply config:\n{}", format_error_chain(&err));
                 app.setup_status = Some(message.clone());
-                app.push_notice(message);
+                app.push_notice(NoticeLevel::Error, message);
             }
         },
         TaskCompletion::OAuth { mode, result } => match result {
@@ -523,17 +539,17 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     }
                 };
                 app.setup_status = Some(saved_message.into());
-                app.bottom_pane.notice = app.setup_status.clone();
+                if let Some(notice) = app.setup_status.clone() {
+                    app.push_notice(NoticeLevel::Info, notice);
+                }
                 app.set_runtime_phase(RuntimePhase::OAuthSaved, Some("oauth token saved".into()));
                 app.dismiss_overlay();
-                app.push_entry(MessageRole::Runtime, saved_message);
                 start_rebuild_task(app, agent_slot.as_ref().and_then(Agent::agent_tree_control));
             }
             Err(err) => {
                 app.set_runtime_phase(RuntimePhase::Failed, Some("oauth failed".into()));
                 let message = format!("OAuth failed:\n{}", format_error_chain(&err));
-                app.push_system(message.clone(), SystemMessageKind::OAuth);
-                app.push_notice(message);
+                app.push_system_notice(NoticeLevel::Error, message, SystemMessageKind::OAuth);
             }
         },
         TaskCompletion::ModelCatalog { provider, result } => match result {
@@ -547,7 +563,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     ModelCatalogProvider::DeepSeek => "DeepSeek",
                     ModelCatalogProvider::Kimi => "Moonshot AI",
                 };
-                app.bottom_pane.notice = Some(format!("Loaded {count} {label} models."));
+                app.push_notice(NoticeLevel::Info, format!("Loaded {count} {label} models."));
                 app.set_runtime_phase(RuntimePhase::Idle, Some("models loaded".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
@@ -569,8 +585,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     "Failed to load {label} models. Showing fallback list.\n{}",
                     format_error_chain(&err)
                 );
-                app.push_system(message.clone(), SystemMessageKind::Other);
-                app.push_notice(message);
+                app.push_system_notice(NoticeLevel::Warning, message, SystemMessageKind::Other);
                 app.set_runtime_phase(RuntimePhase::Idle, Some("model list fallback".into()));
                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
             }
@@ -608,18 +623,14 @@ pub(crate) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
         .as_deref()
         .map(|detail| detail.split(" · ").next().unwrap_or(detail))
         .filter(|detail| !detail.trim().is_empty());
-    let (phase, detail, notice) = match app.runtime_phase {
+    let (phase, detail) = match app.runtime_phase {
         RuntimePhase::RunningTool => {
             let detail = format!(
                 "{} · {}s elapsed",
                 current_detail.unwrap_or("running tool"),
                 elapsed
             );
-            (
-                RuntimePhase::RunningTool,
-                detail.clone(),
-                format!("Running tool · {}s elapsed", elapsed),
-            )
+            (RuntimePhase::RunningTool, detail)
         }
         RuntimePhase::ProcessingResponse => {
             let detail = format!(
@@ -627,11 +638,7 @@ pub(crate) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
                 current_detail.unwrap_or("processing response"),
                 elapsed
             );
-            (
-                RuntimePhase::ProcessingResponse,
-                detail.clone(),
-                format!("Processing response · {}s elapsed", elapsed),
-            )
+            (RuntimePhase::ProcessingResponse, detail)
         }
         _ => {
             let detail = if is_local {
@@ -639,16 +646,10 @@ pub(crate) fn emit_query_heartbeat(app: &mut TuiApp) -> bool {
             } else {
                 format!("waiting for model response · {}s elapsed", elapsed)
             };
-            let notice = if is_local {
-                format!("Working locally · {}s elapsed", elapsed)
-            } else {
-                format!("Waiting on {} · {}s elapsed", app.config.provider, elapsed)
-            };
-            (RuntimePhase::SendingPrompt, detail, notice)
+            (RuntimePhase::SendingPrompt, detail)
         }
     };
 
     app.set_runtime_phase(phase, Some(detail));
-    app.bottom_pane.notice = Some(notice);
     true
 }

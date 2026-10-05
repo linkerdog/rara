@@ -77,3 +77,16 @@ terminal support and OSC 9 delivery remain emulator/configuration dependent.
 
 No additional scope is planned. Durable decisions are recorded here because the
 targeted Nowledge lookup returned `space_client_upgrade_required` (`exact-v1`).
+
+## Dependency Integration
+
+Updated the session-command base while retaining terminal title ownership and
+query-failure notifications. The diagnostic guard starts before terminal mode
+acquisition; both idle diagnostic/notice tests and feedback tests remain present.
+Rename and new-thread completion update typed notices and terminal title state.
+The latest main integration also brings the merged keyboard-enhancement and
+shared-redaction dependencies into the final validation tree.
+
+Combined TUI validation passed 1,142 tests with seven parent-driven child
+fixtures ignored. This includes the real PTY lifecycle, title/keyboard balance,
+idle diagnostic delivery, typed notice expiry, and feedback completion barriers.

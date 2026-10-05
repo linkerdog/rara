@@ -6,7 +6,7 @@ use tokio::time::{Duration, Instant};
 
 use super::worker::{FileSearchWorker, SearchRequest, SearchResponse};
 use crate::tui::composer_atoms::encode_mention;
-use crate::tui::state::{TuiApp, char_offset_to_byte_index};
+use crate::tui::state::{NoticeLevel, TuiApp, char_offset_to_byte_index};
 
 const DEBOUNCE: Duration = Duration::from_millis(150);
 
@@ -224,7 +224,10 @@ impl TuiApp {
         log::warn!("File mention search failed: {error:#}");
         self.file_mentions.matches.clear();
         self.file_mentions.status = SearchStatus::Failed;
-        self.push_notice(format!("File search failed: {error:#}"));
+        self.push_notice(
+            NoticeLevel::Warning,
+            format!("File search failed: {error:#}"),
+        );
     }
 
     pub(crate) fn apply_file_mention(&mut self, action: FileMentionAction) {

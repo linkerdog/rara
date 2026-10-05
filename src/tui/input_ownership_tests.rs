@@ -87,7 +87,7 @@ async fn deleting_model_query_resets_result_selection() {
 async fn nested_search_dismissal_preserves_composer_draft_and_pastes() {
     let mut tui = harness();
     handle_paste("x".repeat(1200), tui.app_mut());
-    tui.app_mut().bottom_pane.flush_paste_burst();
+    tui.app_mut().flush_composer_paste();
     let draft = tui.app().bottom_pane.input.clone();
     let cursor = tui.app().bottom_pane.input_cursor_offset;
     let pastes = tui.app().bottom_pane.large_paste_pending.clone();
@@ -115,7 +115,7 @@ async fn large_multiline_paste_belongs_to_model_search() {
     tui.app_mut().open_overlay(Overlay::ModelSearch);
     let paste = format!("head\r\n{}\rtail", "x".repeat(1200));
     handle_paste(paste, tui.app_mut());
-    tui.app_mut().bottom_pane.flush_paste_burst();
+    tui.app_mut().flush_composer_paste();
     assert_eq!(
         tui.app().model_search_query,
         format!("head {} tail", "x".repeat(1200))
@@ -134,7 +134,7 @@ async fn setup_field_paste_and_cancel_preserve_underlying_draft() {
         .open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
     let key = "k".repeat(1200);
     handle_paste(key.clone(), tui.app_mut());
-    tui.app_mut().bottom_pane.flush_paste_burst();
+    tui.app_mut().flush_composer_paste();
     assert_eq!(tui.app().api_key_input, key);
     press(&mut tui, KeyCode::Esc).await;
     assert_eq!(tui.app().bottom_pane.input, "draft");
@@ -156,7 +156,7 @@ fn paste_does_not_modify_composer_behind_non_text_overlays() {
         tui.app_mut().bottom_pane.input = "draft".into();
         tui.app_mut().open_overlay(overlay);
         handle_paste("injected\ntext".into(), tui.app_mut());
-        tui.app_mut().bottom_pane.flush_paste_burst();
+        tui.app_mut().flush_composer_paste();
         assert_eq!(tui.app().bottom_pane.input, "draft", "{overlay:?}");
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
         tui.expect_no_commands();
@@ -170,7 +170,7 @@ fn paste_in_resume_picker_updates_search_only() {
     tui.app_mut()
         .open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
     handle_paste("old\r\nthread".into(), tui.app_mut());
-    tui.app_mut().bottom_pane.flush_paste_burst();
+    tui.app_mut().flush_composer_paste();
     assert_eq!(tui.app().resume_search_query, "old thread");
     assert_eq!(tui.app().bottom_pane.input, "draft");
 }

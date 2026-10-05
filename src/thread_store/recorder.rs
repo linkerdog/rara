@@ -262,7 +262,7 @@ impl<'a> ThreadRecorder<'a> {
             entries,
         )?;
         if let Err(err) = self.state_db.persist_turn(session_id, ordinal, entries) {
-            eprintln!(
+            log::warn!(
                 "Warning: canonical turn log advanced for {session_id}, but StateDb turn index update failed: {err}"
             );
         }
