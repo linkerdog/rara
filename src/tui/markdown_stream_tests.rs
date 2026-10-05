@@ -645,3 +645,134 @@ fn fence_highlight_line_limit_recolors_retained_rows_once() {
     assert_eq!(stream.lines(), canonical(&source, None));
     assert_eq!(stream.work().parses, work.parses);
 }
+
+#[test]
+fn long_plain_paragraph_parse_work_is_linear() {
+    let mut measurements = Vec::new();
+    for (name, chunk) in [
+        ("inline words", "ordinary words "),
+        ("soft breaks", "ordinary paragraph line\n"),
+    ] {
+        let mut stream = collector();
+        let mut source = String::new();
+        for _ in 0..200 {
+            source.push_str(chunk);
+            stream.push_delta(chunk);
+            stream.lines();
+        }
+        assert_eq!(stream.lines(), canonical(&source, None), "{name}");
+        let work = stream.work();
+        eprintln!("{name}: {} source bytes, {work:?}", source.len());
+        measurements.push((name, source.len(), work));
+    }
+    for (name, bytes, work) in measurements {
+        assert!(work.parsed_bytes <= bytes * 8, "{name}: {work:?}");
+        assert!(work.plain_bytes <= bytes * 2, "{name}: {work:?}");
+        assert!(work.fence_bytes <= bytes * 2, "{name}: {work:?}");
+        assert!(work.rendered_rows <= 200 * 2, "{name}: {work:?}");
+    }
+}
+
+#[test]
+fn plain_paragraphs_match_canonical_at_every_split_and_character() {
+    for source in [
+        "Ordinary words, with punctuation! Isn't this ($42.50) a/b + c-d = e? {yes}\nNext: 123.",
+        "Letters \u{4e2d}\u{6587} cafe\u{301} 👩‍💻\n\u{4e2d}\u{6587} next.",
+        "Trailing spaces   then text \nNext line ",
+        "Hard break  \nNext line",
+        "Plain\n\nAnother paragraph\n",
+        "Plain\n===\nAfter heading\n",
+        "Plain\n---\nAfter heading\n",
+        "Plain\n    Indented continuation\n",
+        "Plain\n1. Ordered list\n",
+        "Plain **bold** and _italic_ with `code`.",
+        "Plain [reference]\n\n[reference]: destination\n",
+        "Plain &amp; entity and \\*escaped\\* text.",
+        "Plain <https://example.com> and <br> HTML.",
+        "Plain\r\nCRLF\r\nnext\0end",
+        "Plain\twith tab\u{a0}space\u{2028}separator",
+        "\u{feff}Plain words\nNext line",
+        "Plain words\n\u{feff}Next line",
+        "# Heading\n\nPlain words\nNext line\n",
+        "[id]: destination\n\nSee [id].\n\nPlain words\nNext line\n",
+        "```\ncode\n```\n\nPlain words\nNext line",
+    ] {
+        for (split, _) in source.char_indices().chain([(source.len(), '\0')]) {
+            assert_live_equals_full(&[&source[..split], &source[split..]]);
+        }
+        let chunks = source
+            .char_indices()
+            .map(|(start, ch)| &source[start..start + ch.len_utf8()])
+            .collect::<Vec<_>>();
+        assert_live_equals_full(&chunks);
+    }
+}
+
+#[test]
+fn plain_tail_after_completed_blocks_only_visits_new_source() {
+    for prefix in [
+        "# Heading\n\n",
+        "[id]: destination\n\nSee [id].\n\n",
+        "```\ncode\n```\n\n",
+    ] {
+        let mut stream = collector();
+        let mut source = format!("{prefix}Ordinary line\n");
+        stream.push_delta(&source);
+        stream.lines();
+        let before = stream.work();
+        for _ in 0..200 {
+            let chunk = "Another line with words.\n";
+            source.push_str(chunk);
+            stream.push_delta(chunk);
+            stream.lines();
+        }
+        let work = stream.work();
+        assert_eq!(
+            work.parsed_bytes, before.parsed_bytes,
+            "{prefix:?}: {work:?}"
+        );
+        assert_eq!(work.fence_bytes, before.fence_bytes, "{prefix:?}: {work:?}");
+        assert!(work.plain_bytes <= source.len() * 2, "{prefix:?}: {work:?}");
+        assert_eq!(stream.lines(), canonical(&source, None), "{prefix:?}");
+    }
+}
+
+#[test]
+fn rejected_plain_candidate_is_not_rescanned_without_a_new_block_boundary() {
+    let mut stream = collector();
+    stream.push_delta("Plain *styled* paragraph\n");
+    stream.lines();
+    let examined = stream.work().plain_bytes;
+    for _ in 0..100 {
+        stream.push_delta("More words\n");
+        stream.lines();
+    }
+    assert_eq!(stream.work().plain_bytes, examined);
+}
+
+#[test]
+fn plain_paragraph_ascii_boundaries_match_canonical() {
+    for byte in 0..=127 {
+        let ch = char::from(byte).to_string();
+        assert_live_equals_full(&["Ordinary words ", &ch, " next\nFinal line"]);
+        assert_live_equals_full(&["Ordinary words\n", &ch, " next\nFinal line"]);
+    }
+}
+
+#[test]
+fn plain_paragraph_replacement_resets_pending_spaces_and_reenables_incremental_work() {
+    let mut stream = collector();
+    stream.push_delta("Old words   ");
+    stream.lines();
+    let epoch = stream.rendered_stream().epoch;
+    stream.replace_source("New words ");
+    assert_eq!(stream.lines(), canonical("New words ", None));
+    assert_ne!(stream.rendered_stream().epoch, epoch);
+    let parsed = stream.work().parsed_bytes;
+    stream.push_delta("remain\nAnother line\n");
+    assert_eq!(
+        stream.lines(),
+        canonical("New words remain\nAnother line\n", None)
+    );
+    assert_eq!(stream.work().parsed_bytes, parsed);
+}
