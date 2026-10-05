@@ -207,7 +207,18 @@ fails; Drop must not repeat that failed cleanup attempt. Signal termination
 such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent
-and does not modify keyboard enhancement stacks that the TUI never enabled.
+and pops each keyboard enhancement entry at most once, including when the
+panic hook restores before the guard unwinds. On Unix TTYs, enable kitty
+`DISAMBIGUATE_ESCAPE_CODES` while the guard owns the terminal; suspend pops
+that entry and resume pushes a new one. Preserve the parent's stack instead
+of resetting all keyboard flags. Native Windows keeps its existing input path.
+
+Keyboard setup sends the progressive enhancement command without a blocking
+capability query. Unsupported ANSI terminals ignore it and retain legacy input;
+no terminal response is required to start or resume. Only disambiguation is
+requested, not release reporting, alternate keys, or modifyOtherKeys. The input
+translator still ignores reported releases and accepts ordinary repeats, while
+repeated Ctrl+C/Ctrl+D/Ctrl+Z cannot confirm quit or suspend.
 This contract does not cover uncatchable termination such as SIGKILL. Viewport
 and normal shell handoff are covered by RUN-06; Unix job control by RUN-07.
 
@@ -243,6 +254,11 @@ Ctrl+Z yields the foreground process group with SIGTSTP. Before signalling,
 stop the input event stream, hand off the inline viewport on a clean line, and
 restore all owned terminal modes. Do not stop a job whose terminal cleanup
 failed. Signal failures surface and still attempt to reacquire terminal modes.
+Register for SIGCONT before signalling and wait for that notification before
+reacquiring any mode: a process-group signal can be delivered on another thread
+after the signalling call returns. If no resume notification arrives after
+bounded polling while runnable, exit with an error and leave modes restored.
+Time spent stopped must not exhaust this polling budget.
 
 After the shell resumes the job with `fg`, reacquire terminal modes and the
 input stream, then reserve and fully redraw the viewport relative to the
@@ -332,7 +348,7 @@ exceptions are limited to explicit CLI/protocol consumers and test fixtures.
 | RUN-02 | `controller::cancellation_tests`, typed query-control races, and `tasks::tests::query_lifecycle` scripted cancel/interrupt/task-return interleavings |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
-| RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
+| RUN-05 | Cleanup failure injection; Unix PTY subprocess tests for normal, error, partial-startup, and panic exits; balanced keyboard stack entries and enhanced/legacy input bytes through crossterm |
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 | RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
 | RUN-08 | Real settings dispatch redaction/recording regressions; injected-time expiry and replacement; typed buffer colors; paste ownership; paused-time production event-loop repaint |
@@ -361,3 +377,4 @@ exceptions are limited to explicit CLI/protocol consumers and test fixtures.
 - [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
+- [Keyboard enhancement and suspend ownership](../journal/2026-10-05-keyboard-enhancement.md)
