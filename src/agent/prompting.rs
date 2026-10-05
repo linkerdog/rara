@@ -30,7 +30,7 @@ impl Agent {
             .assemble_runtime(self.prompt_mode(), self.runtime_context_inputs())
     }
 
-    pub(super) fn prompt_mode(&self) -> PromptMode {
+    pub(crate) fn prompt_mode(&self) -> PromptMode {
         match self.execution_mode {
             AgentExecutionMode::Execute => PromptMode::Execute,
             AgentExecutionMode::Plan => PromptMode::Plan,
@@ -40,6 +40,30 @@ impl Agent {
 
     fn runtime_context_inputs(&self) -> RuntimeContextInputs<'_> {
         let (cwd, branch) = self.workspace.get_env_info();
+        self.runtime_context_inputs_with_files(cwd, branch, self.shared_task_context_view())
+    }
+
+    pub(crate) fn display_runtime_context(
+        &self,
+        files: &crate::context::RuntimeContextFiles,
+        shared_tasks: SharedTaskContextView,
+    ) -> crate::context::SharedRuntimeContext {
+        self.context_assembler().assemble_display(
+            files,
+            self.runtime_context_inputs_with_files(
+                files.cwd.clone(),
+                files.branch.clone(),
+                shared_tasks,
+            ),
+        )
+    }
+
+    fn runtime_context_inputs_with_files(
+        &self,
+        cwd: String,
+        branch: String,
+        shared_tasks: SharedTaskContextView,
+    ) -> RuntimeContextInputs<'_> {
         RuntimeContextInputs {
             cwd,
             branch,
@@ -57,7 +81,7 @@ impl Agent {
                 .collect(),
             plan_explanation: self.plan_explanation.clone(),
             todo_state: self.todo_state.clone(),
-            shared_tasks: self.shared_task_context_view(),
+            shared_tasks,
             compact_state: self.compact_state.clone(),
             history: &self.history,
             memory_uri: self.memory_handle.uri(),

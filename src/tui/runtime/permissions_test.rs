@@ -181,7 +181,6 @@ async fn idle_permission_change_preserves_pending_plan_decision() {
 
 #[tokio::test]
 async fn resume_picker_retains_explicit_full_access_and_pending_plan() {
-    use crate::tui::runtime_port::RuntimeCommand;
     use crate::tui::state::{ListPickerKind, Overlay, RuntimeSnapshot};
     use crate::tui::testing::FakeRuntimeClient;
 
@@ -211,6 +210,7 @@ async fn resume_picker_retains_explicit_full_access_and_pending_plan() {
     let mut slot = Some(agent);
     request_permission_mode(&mut app, &mut slot, PermissionMode::FullAccess);
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    app.finish_resume_query_for_test().await;
     assert_eq!(
         crate::tui::list_picker::selected_resumable_thread_id(&app).as_deref(),
         Some("saved-plan")
@@ -227,13 +227,10 @@ async fn resume_picker_retains_explicit_full_access_and_pending_plan() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        port.commands(),
-        vec![RuntimeCommand::SetPermissionMode(
-            PermissionMode::FullAccess
-        )]
-    );
-    request_permission_mode(&mut app, &mut slot, PermissionMode::FullAccess);
+    crate::tui::session_restore::finish_restore_for_test(&mut app, &mut slot)
+        .await
+        .unwrap();
+    assert!(port.commands().is_empty());
     assert_eq!(app.permission_mode_label(), "full-access");
     assert!(app.has_pending_plan_approval());
     let agent = slot.unwrap();

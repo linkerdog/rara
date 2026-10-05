@@ -119,8 +119,9 @@ async fn run_tui_session(
         Arc::new(std::sync::RwLock::new(app.snapshot.clone().into_inner())),
     );
     let runtime_port: Arc<dyn RuntimeClientPort> = Arc::new(runtime_port);
+    let startup_plugin_dirs = app.explicit_plugin_dirs.clone();
     let mut maintainer = TuiController::new(app, runtime_port, runtime_commands);
-    match StateDb::new() {
+    match tokio::task::spawn_blocking(StateDb::new).await? {
         Ok(state_db) => {
             let state_db = Arc::new(state_db);
             let app = maintainer.app_mut();
@@ -130,41 +131,43 @@ async fn run_tui_session(
         }
         Err(err) => maintainer.app_mut().set_state_db_error(err.to_string()),
     }
-    if let Some(mode) = startup.permission_override {
-        processor
-            .apply_command(
-                maintainer.app_mut(),
-                RuntimeCommand::SetPermissionMode(mode),
+    let result = async {
+        if let Some(mode) = startup.permission_override {
+            processor
+                .apply_command(
+                    maintainer.app_mut(),
+                    RuntimeCommand::SetPermissionMode(mode),
+                )
+                .await?;
+        }
+        let oauth_manager = Arc::new(oauth_manager);
+        maintainer.app_mut().codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
+
+        maintainer.sync_snapshot(&mut processor).await?;
+        maintainer.start_repo_context_detection();
+
+        {
+            let mut events = TerminalEventSource::new(terminal_modes);
+            run_event_loop(
+                &mut terminal,
+                &mut maintainer,
+                &mut processor,
+                &oauth_manager,
+                &mut events,
+                if should_start_initial_rebuild(&startup_plugin_dirs) {
+                    StartupMaintenance::Rebuild
+                } else {
+                    StartupMaintenance::None
+                },
             )
-            .await?;
+            .await
+        }
     }
-    let oauth_manager = Arc::new(oauth_manager);
-    maintainer.app_mut().codex_auth_mode = oauth_manager.saved_auth_mode().ok().flatten();
-
-    maintainer.sync_snapshot(&mut processor).await?;
-    maintainer.start_repo_context_detection();
-    if should_start_initial_rebuild(&maintainer.app().explicit_plugin_dirs) {
-        maintainer
-            .app_mut()
-            .push_entry(MessageRole::Runtime, "Loading explicit plugin directories.");
-        maintainer
-            .send_runtime_command(RuntimeCommand::Maintenance(
-                RuntimeMaintenanceCommand::Rebuild,
-            ))
-            .await?;
+    .await;
+    let storage_result = maintainer.app_mut().shutdown_storage().await;
+    if let Err(error) = &storage_result {
+        log::warn!("Storage cleanup failed; writes were not acknowledged: {error:#}");
     }
-
-    let result = {
-        let mut events = TerminalEventSource::new(terminal_modes);
-        run_event_loop(
-            &mut terminal,
-            &mut maintainer,
-            &mut processor,
-            &oauth_manager,
-            &mut events,
-        )
-        .await
-    };
     let handoff = terminal
         .finish_inline_viewport()
         .map_err(anyhow::Error::from);
@@ -182,7 +185,7 @@ async fn run_tui_session(
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
         handle.abort();
     }
-    result.and(handoff).and(restored)?;
+    result.and(storage_result).and(handoff).and(restored)?;
     let session_id = processor.session_id().or_else(|| {
         (!maintainer.app().snapshot.session_id.is_empty())
             .then(|| maintainer.app().snapshot.session_id.clone())
@@ -238,6 +241,11 @@ impl EventSource<CrosstermBackend<io::Stdout>> for TerminalEventSource<'_> {
     }
 }
 
+pub(super) enum StartupMaintenance {
+    None,
+    Rebuild,
+}
+
 // Keep the terminal alive across loop errors so shell handoff precedes mode restoration.
 async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     terminal: &mut Terminal<B>,
@@ -245,21 +253,39 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     processor: &mut RuntimeCommandProcessor,
     oauth_manager: &Arc<OAuthManager>,
     events: &mut impl EventSource<B>,
+    mut startup_maintenance: StartupMaintenance,
 ) -> anyhow::Result<()> {
     let mut tick = interval(Duration::from_millis(166));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut frames = FrameScheduler::default();
+    let mut exit_flush: Option<tokio::sync::oneshot::Receiver<anyhow::Result<()>>> = None;
+    let mut input_closed = false;
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
         needs_redraw |= maintainer.app_mut().poll_prompt_history();
         needs_redraw |= maintainer.app_mut().poll_file_mentions();
         needs_redraw |= maintainer.app_mut().poll_diagnostics();
-        needs_redraw |= maintainer.queue_restored_goal(processor).await;
-        if maintainer.poll_repo_context().await {
-            needs_redraw = true;
+        if exit_flush.is_none() {
+            if matches!(startup_maintenance, StartupMaintenance::Rebuild)
+                && !maintainer.app().is_busy()
+            {
+                startup_maintenance = StartupMaintenance::None;
+                maintainer
+                    .app_mut()
+                    .push_entry(MessageRole::Runtime, "Loading explicit plugin directories.");
+                maintainer
+                    .send_runtime_command(RuntimeCommand::Maintenance(
+                        RuntimeMaintenanceCommand::Rebuild,
+                    ))
+                    .await?;
+            }
+            needs_redraw |= maintainer.queue_restored_goal(processor).await;
+            if maintainer.poll_repo_context().await {
+                needs_redraw = true;
+            }
+            needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
         }
-        needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
         if needs_redraw {
             frames.request(Instant::now());
         }
@@ -273,9 +299,39 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
         needs_redraw = false;
 
         tokio::select! {
+            result = async {
+                match exit_flush.as_mut() {
+                    Some(receiver) => receiver.await,
+                    None => futures::future::pending().await,
+                }
+            } => {
+                exit_flush = None;
+                let result = result.unwrap_or_else(|_| Err(anyhow::anyhow!("storage worker stopped before exit acknowledgement")));
+                match result {
+                    Ok(()) => {
+                        if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
+                            task.handle.abort();
+                        }
+                        break;
+                    }
+                    Err(error) => {
+                        if input_closed {
+                            return Err(error);
+                        }
+                        let app = maintainer.app_mut();
+                        app.poll_storage();
+                        app.push_unpersisted_notice(NoticeLevel::Error, format!("Could not save session; exit cancelled: {error:#}"));
+                        needs_redraw = true;
+                    }
+                }
+            }
             _ = frames.wait() => {}
             _ = tick.tick() => {
                 events.maintain_raw_mode()?;
+                if exit_flush.is_some() {
+                    maintainer.needs_redraw = true;
+                    continue;
+                }
                 let mut changed = false;
                 let app = maintainer.app_mut();
                 if let Some(clipboard) = &mut app.clipboard
@@ -292,11 +348,18 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 }
                 changed |= super::goal_ui::update_elapsed(app, crate::runtime_goals::current_unix_timestamp_secs());
                 changed |= app.poll_shared_task_files();
+                changed |= app.poll_storage();
+                changed |= app.poll_resume_queries();
+                changed |= super::session_restore::poll_restore(app, processor.agent_mut());
+                if app.poll_context_files() {
+                    processor.sync_snapshot(app);
+                    changed = true;
+                }
                 changed |= processor.sync_agent_activity(app);
                 changed |= super::runtime::emit_query_heartbeat(app);
                 needs_redraw |= changed;
             }
-            runtime_activity = maintainer.wait_for_runtime_activity() => {
+            runtime_activity = maintainer.wait_for_runtime_activity(), if exit_flush.is_none() => {
                 match runtime_activity {
                     RuntimeActivity::Event(Some(event)) => {
                         needs_redraw |= maintainer.apply_runtime_event(event);
@@ -316,7 +379,21 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 }
                 needs_redraw |= maintainer.resync_after_event_loss(processor);
             }
-            maybe_event = events.next_event() => {
+            maybe_event = events.next_event(), if !input_closed => {
+                if exit_flush.is_some() {
+                    match maybe_event {
+                        Some(Ok(Event::Key(key))) if key.code == crossterm::event::KeyCode::Esc => {
+                            exit_flush = None;
+                            maintainer.app_mut().push_notice(NoticeLevel::Info, "Exit cancelled; pending writes remain queued.");
+                        }
+                        Some(Ok(Event::Resize(_, _))) => terminal.invalidate_viewport(),
+                        Some(Err(error)) => log::warn!("Terminal event error while saving: {error}"),
+                        None => input_closed = true,
+                        Some(Ok(_)) => {}
+                    }
+                    maintainer.needs_redraw = true;
+                    continue;
+                }
                 match maybe_event {
                     Some(Ok(event)) => match translate_event(event, maintainer.app_mut()) {
                         Some(UiEvent::App(event)) => {
@@ -327,10 +404,17 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                                 if maintainer.app().is_busy() {
                                     super::goal_resume::defer_for_user_stop(maintainer.app_mut());
                                 }
-                                if let Some(task) = maintainer.app_mut().bottom_pane.running_task.take() {
-                                    task.handle.abort();
+                                let app = maintainer.app_mut();
+                                app.pending_restore = None;
+                                app.finalize_active_turn();
+                                app.persist_runtime_state();
+                                match app.storage_flush_receiver() {
+                                    Ok(receiver) => {
+                                        exit_flush = Some(receiver);
+                                        app.push_unpersisted_notice(NoticeLevel::Info, "Saving session before exit... Press Esc to stay.");
+                                    }
+                                    Err(error) => app.push_unpersisted_notice(NoticeLevel::Error, format!("Could not save session; exit cancelled: {error:#}")),
                                 }
-                                break;
                             }
                             needs_redraw = true;
                         }
@@ -361,7 +445,13 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                             .push_notice(NoticeLevel::Error, format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
-                    None => break,
+                    None => {
+                        let app = maintainer.app_mut();
+                        app.pending_restore = None;
+                        app.finalize_active_turn();
+                        app.persist_runtime_state();
+                        break;
+                    }
                 }
             }
         }

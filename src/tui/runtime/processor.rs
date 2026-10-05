@@ -82,6 +82,19 @@ impl RuntimeCommandProcessor {
             );
             return Ok(());
         }
+        if matches!(
+            &command,
+            RuntimeCommand::Input(_)
+                | RuntimeCommand::Maintenance(
+                    RuntimeMaintenanceCommand::Compact | RuntimeMaintenanceCommand::Rebuild
+                )
+        ) && crate::tui::session_restore::cancel_restore(app, self.agent_mut())
+        {
+            app.push_notice(
+                NoticeLevel::Info,
+                "Thread restore cancelled for the new runtime request.",
+            );
+        }
         match command {
             RuntimeCommand::SetPermissionMode(mode) => {
                 super::permissions::request_permission_mode(app, self.agent_mut(), mode);

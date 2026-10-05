@@ -1,8 +1,8 @@
 use super::*;
 use crate::tui::message_role::MessageRole;
 
-#[test]
-fn resume_picker_refreshes_recent_threads_on_open() {
+#[tokio::test]
+async fn resume_picker_refreshes_recent_threads_on_open() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
         path: dir.path().join("config.json"),
@@ -36,14 +36,15 @@ fn resume_picker_refreshes_recent_threads_on_open() {
     // Disable Cwd filter for deterministic test — the test sessions use
     // different workspace directories than the test process cwd.
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    app.finish_resume_query_for_test().await;
 
     assert_eq!(app.recent_threads.len(), 1);
     assert_eq!(app.recent_threads[0].metadata.session_id, "thread-1");
     assert_eq!(app.resume_picker_idx, 0);
 }
 
-#[test]
-fn resume_picker_loads_more_than_legacy_twenty_thread_cap() {
+#[tokio::test]
+async fn resume_picker_loads_more_than_legacy_twenty_thread_cap() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
         path: dir.path().join("config.json"),
@@ -75,12 +76,13 @@ fn resume_picker_loads_more_than_legacy_twenty_thread_cap() {
     }
 
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    app.finish_resume_query_for_test().await;
 
     assert_eq!(app.recent_threads.len(), 25);
 }
 
-#[test]
-fn resume_picker_search_filters_and_clear_restores_threads() {
+#[tokio::test]
+async fn resume_picker_search_filters_and_clear_restores_threads() {
     let dir = tempdir().expect("tempdir");
     let cm = ConfigManager {
         path: dir.path().join("config.json"),
@@ -115,11 +117,13 @@ fn resume_picker_search_filters_and_clear_restores_threads() {
     }
 
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
+    app.finish_resume_query_for_test().await;
     assert_eq!(app.recent_threads.len(), 2);
 
     for c in "resume-search".chars() {
-        app.push_resume_search_char(c);
+        app.insert_active_input_char(c);
     }
+    app.finish_resume_query_for_test().await;
 
     assert_eq!(app.resume_search_query, "resume-search");
     assert_eq!(app.resume_picker_idx, 0);
@@ -127,6 +131,7 @@ fn resume_picker_search_filters_and_clear_restores_threads() {
     assert_eq!(app.recent_threads[0].metadata.session_id, "thread-alpha");
 
     app.clear_resume_search();
+    app.finish_resume_query_for_test().await;
 
     assert!(app.resume_search_query.is_empty());
     assert_eq!(app.resume_picker_idx, 0);
@@ -474,8 +479,8 @@ fn restore_committed_turns_sets_inserted_counter_to_match() {
     assert_eq!(app.active_turn.entries.len(), 0);
 }
 
-#[test]
-fn active_turn_entries_write_and_clear_live_log() {
+#[tokio::test]
+async fn active_turn_entries_write_and_clear_live_log() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -488,6 +493,7 @@ fn active_turn_entries_write_and_clear_live_log() {
     app.push_entry(MessageRole::User, "hello");
     app.push_entry(MessageRole::Agent, "hi");
 
+    app.flush_storage().await.unwrap();
     let live_entries = thread_turn_log::load_live_entries(
         &app.state_db.as_ref().unwrap().rollout_root(),
         "live-entry-session",
@@ -500,6 +506,7 @@ fn active_turn_entries_write_and_clear_live_log() {
 
     app.finalize_active_turn();
 
+    app.flush_storage().await.unwrap();
     let live_entries = thread_turn_log::load_live_entries(
         &app.state_db.as_ref().unwrap().rollout_root(),
         "live-entry-session",
@@ -514,8 +521,8 @@ fn active_turn_entries_write_and_clear_live_log() {
     assert_eq!(turn_records[0].entries.len(), 2);
 }
 
-#[test]
-fn pending_plan_approval_persists_plan_ready_lifecycle() {
+#[tokio::test]
+async fn pending_plan_approval_persists_plan_ready_lifecycle() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -527,6 +534,7 @@ fn pending_plan_approval_persists_plan_ready_lifecycle() {
 
     app.show_pending_plan_approval(None);
 
+    app.flush_storage().await.unwrap();
     let events = app
         .state_db
         .as_ref()
@@ -548,8 +556,8 @@ fn pending_plan_approval_persists_plan_ready_lifecycle() {
     assert_eq!(ready_lifecycle.decided_at, None);
 }
 
-#[test]
-fn completed_plan_approval_persists_decision_lifecycle() {
+#[tokio::test]
+async fn completed_plan_approval_persists_decision_lifecycle() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -568,6 +576,7 @@ fn completed_plan_approval_persists_decision_lifecycle() {
         Some("sha256:abc".to_string()),
     );
 
+    app.flush_storage().await.unwrap();
     let events = app
         .state_db
         .as_ref()
@@ -591,8 +600,8 @@ fn completed_plan_approval_persists_decision_lifecycle() {
     assert!(approved_lifecycle.decided_at.is_some());
 }
 
-#[test]
-fn push_system_redacts_live_log_entries() {
+#[tokio::test]
+async fn push_system_redacts_live_log_entries() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -607,6 +616,7 @@ fn push_system_redacts_live_log_entries() {
         SystemMessageKind::Other,
     );
 
+    app.flush_storage().await.unwrap();
     let live_entries = thread_turn_log::load_live_entries(
         &app.state_db.as_ref().unwrap().rollout_root(),
         "live-redaction-session",
@@ -621,8 +631,8 @@ fn push_system_redacts_live_log_entries() {
     );
 }
 
-#[test]
-fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
+#[tokio::test]
+async fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -634,20 +644,24 @@ fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
 
     app.push_entry(MessageRole::User, "keep me");
     app.push_entry(MessageRole::Agent, "until canonical write succeeds");
+    app.flush_storage().await.unwrap();
     let rollout_root = app.state_db.as_ref().unwrap().rollout_root();
     let session_dir = rollout_root.join("live-persist-failure-session");
     std::fs::create_dir(session_dir.join("turns.jsonl")).expect("turns path directory");
 
     app.finalize_active_turn();
 
+    app.flush_storage()
+        .await
+        .expect_err("canonical turn remains queued");
     let live_entries =
         thread_turn_log::load_live_entries(&rollout_root, "live-persist-failure-session");
     assert_eq!(live_entries.len(), 2);
-    assert!(app.committed_turns.is_empty());
-    assert_eq!(app.active_turn.entries.len(), 2);
-    assert_eq!(app.active_turn.entries[0].message, "keep me");
+    assert_eq!(app.committed_turns.len(), 1);
+    assert_eq!(app.committed_turns[0].entries.len(), 2);
+    assert_eq!(app.committed_turns[0].entries[0].message, "keep me");
     assert_eq!(
-        app.active_turn.entries[1].message,
+        app.committed_turns[0].entries[1].message,
         "until canonical write succeeds"
     );
     assert!(
@@ -655,10 +669,23 @@ fn active_turn_commit_keeps_live_log_when_turn_persist_fails() {
             .as_deref()
             .is_some_and(|status| status.contains("turn write failed"))
     );
+    std::fs::remove_dir(session_dir.join("turns.jsonl")).unwrap();
+    app.shutdown_storage().await.unwrap();
+    assert!(
+        thread_turn_log::load_live_entries(&rollout_root, "live-persist-failure-session")
+            .is_empty()
+    );
+    assert_eq!(
+        thread_turn_log::load_turn_records(&rollout_root, "live-persist-failure-session").unwrap()
+            [0]
+        .entries
+        .len(),
+        2
+    );
 }
 
-#[test]
-fn reset_transcript_clears_live_log() {
+#[tokio::test]
+async fn reset_transcript_clears_live_log() {
     let dir = tempdir().expect("tempdir");
     let state_db = StateDb::new_for_root_dir(dir.path().join(".rara")).expect("state db");
     let mut app = TuiApp::new(ConfigManager {
@@ -669,6 +696,7 @@ fn reset_transcript_clears_live_log() {
     app.snapshot.session_id = "live-reset-session".to_string();
 
     app.push_entry(MessageRole::User, "clear me");
+    app.flush_storage().await.unwrap();
     assert_eq!(
         thread_turn_log::load_live_entries(
             &app.state_db.as_ref().unwrap().rollout_root(),
@@ -679,6 +707,7 @@ fn reset_transcript_clears_live_log() {
     );
 
     app.reset_transcript();
+    app.flush_storage().await.unwrap();
 
     let entries = thread_turn_log::load_live_entries(
         &app.state_db.as_ref().unwrap().rollout_root(),

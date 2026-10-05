@@ -12,6 +12,7 @@ mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
 mod quit_shortcut;
+mod resume_queries;
 pub(crate) use quit_shortcut::{QuitShortcutAction, QuitShortcutKey, QuitShortcutState};
 mod runtime_snapshot;
 mod scroll_acceleration;
@@ -63,6 +64,7 @@ use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;
 
 mod composer;
+mod context_files;
 mod initialization;
 mod model_catalog;
 mod model_selection;
