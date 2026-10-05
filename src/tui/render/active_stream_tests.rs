@@ -90,6 +90,8 @@ fn work(harness: &TuiHarness) -> TranscriptWork {
         wrapped_lines: render.wrapped_lines + stream.wrapped_lines,
         text_rows: render.text_rows + stream.text_rows,
         hashed_rows: render.hashed_rows + stream.hashed_rows,
+        cloned_bytes: render.cloned_bytes + stream.cloned_bytes,
+        wrapped_bytes: render.wrapped_bytes + stream.wrapped_bytes,
     }
 }
 
@@ -109,6 +111,31 @@ fn unchanged_long_stream_frames_clone_only_visible_rows() {
     assert!(after.cloned_rows - before.cloned_rows <= 20 * 20);
     assert_eq!(after.wrapped_lines, before.wrapped_lines);
     assert_eq!(after.text_rows, before.text_rows);
+}
+
+#[test]
+fn growing_single_line_uses_bounded_layout_bytes_through_app_rendering() {
+    let mut harness = stream_harness();
+    let chunk = "Ordinary words 👩‍💻 ";
+    for _ in 0..200 {
+        harness.app_mut().append_agent_delta(chunk);
+        harness.screen_buffer(40, 20);
+    }
+    let measured = work(&harness);
+    assert!(
+        measured.cloned_bytes <= chunk.len() * 200 * 4,
+        "{measured:?}"
+    );
+    assert!(measured.wrapped_bytes <= 200 * 40 * 8, "{measured:?}");
+    let app = harness.app();
+    let width = app.transcript_scroll.layout().unwrap().width;
+    assert_eq!(
+        super::renderable_transcript_lines(app, width)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        super::transcript_cache_tests::canonical_rows(app, width)
+    );
 }
 
 #[test]

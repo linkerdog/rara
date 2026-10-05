@@ -304,6 +304,7 @@ fn explicit_epoch_refreshes_same_revision_style_and_alignment() {
             epoch: 0,
             revision: 4,
             stable_lines: 1,
+            plain_start: None,
             lines: &original,
         },
         80,
@@ -316,6 +317,7 @@ fn explicit_epoch_refreshes_same_revision_style_and_alignment() {
             epoch: 1,
             revision: 4,
             stable_lines: 1,
+            plain_start: None,
             lines: &changed,
         },
         80,
@@ -381,4 +383,127 @@ fn plain_soft_break_rows_reuse_completed_lines_and_replay_late_heading() {
             );
         }
     }
+}
+
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "Expose byte counts that row-only metrics hide for long physical lines."
+)]
+fn growing_physical_line_layout_work_is_linear() {
+    let mut measurements = Vec::new();
+    for width in [8, 80] {
+        for chunk in ["ordinary words ", "unbrokenword", "Words 👩‍💻 cafe\u{301} "] {
+            let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+            let mut layout = StreamRowCache::default();
+            let mut source = String::new();
+            for _ in 0..200 {
+                source.push_str(chunk);
+                collector.push_delta(chunk);
+                materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            }
+            let expected = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            )
+            .lines;
+            assert_rows(
+                &materialize(&mut collector, &mut layout, width, ResponseView::Full),
+                &canonical_response(&expected, width, ResponseView::Full),
+            );
+            let work = layout.work.get();
+            eprintln!(
+                "{width} columns, {chunk:?}, {} source bytes: {work:?}",
+                source.len()
+            );
+            measurements.push((width, chunk, source.len(), work));
+        }
+    }
+    for (width, chunk, bytes, work) in measurements {
+        // Three mutable visual rows plus new UTF-8 content; width is part of the
+        // layout bound, independently of the total accumulated source length.
+        let budget = bytes * 4 + 200 * usize::from(width) * 16;
+        assert!(
+            work.cloned_bytes <= budget,
+            "{width} columns, {chunk:?}: {work:?}"
+        );
+        assert!(
+            work.wrapped_bytes <= budget,
+            "{width} columns, {chunk:?}: {work:?}"
+        );
+    }
+}
+
+#[test]
+fn growing_line_matches_canonical_through_graphemes_projection_and_completion() {
+    let prefix = "Ordinary words with spaces. ".repeat(8);
+    let sources = [
+        format!("{prefix}{} tail", "unbrokenword".repeat(20)),
+        format!("{prefix}👩‍💻 cafe\u{301} \u{4e2d}\u{6587} 🇬🇧🇺🇸 end"),
+        format!("{prefix}❤\u{fe0f} and 👩‍❤️‍💋‍👩 with a\u{ff9e}\u{ff9e}\u{ff9e} tail"),
+        format!("{prefix}{}\u{301} tail", "a".repeat(100)),
+        format!("{prefix}\u{200b}More words\nNext ordinary line grows again."),
+        format!("{prefix}\u{202e}More words\nNext ordinary line grows again."),
+        format!("{prefix}\n{}\nLast", "New physical line words. ".repeat(8)),
+        format!("{prefix}\n===\nAfter heading"),
+        format!("# Heading\n\n{prefix}*late emphasis* and [link](destination)"),
+        format!("First\nSecond\nThird\n{prefix}\nFifth\nSixth"),
+    ];
+    for source in sources {
+        for width in [1, 8, 80] {
+            for view in [ResponseView::Full, ResponseView::Compact] {
+                let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+                let mut layout = StreamRowCache::default();
+                for (offset, ch) in source.char_indices() {
+                    let end = offset + ch.len_utf8();
+                    collector.push_delta(&source[offset..end]);
+                    let full =
+                        crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                            &source[..end],
+                            None,
+                            Some(Path::new("/workspace")),
+                        )
+                        .lines;
+                    assert_rows(
+                        &materialize(&mut collector, &mut layout, width, view),
+                        &canonical_response(&full, width, view),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn growing_line_retains_prefix_snapshots_and_resets_on_layout_or_source_changes() {
+    let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+    let mut layout = StreamRowCache::default();
+    let mut source = "Ordinary words ".repeat(100);
+    collector.push_delta(&source);
+    let original = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+    let frozen = original.iter().cloned().collect::<Vec<_>>();
+    for chunk in ["more words", " more", "\n", "Next physical line"] {
+        source.push_str(chunk);
+        collector.push_delta(chunk);
+        let rows = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+        assert!(std::ptr::eq(original.get(0).unwrap(), rows.get(0).unwrap()));
+        check_collector(&mut collector, &mut layout, 8, ResponseView::Full);
+    }
+    assert_rows(&original, &frozen);
+    for width in [0, 1, 80, 8] {
+        for view in [ResponseView::Compact, ResponseView::Full] {
+            check_collector(&mut collector, &mut layout, width, view);
+        }
+    }
+    let replacement = source.replace("Ordinary", "Replaced");
+    assert_eq!(source.len(), replacement.len());
+    collector.replace_source(&replacement);
+    let replaced = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+    assert!(!std::ptr::eq(
+        original.get(0).unwrap(),
+        replaced.get(0).unwrap()
+    ));
+    check_collector(&mut collector, &mut layout, 8, ResponseView::Full);
+    assert_rows(&original, &frozen);
 }

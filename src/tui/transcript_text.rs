@@ -1,5 +1,7 @@
 //! Materialized styled rows shared by transcript rendering, counting, and selection.
 
+use std::ops::Range;
+
 use ratatui::{
     layout::Alignment,
     text::{Line, Span},
@@ -9,6 +11,17 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
 
 pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
+    wrap_line_with_source(line, width).lines
+}
+
+pub(crate) struct WrappedLine {
+    pub source: String,
+    pub ranges: Vec<Range<usize>>,
+    pub lines: Vec<Line<'static>>,
+}
+
+/// Ranges refer to sanitized text; gaps identify discarded soft-wrap separators.
+pub(crate) fn wrap_line_with_source(line: &Line<'_>, width: u16) -> WrappedLine {
     let line = super::display_sanitize::sanitize_display_line_segments(line);
     let text = line.to_string();
     let width = usize::from(width.max(1));
@@ -23,8 +36,8 @@ pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
     );
     let mut span_index = 0;
     let mut span_end = line.spans.first().map_or(0, |span| span.content.len());
-    ranges
-        .into_iter()
+    let lines = ranges
+        .iter()
         .map(|range| {
             let mut spans: Vec<Span<'static>> = Vec::new();
             for (offset, grapheme) in text[range.clone()].grapheme_indices(true) {
@@ -63,7 +76,12 @@ pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
             }
             row
         })
-        .collect()
+        .collect();
+    WrappedLine {
+        source: text,
+        ranges,
+        lines,
+    }
 }
 
 pub(crate) fn wrap_lines(lines: &[Line<'_>], width: u16) -> Vec<Line<'static>> {

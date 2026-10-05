@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 pub(super) struct PlainParagraph {
     at_line_start: bool,
     pending_spaces: usize,
+    pub row_start: usize,
     pub row_end: usize,
 }
 
@@ -16,9 +17,11 @@ impl PlainParagraph {
         let mut plain = Self {
             at_line_start: true,
             pending_spaces: 0,
+            row_start: 0,
             row_end: 0,
         };
         plain.validate(source)?;
+        plain.row_start = lines.len().checked_sub(source.lines().count())?;
         plain.row_end = lines.len().checked_sub(usize::from(!plain.at_line_start))?;
         Some(plain)
     }
