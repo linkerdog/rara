@@ -27,12 +27,8 @@ use std::io::Write;
 
 use crossterm::cursor::MoveTo;
 use crossterm::queue;
-use crossterm::style::Colors;
 use crossterm::style::Print;
 use crossterm::style::SetAttribute;
-use crossterm::style::SetBackgroundColor;
-use crossterm::style::SetColors;
-use crossterm::style::SetForegroundColor;
 use crossterm::terminal::Clear;
 use ratatui::backend::Backend;
 use ratatui::buffer::Buffer;
@@ -43,7 +39,9 @@ use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::widgets::{StatefulWidget, Widget};
 
+mod color;
 mod inline;
+use color::{ColorTarget, write_color};
 
 /// Returns the display width of a cell symbol, ignoring OSC escape sequences.
 ///
@@ -501,15 +499,12 @@ where
                     diff.queue(writer)?;
                     modifier = cell.modifier;
                 }
-                if cell.fg != fg || cell.bg != bg {
-                    queue!(
-                        writer,
-                        SetColors(Colors::new(
-                            crossterm_color(cell.fg),
-                            crossterm_color(cell.bg),
-                        ))
-                    )?;
+                if cell.fg != fg {
+                    write_color(writer, ColorTarget::Foreground, cell.fg)?;
                     fg = cell.fg;
+                }
+                if cell.bg != bg {
+                    write_color(writer, ColorTarget::Background, cell.bg)?;
                     bg = cell.bg;
                 }
 
@@ -518,45 +513,18 @@ where
             DrawCommand::ClearToEnd { bg: clear_bg, .. } => {
                 queue!(writer, SetAttribute(crossterm::style::Attribute::Reset))?;
                 modifier = Modifier::empty();
-                queue!(writer, SetBackgroundColor(crossterm_color(clear_bg)))?;
+                write_color(writer, ColorTarget::Background, clear_bg)?;
                 bg = clear_bg;
                 queue!(writer, Clear(crossterm::terminal::ClearType::UntilNewLine))?;
             }
         }
     }
 
-    queue!(
-        writer,
-        SetForegroundColor(crossterm::style::Color::Reset),
-        SetBackgroundColor(crossterm::style::Color::Reset),
-        SetAttribute(crossterm::style::Attribute::Reset),
-    )?;
+    write_color(writer, ColorTarget::Foreground, Color::Reset)?;
+    write_color(writer, ColorTarget::Background, Color::Reset)?;
+    queue!(writer, SetAttribute(crossterm::style::Attribute::Reset))?;
 
     Ok(())
-}
-
-fn crossterm_color(color: Color) -> crossterm::style::Color {
-    match color {
-        Color::Reset => crossterm::style::Color::Reset,
-        Color::Black => crossterm::style::Color::Black,
-        Color::Red => crossterm::style::Color::DarkRed,
-        Color::Green => crossterm::style::Color::DarkGreen,
-        Color::Yellow => crossterm::style::Color::DarkYellow,
-        Color::Blue => crossterm::style::Color::DarkBlue,
-        Color::Magenta => crossterm::style::Color::DarkMagenta,
-        Color::Cyan => crossterm::style::Color::DarkCyan,
-        Color::Gray => crossterm::style::Color::Grey,
-        Color::DarkGray => crossterm::style::Color::DarkGrey,
-        Color::LightRed => crossterm::style::Color::Red,
-        Color::LightGreen => crossterm::style::Color::Green,
-        Color::LightYellow => crossterm::style::Color::Yellow,
-        Color::LightBlue => crossterm::style::Color::Blue,
-        Color::LightMagenta => crossterm::style::Color::Magenta,
-        Color::LightCyan => crossterm::style::Color::Cyan,
-        Color::White => crossterm::style::Color::White,
-        Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
-        Color::Indexed(value) => crossterm::style::Color::AnsiValue(value),
-    }
 }
 
 /// The `ModifierDiff` struct is used to calculate the difference between two `Modifier`
