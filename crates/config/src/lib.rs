@@ -29,6 +29,8 @@ pub use provider_registry::{
 };
 mod secrets;
 mod serde_helpers;
+mod terminal;
+pub use terminal::{TerminalNotificationMethod, TuiTerminalConfig};
 
 pub use self::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,

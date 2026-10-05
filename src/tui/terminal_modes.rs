@@ -16,6 +16,9 @@ use crossterm::{
     terminal::{EndSynchronizedUpdate, disable_raw_mode, enable_raw_mode},
 };
 
+use super::terminal_control::TerminalTarget;
+use super::terminal_feedback::{TitleMode, restore_title, save_title};
+
 // These own the single process terminal, never session runtime handles. The
 // hook chains only the hook present at first acquisition; later replacements
 // remain the installing caller's responsibility.
@@ -59,16 +62,17 @@ impl Drop for TerminalOwnerScope {
 
 pub(super) struct TerminalModeGuard {
     active: bool,
+    pub(super) title_mode: TitleMode,
     #[cfg(unix)]
     resumed_tty: Option<std::fs::File>,
 }
 
 impl TerminalModeGuard {
-    pub(super) fn start() -> io::Result<Self> {
+    pub(super) fn start(title_mode: TitleMode) -> io::Result<Self> {
         if !io::stdout().is_terminal() {
             return Err(io::Error::other("stdout is not a terminal"));
         }
-        Self::acquire_with(|| {
+        let mut guard = Self::acquire_with(|| {
             enable_raw_mode()?;
             execute!(
                 io::stdout(),
@@ -78,8 +82,13 @@ impl TerminalModeGuard {
             )?;
             #[cfg(unix)]
             enable_keyboard_enhancement(io::stdout())?;
+            if title_mode == TitleMode::Enabled {
+                save_title(TerminalTarget::from_environment(), &mut io::stdout())?;
+            }
             Ok(())
-        })
+        })?;
+        guard.title_mode = title_mode;
+        Ok(guard)
     }
 
     // Arm restoration before the first fallible operation, including partial setup.
@@ -109,6 +118,7 @@ impl TerminalModeGuard {
             .map_err(|_| io::Error::other("the process terminal already has an active TUI"))?;
         let guard = Self {
             active: true,
+            title_mode: TitleMode::Disabled,
             #[cfg(unix)]
             resumed_tty: None,
         };
@@ -190,6 +200,7 @@ impl Drop for TerminalModeGuard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoreAction {
     SynchronizedOutput,
+    Title,
     Keyboard,
     Mouse,
     BracketedPaste,
@@ -201,6 +212,7 @@ enum RestoreAction {
 fn restore_terminal_modes() -> io::Result<()> {
     restore_all(|action| match action {
         RestoreAction::SynchronizedOutput => execute!(io::stdout(), EndSynchronizedUpdate),
+        RestoreAction::Title => restore_title(&mut io::stdout()),
         RestoreAction::Keyboard => {
             // The panic hook may already have popped this entry before Drop.
             #[cfg(unix)]
@@ -262,6 +274,7 @@ fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Re
     let mut first_error = None;
     for action in [
         RestoreAction::SynchronizedOutput,
+        RestoreAction::Title,
         RestoreAction::Keyboard,
         RestoreAction::Mouse,
         RestoreAction::BracketedPaste,
