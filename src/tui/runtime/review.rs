@@ -27,6 +27,22 @@ pub(crate) enum ReviewPreparation {
     Cancelled,
 }
 
+pub(in crate::tui) async fn capture_working_tree(cwd: &Path) -> anyhow::Result<String> {
+    let diff = git_diff::GitDiffCapture.capture(cwd).await?;
+    if diff.text.is_empty() && !diff.truncated {
+        return Ok("No staged or unstaged changes.".into());
+    }
+    let suffix = if diff.truncated {
+        "\n\n[Diff truncated at the capture size limit.]"
+    } else {
+        ""
+    };
+    Ok(format!(
+        "Staged and unstaged changes\n\n{}{suffix}",
+        diff.text
+    ))
+}
+
 pub(in crate::tui) fn start(app: &mut TuiApp, agent: &Option<Agent>) {
     if app.is_busy() {
         app.push_notice(

@@ -191,6 +191,7 @@ async fn dispatch_event_inner(
                 app.push_notice(notice.level, notice.message);
             }
         }
+        AppEvent::NavigateDiff(action) => app.diff_view.navigate(action),
         AppEvent::NavigateOverlay(navigation) => super::render::navigate_overlay(app, navigation),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {

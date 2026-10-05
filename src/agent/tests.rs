@@ -12,3 +12,4 @@ mod plugin_hooks;
 mod prompt_cache;
 mod stop_hooks;
 mod support;
+mod thread_reset;

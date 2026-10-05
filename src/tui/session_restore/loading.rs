@@ -23,6 +23,7 @@ pub(super) struct PreparedRestore {
     pub todo_state: Option<TodoState>,
     pub runtime_state: Option<PersistedSessionRuntimeState>,
     pub turns: Vec<TranscriptTurn>,
+    pub next_turn_ordinal: usize,
     pub live_entries: Vec<TranscriptEntry>,
     pub live_recovery_warning: Option<String>,
     pub latest_plan_lifecycle: Option<(String, Option<String>)>,
@@ -133,6 +134,19 @@ fn prepare_restore(
             }
             _ => None,
         });
+    let next_turn_ordinal = thread
+        .rollout_items
+        .iter()
+        .filter_map(|item| match item {
+            RolloutItem::Turn(turn) => Some(turn.summary.ordinal.saturating_add(1)),
+            RolloutItem::Compaction(_)
+            | RolloutItem::PlanState { .. }
+            | RolloutItem::Interaction(_)
+            | RolloutItem::PlanLifecycle(_)
+            | RolloutItem::SpawnAgent { .. } => None,
+        })
+        .max()
+        .unwrap_or(0);
     let turns = std::mem::take(&mut thread.rollout_items)
         .into_iter()
         .filter_map(|item| match item {
@@ -163,6 +177,7 @@ fn prepare_restore(
         todo_state,
         runtime_state,
         turns,
+        next_turn_ordinal,
         live_entries,
         live_recovery_warning,
         latest_plan_lifecycle,

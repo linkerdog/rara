@@ -102,7 +102,8 @@ impl OverlayBody {
             }
             Overlay::Status(tab) => render_status_lines(app, tab),
             Overlay::Context => render_context_lines(app, width),
-            Overlay::Goal
+            Overlay::Diff
+            | Overlay::Goal
             | Overlay::CommandPalette
             | Overlay::ModelSearch
             | Overlay::BaseUrlEditor
@@ -226,7 +227,8 @@ pub(super) fn render_modal(f: &mut Frame, app: &mut TuiApp, area: Rect, overlay:
             Paragraph::new("Context").style(token_fg(ThemeToken::TextSecondary)),
             chunks[0],
         ),
-        Overlay::Goal
+        Overlay::Diff
+        | Overlay::Goal
         | Overlay::CommandPalette
         | Overlay::ModelSearch
         | Overlay::BaseUrlEditor
