@@ -27,6 +27,14 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     }
     // Control shortcuts must not fall through to an overlay's printable input.
     if modifiers == KeyModifiers::CONTROL {
+        if app.overlay == Some(Overlay::ListPicker(super::state::ListPickerKind::Resume)) {
+            match code {
+                KeyCode::Char('s') => return AppEvent::CycleResumeSort,
+                KeyCode::Char('r') => return AppEvent::RefreshResume,
+                KeyCode::Char('d') => return AppEvent::DeleteForward,
+                _ => {}
+            }
+        }
         match code {
             KeyCode::Char('r') => {
                 return if app.overlay == Some(Overlay::HistorySearch) {

@@ -81,3 +81,15 @@ Combined validation passed 1,187 TUI tests, with nine parent-driven child fixtur
 ignored. This includes the real editor PTY scenarios, idle diagnostics, transient
 notices, original draft ownership, and continued runtime processing during editor
 handoff.
+
+The finalized feedback parent `82b44ef3` carries indexed resume search, terminal
+capability detection, and the title-aware query integration. Preserve both
+history attachment and capability detection at startup, and separate text/cursor
+storage for history and resume queries. External-editor handoff and atomic file
+mention ownership remain unchanged.
+
+The integrated TUI suite passed 1,205 tests, with nine parent-driven fixture
+entry points, and strict locked workspace/all-target Clippy passed. The first
+full run timed out once waiting for the post-editor key in the existing PTY
+fixture (1,204 other tests passed). The isolated PTY test and an unchanged full
+suite rerun both passed; handoff implementation and assertions were retained.

@@ -173,7 +173,7 @@ async fn resume_search_discards_blocked_previous_queries() {
     ready.await.unwrap();
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
     app.poll_resume_queries();
-    app.insert_resume_search_text("beta");
+    app.insert_active_input_text("beta");
     assert!(crate::tui::list_picker::selected_resumable_thread_id(&app).is_none());
     assert!(app.resume_query.loading);
     release.send(()).unwrap();
