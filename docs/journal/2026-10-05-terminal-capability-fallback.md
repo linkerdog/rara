@@ -87,3 +87,17 @@ The environment profile does not probe user-remapped ANSI colors. `TERM=dumb`
 selects monochrome ASCII presentation; the interactive surface still requires
 cursor addressing and does not become a separate line-mode client. Physical
 terminal behavior and the native Windows path were not exercised here.
+
+## Main Integration And Windows Review
+
+Preserved both capability binding and diagnostic-reader initialization when
+merging current main. A focused regression reproduced monochrome ASCII output
+for Windows Terminal without Unix TERM/locale variables. Following the existing
+Codex Windows Terminal hint and Claude Code explicit-suppression precedence,
+startup detection now fills missing values with RGB and Unicode on Windows or
+with a nonempty WT_SESSION. Explicit color, TERM, and locale restrictions retain
+priority. Platform and environment are injected in tests, without process-global
+environment mutation. Native Windows console acceptance remains a separate check.
+
+Integration validation: terminal-detection crate 12 tests passed; the merged TUI
+suite passed 1,116 tests with seven parent-driven child fixtures ignored.

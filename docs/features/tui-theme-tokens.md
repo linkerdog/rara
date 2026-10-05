@@ -73,14 +73,17 @@ subprocesses, per-frame environment reads, or runtime-global handles are needed.
 | TERM containing `256color` | ANSI 256-color palette |
 | TERM containing `16color`, or `linux` | ANSI 16-color palette |
 | Other nonempty TERM | ANSI 8-color palette; `vt100`/`vt102` remain monochrome |
-| Missing TERM without a color hint | Monochrome |
+| Missing TERM on Windows or with nonempty `WT_SESSION` | RGB |
+| Missing TERM without a color or Windows hint | Monochrome |
 
 `NO_COLOR` and `TERM=dumb` take precedence over richer color hints. An empty
 `NO_COLOR` does not disable color. Theme overrides describe desired colors;
 they do not override the output capability ceiling. The highest-priority
 nonempty `LC_ALL`, `LC_CTYPE`, or `LANG` determines encoding. UTF-8/UTF8 enables
-Unicode; an absent or non-UTF-8 locale selects ASCII. `TERM=dumb` forces ASCII
-even with a UTF-8 locale.
+Unicode; a non-UTF-8 locale selects ASCII. An absent locale defaults to Unicode
+on Windows or with nonempty `WT_SESSION`, and ASCII elsewhere. Explicit TERM
+and locale restrictions still apply on Windows. `TERM=dumb` forces ASCII even
+with a UTF-8 locale.
 
 The theme owner maps resolved RGB and indexed colors to the nearest supported
 nominal palette. ANSI 8/16 output contains only named ANSI colors, and ANSI 256

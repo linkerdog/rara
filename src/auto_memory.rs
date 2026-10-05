@@ -326,9 +326,11 @@ async fn process_request(request: &AutoMemoryRequest, effective_start_turn_exclu
     let result = match result {
         Ok(r) => r,
         Err(err) => {
-            eprintln!(
+            log::warn!(
                 "Warning: auto-memory summarize failed for session {} turns {}-{}: {err}",
-                request.session_id, start_turn_index, request.completed_turns
+                request.session_id,
+                start_turn_index,
+                request.completed_turns
             );
             return false;
         }
@@ -353,9 +355,11 @@ async fn process_request(request: &AutoMemoryRequest, effective_start_turn_exclu
             source_span: source_span.clone(),
         };
         if let Err(err) = request.store.insert_text_only(record).await {
-            eprintln!(
+            log::warn!(
                 "Warning: auto-memory insert failed for session {} turns {}-{}: {err}",
-                request.session_id, start_turn_index, request.completed_turns
+                request.session_id,
+                start_turn_index,
+                request.completed_turns
             );
         }
     }

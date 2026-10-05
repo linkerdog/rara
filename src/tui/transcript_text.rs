@@ -9,6 +9,14 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
 
 pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
+    wrap_line_with_mode(line, width, WrapMode::Word)
+}
+
+pub(crate) fn wrap_line_with_mode(
+    line: &Line<'_>,
+    width: u16,
+    mode: WrapMode,
+) -> Vec<Line<'static>> {
     let line = super::display_sanitize::sanitize_display_line_segments(line);
     let text = line.to_string();
     let width = usize::from(width.max(1));
@@ -18,7 +26,7 @@ pub(crate) fn wrap_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
             width,
             initial_indent: 0,
             subsequent_indent: 0,
-            mode: WrapMode::Word,
+            mode,
         },
     );
     let mut span_index = 0;

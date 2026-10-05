@@ -92,7 +92,7 @@ async fn timeout_and_session_drop_terminate_and_reap_stalled_helpers() {
                 let notice = tokio::time::timeout(Duration::from_secs(3), async {
                     loop {
                         if let Some(notice) = clipboard.poll().await {
-                            break notice;
+                            break notice.message;
                         }
                         tokio::time::sleep(Duration::from_millis(10)).await;
                     }

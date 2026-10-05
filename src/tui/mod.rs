@@ -25,6 +25,8 @@ mod context_display;
 mod controller;
 mod custom_terminal;
 #[cfg(test)]
+mod diagnostics_tests;
+#[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
 mod display_sanitize;
@@ -75,8 +77,13 @@ pub(crate) use self::runtime_port::{
     RuntimeProjectionEvent,
 };
 mod selection;
+#[cfg(test)]
+mod selection_input_tests;
 mod session_restore;
 pub(crate) mod state;
+
+#[cfg(test)]
+mod notice_tests;
 mod status_display;
 mod sub_agent_display;
 mod submit;

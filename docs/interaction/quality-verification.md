@@ -106,6 +106,7 @@ boundary below.
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
 | Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |
+| Markdown task markers, images, and complete styled table cells | `markdown_render::content_tests`, shared wrapping into Ratatui buffers, and canonical streaming comparisons |
 | Composer indentation and split terminal controls | `render::bottom_pane_tests`, `display_sanitize`, and `display_boundary_tests` |
 
 The harness injects `crossterm::Event` values directly into production routing;

@@ -17,6 +17,7 @@ use crate::mcp_tool_cache::McpToolCache;
 use crate::oauth::OAuthManager;
 use crate::runtime_control::RuntimeProvenance;
 use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
+use crate::tui::state::NoticeLevel;
 
 pub(super) async fn execute_local_command(
     command: LocalCommand,
@@ -34,7 +35,7 @@ pub(super) async fn execute_local_command_with_runtime(
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     if let Some(reason) = crate::tui::command::command_unavailable_reason(app, &command) {
-        app.push_notice(reason);
+        app.push_notice(NoticeLevel::Warning, reason);
         return Ok(false);
     }
     let command_kind = command.kind;
@@ -61,11 +62,15 @@ pub(super) async fn execute_local_command_with_runtime(
     match command.kind {
         LocalCommandKind::Approval => {
             if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "A task is already running. Wait for it to finish.",
+                );
                 return Ok(false);
             }
             if app.permission_mode == PermissionMode::FullAccess {
                 app.push_notice(
+                    NoticeLevel::Info,
                     "Full Access already allows bash. Use /permissions to change the profile.",
                 );
                 return Ok(false);
@@ -87,7 +92,7 @@ pub(super) async fn execute_local_command_with_runtime(
                 BashApprovalMode::Suggestion => "Bash approval set to suggestion.",
             };
             mark_local_command(app, Some("updating approval mode".into()));
-            app.push_notice(notice);
+            app.push_notice(NoticeLevel::Info, notice);
         }
         LocalCommandKind::NowledgeMem => {
             handle_nowledge_mem_command(command.arg.as_deref(), app)?;
@@ -118,7 +123,10 @@ pub(super) async fn execute_local_command_with_runtime(
         LocalCommandKind::Mcp => handle_mcp_command(app),
         LocalCommandKind::Plan => {
             if app.is_busy() {
-                app.push_notice("A task is already running. Wait for it to finish.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "A task is already running. Wait for it to finish.",
+                );
                 return Ok(false);
             }
             mark_local_command(app, Some("entering planning mode".into()));
@@ -129,7 +137,10 @@ pub(super) async fn execute_local_command_with_runtime(
                 agent.set_execution_mode(AgentExecutionMode::Plan);
                 agent.set_full_access_mode(false);
             }
-            app.push_notice("Planning mode enabled. Read-only planning; approve to execute.");
+            app.push_notice(
+                NoticeLevel::Info,
+                "Planning mode enabled. Read-only planning; approve to execute.",
+            );
         }
         LocalCommandKind::Review => {
             request_maintenance(
@@ -204,15 +215,19 @@ async fn request_maintenance(
                 if let Some(agent) = agent_slot.take() {
                     start_compact_task(app, agent);
                 } else {
-                    app.push_notice("No active agent available for compaction.");
+                    app.push_notice(
+                        NoticeLevel::Warning,
+                        "No active agent available for compaction.",
+                    );
                 }
             }
             RuntimeMaintenanceCommand::Rebuild => {
                 start_rebuild_task(app, agent_slot.as_ref().and_then(Agent::agent_tree_control))
             }
-            RuntimeMaintenanceCommand::RefreshModelCatalog(_) => {
-                app.push_notice("Model catalog loading requires a runtime client.")
-            }
+            RuntimeMaintenanceCommand::RefreshModelCatalog(_) => app.push_notice(
+                NoticeLevel::Warning,
+                "Model catalog loading requires a runtime client.",
+            ),
         }
     }
     Ok(())
@@ -220,24 +235,31 @@ async fn request_maintenance(
 
 fn handle_connect_command(app: &mut TuiApp) -> anyhow::Result<()> {
     app.open_overlay(Overlay::ListPicker(ListPickerKind::Provider));
-    app.bottom_pane.notice = Some(
-        "Connect a provider — select the provider family, then configure API key and model.".into(),
+    app.push_notice(
+        NoticeLevel::Info,
+        "Connect a provider — select the provider family, then configure API key and model.",
     );
     Ok(())
 }
 
 fn handle_nowledge_mem_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
     if arg.is_some_and(|value| !value.trim().is_empty()) {
-        app.push_notice("/mem does not accept arguments. Choose a mode in the TUI.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "/mem does not accept arguments. Choose a mode in the TUI.",
+        );
     }
     app.open_overlay(Overlay::ListPicker(ListPickerKind::NowledgeMem));
-    app.bottom_pane.notice = Some("Choose the builtin Nowledge Mem mode.".into());
+    app.push_notice(NoticeLevel::Info, "Choose the builtin Nowledge Mem mode.");
     Ok(())
 }
 
 fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<()> {
     if arg.is_some_and(|value| !value.trim().is_empty()) {
-        app.push_notice("/model does not accept arguments. Choose a model in the UI.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "/model does not accept arguments. Choose a model in the UI.",
+        );
     }
     app.refresh_provider_connection_status();
     app.model_search_idx = app
@@ -249,9 +271,9 @@ fn handle_model_command(arg: Option<&str>, app: &mut TuiApp) -> anyhow::Result<(
         })
         .unwrap_or(0);
     app.open_overlay(Overlay::ModelSearch);
-    app.bottom_pane.notice = Some(
-        "Choose a model from an available provider. Run /connect to add or manage providers."
-            .into(),
+    app.push_notice(
+        NoticeLevel::Info,
+        "Choose a model from an available provider. Run /connect to add or manage providers.",
     );
     Ok(())
 }
@@ -267,7 +289,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
             let snapshot = McpStatusSnapshot::from_registry(&registry);
             publish_mcp_status_event(app, &snapshot);
             app.push_system(format_mcp_status(&snapshot), SystemMessageKind::MCPStatus);
-            app.bottom_pane.notice = Some("MCP status updated.".into());
+            app.push_notice(NoticeLevel::Info, "MCP status updated.");
             if let Some(cache) = app.mcp_tool_cache.as_ref() {
                 spawn_mcp_tool_cache_population(cache, &registry);
             }
@@ -278,7 +300,7 @@ fn handle_mcp_command(app: &mut TuiApp) {
                 format!("MCP Servers\n\nFailed to load MCP configuration:\n{err:#}"),
                 SystemMessageKind::MCPStatus,
             );
-            app.bottom_pane.notice = Some("MCP status failed.".into());
+            app.push_notice(NoticeLevel::Error, "MCP status failed.");
         }
     }
 }
@@ -343,10 +365,13 @@ fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Op
     mark_local_command(app, Some("processing shared task command".into()));
     let Some(requested) = arg.map(str::trim).filter(|value| !value.is_empty()) else {
         let tasks = &app.snapshot.shared_tasks;
-        app.push_notice(format!(
-            "Active shared task list: {} ({} total, {} ready).",
-            tasks.task_list_id, tasks.total, tasks.unblocked
-        ));
+        app.push_notice(
+            NoticeLevel::Info,
+            format!(
+                "Active shared task list: {} ({} total, {} ready).",
+                tasks.task_list_id, tasks.total, tasks.unblocked
+            ),
+        );
         return;
     };
 
@@ -360,10 +385,13 @@ fn handle_tasks_command(arg: Option<&str>, app: &mut TuiApp, agent_slot: &mut Op
         app.switch_active_shared_task_list(requested);
     }
     let tasks = &app.snapshot.shared_tasks;
-    app.push_notice(format!(
-        "Active shared task list: {} ({} total, {} ready).",
-        tasks.task_list_id, tasks.total, tasks.unblocked
-    ));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!(
+            "Active shared task list: {} ({} total, {} ready).",
+            tasks.task_list_id, tasks.total, tasks.unblocked
+        ),
+    );
 }
 
 fn mcp_project_root_from_cwd(cwd: PathBuf) -> PathBuf {
