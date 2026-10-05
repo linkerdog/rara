@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::state::OverlayNavigation;
 
 #[tokio::test]
 async fn busy_submit_queues_follow_up_message() {
@@ -59,9 +60,7 @@ async fn busy_submit_queues_follow_up_message() {
         Some("continue with the follow-up")
     );
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Queued for after the next tool call boundary"))
     );
     assert_eq!(
@@ -157,20 +156,20 @@ fn context_overlay_scroll_keybindings() {
     // j / Down scroll down → positive delta
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('j')), &app),
-        AppEvent::ScrollContext(1)
+        AppEvent::NavigateOverlay(OverlayNavigation::Rows(1))
     ));
     assert!(matches!(
         map_key_to_event(key(KeyCode::Down), &app),
-        AppEvent::ScrollContext(1)
+        AppEvent::NavigateOverlay(OverlayNavigation::Rows(1))
     ));
     // k / Up scroll up → negative delta
     assert!(matches!(
         map_key_to_event(key(KeyCode::Char('k')), &app),
-        AppEvent::ScrollContext(-1)
+        AppEvent::NavigateOverlay(OverlayNavigation::Rows(-1))
     ));
     assert!(matches!(
         map_key_to_event(key(KeyCode::Up), &app),
-        AppEvent::ScrollContext(-1)
+        AppEvent::NavigateOverlay(OverlayNavigation::Rows(-1))
     ));
     // Esc / Enter close
     assert!(matches!(
@@ -183,64 +182,39 @@ fn context_overlay_scroll_keybindings() {
     ));
 }
 
-#[test]
-fn context_scroll_direction_is_top_down() {
-    let temp = tempdir().expect("tempdir");
-    let mut app = TuiApp::new(ConfigManager {
-        path: temp.path().join("config.json"),
-    })
-    .expect("build tui app");
-    let bus = Arc::new(crate::runtime_event_bus::RuntimeEventBus::new(10));
-    app.event_bus = Some(bus.clone());
-    app.prompt_source_registry = Some(Arc::new(
-        crate::protocol_sources::PromptSourceRegistry::new(bus.clone()),
-    ));
-    app.skill_source_registry = Some(Arc::new(crate::protocol_sources::SkillSourceRegistry::new(
-        bus.clone(),
-    )));
-    app.hook_registry = Some(Arc::new(crate::hook_registry::HookRegistry::new(
-        bus.clone(),
-    )));
-    app.mcp_manager = Some(Arc::new(
-        crate::mcp_connection_manager::McpConnectionManager::new(
-            Arc::new(crate::config::McpRegistry::empty()),
-            bus.clone(),
-        ),
-    ));
-    app.memory_handler = Some(Arc::new(
-        crate::protocol_sources::MemoryControlHandler::new(bus.clone()),
-    ));
-
-    app.open_overlay(Overlay::Context);
-    assert_eq!(app.context_scroll, 0);
-
-    // Down / j → scroll away from top, offset increases
-    app.scroll_context(1);
-    assert_eq!(app.context_scroll, 1);
-    app.scroll_context(1);
-    assert_eq!(app.context_scroll, 2);
-
-    // Up / k → scroll back toward top, offset decreases
-    app.scroll_context(-1);
-    assert_eq!(app.context_scroll, 1);
-    app.scroll_context(-1);
-    assert_eq!(app.context_scroll, 0);
-
-    // Cannot go below 0
-    app.scroll_context(-1);
-    assert_eq!(app.context_scroll, 0);
-
-    // PageDown / PageUp
-    app.scroll_context(5);
-    assert_eq!(app.context_scroll, 5);
-    app.scroll_context(-5);
-    assert_eq!(app.context_scroll, 0);
-
-    // Reopen resets scroll
-    app.scroll_context(10);
-    assert_eq!(app.context_scroll, 10);
-    app.open_overlay(Overlay::Context);
-    assert_eq!(app.context_scroll, 0);
+#[tokio::test]
+async fn context_scroll_direction_is_top_down() {
+    let mut harness = crate::tui::testing::TuiHarness::new(Default::default()).expect("harness");
+    harness.app_mut().open_overlay(Overlay::Context);
+    harness.screen_buffer(80, 24);
+    for (code, expected) in [
+        (KeyCode::Down, 1),
+        (KeyCode::Down, 2),
+        (KeyCode::Up, 1),
+        (KeyCode::Up, 0),
+        (KeyCode::Up, 0),
+    ] {
+        harness.press_key(key(code)).await.expect("scroll");
+        assert_eq!(harness.app().overlay_scroll.offset(), expected);
+    }
+    harness
+        .press_key(key(KeyCode::PageDown))
+        .await
+        .expect("page down");
+    let height = harness.app().overlay_scroll.layout().expect("body").height;
+    assert_eq!(
+        harness.app().overlay_scroll.offset(),
+        usize::from(height - 1)
+    );
+    harness
+        .press_key(key(KeyCode::PageUp))
+        .await
+        .expect("page up");
+    assert_eq!(harness.app().overlay_scroll.offset(), 0);
+    harness.press_key(key(KeyCode::End)).await.expect("end");
+    assert!(harness.app().overlay_scroll.offset() > 0);
+    harness.app_mut().open_overlay(Overlay::Context);
+    assert_eq!(harness.app().overlay_scroll.offset(), 0);
 }
 
 #[tokio::test]
@@ -286,7 +260,7 @@ async fn pending_plan_approval_blocks_plain_submit() {
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
     assert!(app.bottom_pane.running_task.is_none());
-    let notice = app.bottom_pane.notice.as_deref().expect("notice");
+    let notice = app.notice_text().expect("notice");
     assert!(notice.contains("Use 1 approve"));
     assert!(notice.contains("2 keep planning"));
     assert!(notice.contains("3 reject"));
@@ -371,9 +345,7 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.bottom_pane.input, "");
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Approval is still preparing"))
     );
 }
@@ -462,9 +434,7 @@ async fn invalid_plan_approval_selection_keeps_pending_with_notice() {
     assert!(app.has_pending_plan_approval());
     assert!(agent_slot.is_some());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Invalid plan approval option"))
     );
     assert!(
@@ -516,9 +486,7 @@ async fn empty_submit_keeps_shell_approval_on_card_surface() {
     assert!(app.overlay.is_none());
     assert_eq!(app.approval_picker_idx, 0);
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Left/Right and Enter"))
     );
 }
@@ -567,9 +535,7 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.queued_follow_up_preview(), Some("then review the diff"));
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("pending interaction is answered"))
     );
 }

@@ -19,8 +19,10 @@ mod goals;
 mod rollout_migration;
 mod schema;
 mod thread_index;
+mod thread_query;
 
 use rollout_migration::canonical_rollout_events_for_legacy_migration;
+pub use thread_query::{ThreadListCursor, ThreadListPage, ThreadListQuery, ThreadListSort};
 
 #[cfg(test)]
 mod tests;

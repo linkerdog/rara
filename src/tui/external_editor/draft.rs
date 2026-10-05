@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::document::save_recovery;
 use crate::tui::composer_atoms::ComposerDraft;
 use crate::tui::display_sanitize::sanitize_paste_text;
-use crate::tui::state::{BottomPaneModel, TuiApp};
+use crate::tui::state::{BottomPaneModel, NoticeLevel, TuiApp};
 
 pub(in crate::tui) struct EditorRequest {
     pub seed: Arc<str>,
@@ -47,7 +47,7 @@ impl EditorDraft {
             Ok(text) => sanitize_paste_text(&text),
             Err(error) => {
                 log::warn!("External editor failed: {error:#}");
-                app.push_notice(format!("External editor: {error:#}"));
+                app.push_notice(NoticeLevel::Warning, format!("External editor: {error:#}"));
                 return;
             }
         };
@@ -59,15 +59,19 @@ impl EditorDraft {
             || app.bottom_pane.saved_draft() != self.original
         {
             match save_recovery(edited).await {
-                Ok(path) => app.push_notice(format!(
-                    "Draft changed while editing; edited text saved to {}",
-                    path.display()
-                )),
+                Ok(path) => app.push_notice(
+                    NoticeLevel::Warning,
+                    format!(
+                        "Draft changed while editing; edited text saved to {}",
+                        path.display()
+                    ),
+                ),
                 Err(error) => {
                     log::warn!("Could not preserve stale editor result: {error:#}");
-                    app.push_notice(format!(
-                        "Draft changed while editing; recovery failed: {error:#}"
-                    ));
+                    app.push_notice(
+                        NoticeLevel::Error,
+                        format!("Draft changed while editing; recovery failed: {error:#}"),
+                    );
                 }
             }
             return;

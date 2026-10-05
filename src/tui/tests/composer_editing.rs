@@ -223,7 +223,7 @@ async fn paste_normalizes_crlf_and_cr_newlines() {
     crate::tui::terminal_ui::handle_paste("first\r\nsecond\rthird".to_string(), &mut app);
 
     // Flush paste burst so the text actually lands in the input.
-    app.bottom_pane.flush_paste_burst();
+    app.flush_composer_paste();
 
     assert_eq!(app.bottom_pane.input, "first\nsecond\nthird");
     assert_eq!(
@@ -245,7 +245,7 @@ fn large_paste_inserts_placeholder_at_cursor_position() {
 
     let big = "x".repeat(1200);
     crate::tui::terminal_ui::handle_paste(big.clone(), &mut app);
-    app.bottom_pane.flush_paste_burst();
+    app.flush_composer_paste();
 
     // Placeholder should appear at cursor position, not end
     assert!(
@@ -271,11 +271,11 @@ fn multiple_large_pastes_accumulate_in_pending_vec() {
     let big_a = "a".repeat(1200);
     let big_b = "b".repeat(1100);
     crate::tui::terminal_ui::handle_paste(big_a.clone(), &mut app);
-    app.bottom_pane.flush_paste_burst();
+    app.flush_composer_paste();
     assert_eq!(app.bottom_pane.large_paste_pending.len(), 1);
 
     crate::tui::terminal_ui::handle_paste(big_b.clone(), &mut app);
-    app.bottom_pane.flush_paste_burst();
+    app.flush_composer_paste();
     assert_eq!(app.bottom_pane.large_paste_pending.len(), 2);
 
     // Both placeholders should be in the input
@@ -298,7 +298,7 @@ fn expand_large_paste_replaces_all_placeholders() {
 
     let big = "z".repeat(1500);
     crate::tui::terminal_ui::handle_paste(big.clone(), &mut app);
-    app.bottom_pane.flush_paste_burst();
+    app.flush_composer_paste();
     assert!(app.bottom_pane.large_paste_pending.len() == 1);
     assert!(app.bottom_pane.input.contains("Pasted Content"));
     assert!(!app.bottom_pane.input.contains(&big));

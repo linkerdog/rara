@@ -11,6 +11,7 @@ use super::terminal_ui::handle_paste;
 use super::testing::TuiHarness;
 use crate::oauth::OAuthManager;
 use crate::runtime_control::{InputControlRequest, SessionControlRequest};
+use crate::tui::state::NoticeLevel;
 
 fn harness() -> TuiHarness {
     TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness")
@@ -35,11 +36,8 @@ async fn submit_immediately_after_paste_includes_full_text_and_clears_pending_st
         ));
         assert!(tui.app().bottom_pane.input.is_empty());
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
-        assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
-        assert!(
-            tui.app().bottom_pane.notice.is_none(),
-            "submitted paste notice"
-        );
+        assert!(!tui.app_mut().flush_composer_paste());
+        assert!(tui.app().notice_text().is_none(), "submitted paste notice");
     }
 }
 
@@ -59,12 +57,12 @@ async fn submission_retires_paste_notices_but_preserves_later_warnings() {
             handle_paste(paste.clone(), tui.app_mut());
             assert!(tui.app_mut().flush_composer_paste());
             if let Some(warning) = warning {
-                tui.app_mut().bottom_pane.notice = Some(warning.into());
+                tui.app_mut().push_notice(NoticeLevel::Info, warning);
             }
             press(&mut tui, KeyCode::Enter, KeyModifiers::NONE).await;
             let whitespace_only = paste.trim().is_empty();
             assert_eq!(
-                tui.app().bottom_pane.notice.as_deref(),
+                tui.app().notice_text(),
                 warning.or(if whitespace_only {
                     Some("Ready.")
                 } else {
@@ -147,7 +145,7 @@ async fn direct_submit_expands_pending_paste_before_consuming_the_draft() {
         )]
     );
     assert!(tui.app().bottom_pane.input.is_empty());
-    assert!(tui.app().bottom_pane.notice.is_none());
+    assert!(tui.app().notice_text().is_none());
     assert!(!tui.app_mut().flush_composer_paste());
 }
 
@@ -159,7 +157,7 @@ async fn paste_is_inserted_at_original_cursor_before_next_edit() {
     handle_paste("first\nsecond".into(), tui.app_mut());
     press(&mut tui, KeyCode::Char('!'), KeyModifiers::NONE).await;
     assert_eq!(tui.app().bottom_pane.input, "before first\nsecond!after");
-    assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+    assert!(!tui.app_mut().flush_composer_paste());
     tui.expect_no_commands();
 }
 
@@ -174,17 +172,14 @@ async fn clear_removes_pending_paste_and_flushed_placeholder_payloads() {
         let mut tui = harness();
         handle_paste(paste, tui.app_mut());
         if flush_first {
-            tui.app_mut().bottom_pane.flush_paste_burst();
+            tui.app_mut().flush_composer_paste();
         }
         press(&mut tui, KeyCode::Char('c'), KeyModifiers::CONTROL).await;
         assert!(tui.app().bottom_pane.input.is_empty());
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
         assert_eq!(tui.app().bottom_pane.large_paste_counter, 0);
-        assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
-        assert!(
-            tui.app().bottom_pane.notice.is_none(),
-            "discarded paste notice"
-        );
+        assert!(!tui.app_mut().flush_composer_paste());
+        assert!(tui.app().notice_text().is_none(), "discarded paste notice");
         tui.expect_no_commands();
     }
 }
@@ -198,10 +193,10 @@ async fn clear_preserves_unrelated_notices_after_flushing_a_paste() {
         let mut tui = harness();
         handle_paste("x".repeat(1200), tui.app_mut());
         assert!(tui.app_mut().flush_composer_paste());
-        tui.app_mut().bottom_pane.notice = Some(warning.into());
+        tui.app_mut().push_notice(NoticeLevel::Warning, warning);
         press(&mut tui, KeyCode::Char('c'), KeyModifiers::CONTROL).await;
         assert!(tui.app().bottom_pane.input.is_empty());
-        assert_eq!(tui.app().bottom_pane.notice.as_deref(), Some(warning));
+        assert_eq!(tui.app().notice_text(), Some(warning));
         tui.expect_no_commands();
     }
 }
@@ -211,21 +206,21 @@ fn palette_dismissal_discards_pending_burst_and_large_payloads() {
     for flush_first in [false, true] {
         let mut tui = harness();
         tui.app_mut().bottom_pane.input = "/".into();
-        tui.app_mut().open_overlay(Overlay::CommandPalette);
         tui.app_mut()
             .bottom_pane
             .handle_paste_burst_chunk(&"x".repeat(1200));
         if flush_first {
-            tui.app_mut().bottom_pane.flush_paste_burst();
+            tui.app_mut().flush_composer_paste();
         }
+        tui.app_mut().open_overlay(Overlay::CommandPalette);
         tui.app_mut().dismiss_overlay();
         assert!(tui.app().bottom_pane.input.is_empty());
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
         assert!(
-            !tui.app_mut().bottom_pane.flush_paste_burst(),
+            !tui.app_mut().flush_composer_paste(),
             "dismissed burst must not reappear"
         );
-        assert!(tui.app().bottom_pane.notice.is_none());
+        assert!(tui.app().notice_text().is_none());
         tui.expect_no_commands();
     }
 }
@@ -250,7 +245,7 @@ async fn palette_escape_discards_paste_before_key_routing() {
             assert!(tui.app().overlay.is_none());
             assert!(tui.app().bottom_pane.input.is_empty());
             assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
-            assert!(tui.app().bottom_pane.notice.is_none());
+            assert!(tui.app().notice_text().is_none());
             assert!(!tui.app_mut().flush_composer_paste());
             tui.expect_no_commands();
         }
@@ -278,7 +273,7 @@ async fn direct_palette_close_discards_paste_before_action_flush() {
         assert!(tui.app().overlay.is_none());
         assert!(tui.app().bottom_pane.input.is_empty());
         assert!(tui.app().bottom_pane.large_paste_pending.is_empty());
-        assert!(tui.app().bottom_pane.notice.is_none());
+        assert!(tui.app().notice_text().is_none());
         assert!(!tui.app_mut().flush_composer_paste());
     }
 }
@@ -289,7 +284,7 @@ async fn idle_escape_preserves_pasted_draft_without_a_later_flush() {
     handle_paste("first\nsecond".into(), tui.app_mut());
     press(&mut tui, KeyCode::Esc, KeyModifiers::NONE).await;
     assert_eq!(tui.app().bottom_pane.input, "first\nsecond");
-    assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+    assert!(!tui.app_mut().flush_composer_paste());
     tui.expect_no_commands();
 }
 
@@ -301,7 +296,7 @@ async fn history_key_routing_uses_the_pasted_multiline_composer() {
     press(&mut tui, KeyCode::Up, KeyModifiers::NONE).await;
     assert_eq!(tui.app().bottom_pane.input, "first\nsecond");
     assert!(tui.app().composer_cursor_offset() < "first\nsecond".len());
-    assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+    assert!(!tui.app_mut().flush_composer_paste());
     tui.expect_no_commands();
 }
 
@@ -316,7 +311,7 @@ async fn small_paste_after_pending_multiline_paste_keeps_event_order() {
             prompt: "first\nsecond tail".into(),
         },
     ));
-    assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+    assert!(!tui.app_mut().flush_composer_paste());
 }
 
 #[tokio::test]
@@ -338,7 +333,7 @@ async fn escape_during_a_turn_requests_cancellation_and_preserves_pending_draft(
         SessionControlRequest::CancelCurrentTurn,
     ));
     assert_eq!(tui.app().bottom_pane.input, "first\nsecond");
-    assert!(!tui.app_mut().bottom_pane.flush_paste_burst());
+    assert!(!tui.app_mut().flush_composer_paste());
     let task = tui
         .app_mut()
         .bottom_pane

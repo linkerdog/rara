@@ -15,6 +15,7 @@ use crate::tui::runtime::RuntimeCommandProcessor;
 use crate::tui::runtime_port::{
     RuntimeClientPort, RuntimeCommand, RuntimeEventStream, RuntimeProjectionEvent,
 };
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::RuntimeSnapshot;
 use crate::tui::testing::FakeRuntimeClient;
 
@@ -366,7 +367,10 @@ async fn task_return_rejects_cancel_before_ui_observes_completion() {
     let mut fixture = Fixture::start(BackendOutcome::Answer).await;
     fixture.backend.release.notify_one();
     let completion = fixture.task_return().await;
-    fixture.controller.app_mut().bottom_pane.notice = Some("Cancellation requested.".into());
+    fixture
+        .controller
+        .app_mut()
+        .push_notice(NoticeLevel::Info, "Cancellation requested.");
     assert_eq!(
         handle_session_control(
             fixture.controller.app_mut(),

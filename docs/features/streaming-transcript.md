@@ -135,6 +135,29 @@ flattening either row collection.
 
 ## Contracts
 
+### Canonical Markdown Content
+
+- Task lists render checked/unchecked boxes, including nested and loose lists;
+  ordinary list indentation and continuation lines retain their structure.
+- Images render their alt content followed by ` (destination)`. Empty alt text
+  still exposes the destination. Images inside links do not overwrite the
+  enclosing link destination. This is text presentation, not image loading.
+- Tables retain styled spans, including emphasis, inline code, and link
+  destinations. Column widths use displayed content demand; short columns do
+  not reserve unused equal shares of the available width. Cells wrap through
+  the shared transcript wrapper and never use ellipsis truncation.
+- Grid sizing accounts for separators and enclosing list/quote indentation.
+  Each column can hold its widest displayed grapheme. If these minimums cannot
+  fit, body rows become wrapped `header: value` records separated by blank rows;
+  a header-only table displays its headers vertically. Empty headers use a
+  numbered column label. Alignment applies to every wrapped grid row.
+- Display sanitization precedes table width measurement. The shared wrapper's
+  one-column replacement policy still applies when a grapheme exceeds the
+  entire available row. Source text and persisted messages are unchanged.
+- The complete-message writer owns these rules; streaming finalization and
+  width changes must agree with it. Existing confirmed-table holding behavior
+  remains in force.
+
 ### Frame Scheduling
 
 - The first dirty frame is eligible immediately.
@@ -194,6 +217,7 @@ boundaries for issue #921:
 
 | Boundary | Required evidence |
 | --- | --- |
+| Markdown content | Task/image and styled table regression tests, reviewed multi-width snapshots, CJK/grapheme and indentation bounds, and streaming/finalization equality |
 | Frame coalescing | Synthetic-time draw counts for burst requests and continuous traffic |
 | Last update and idle | Independent deadline wake; newest production projection rendered without another event |
 | Late frames and deadline stability | No catch-up burst; repeated requests do not postpone the pending deadline |
@@ -267,6 +291,7 @@ on a slow output device.
 
 ## Source Journals
 
+- [Markdown content preservation](../journal/2026-10-05-markdown-content-preservation.md)
 - [Frame coalescing](../journal/2026-10-02-tui-frame-coalescing.md)
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Plain paragraph streaming](../journal/2026-10-05-long-mutable-markdown.md)

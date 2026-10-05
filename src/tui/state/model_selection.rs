@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::state::NoticeLevel;
 
 impl TuiApp {
     pub fn select_unified_model(&mut self, idx: usize) {
@@ -17,7 +18,7 @@ impl TuiApp {
                 .config
                 .select_registry_model(&preset.provider_id, &preset.model_id)
             {
-                self.push_notice(error.to_string());
+                self.push_notice(NoticeLevel::Error, error.to_string());
             }
             self.provider_picker_idx = selected_provider_family_idx_for_config(&self.config);
             return;

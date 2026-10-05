@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 
 use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
+use super::OverlayScroll;
 use super::bottom_pane_model::BottomPaneModel;
 use super::planning_lifecycle::PlanningLifecycleSnapshot;
 use super::transcript_scroll::TranscriptScroll;
@@ -791,6 +792,8 @@ pub struct TuiApp {
     #[cfg(test)]
     pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
+    pub(super) notices: super::notices::NoticeState,
+    pub(crate) diagnostics: Option<crate::diagnostics::DiagnosticReader>,
     pub input_history: Vec<String>,
     pub(crate) file_mentions: crate::tui::file_mentions::FileMentionState,
     pub(crate) prompt_history: crate::tui::prompt_history::HistoryState,
@@ -855,14 +858,16 @@ pub struct TuiApp {
     pub resume_picker_idx: usize,
     pub resume_sort_by_created: bool,
     pub resume_search_query: String,
+    pub(crate) resume_search_cursor_offset: Option<usize>,
     pub committed_render_generation: u64,
     pub committed_render_cache: RefCell<CommittedTranscriptRenderCache>,
     pub(crate) transcript_scroll: TranscriptScroll,
     pub(crate) transcript_selection: TranscriptSelection,
     pub(crate) clipboard: Option<crate::tui::clipboard::Clipboard>,
     pub(crate) scroll_acceleration: super::ScrollAcceleration,
-    pub context_scroll: u16,
+    pub(crate) overlay_scroll: OverlayScroll,
     pub terminal_width: u16,
+    pub(crate) terminal_capabilities: rara_terminal_detection::TerminalCapabilities,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,
     pub active_live: PresentationInput<ActiveLiveSections>,

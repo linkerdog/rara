@@ -98,3 +98,15 @@ Pattern redaction cannot detect arbitrary secrets. Locking requires cooperating
 writers and a supporting filesystem. Process aborts and uncatchable termination
 can lose queued writes or leave a torn append. These are documented limits, not
 additional work for this issue. No open implementation follow-up was added.
+
+## Main Integration
+
+The main merge preserves both prompt-history and diagnostic initialization and
+polling. History failures and recovery notices use the shared typed warning
+path, preserving redaction, expiry, and the single transcript record. History reads and writes remain off the input loop. The separate shared
+redaction fix in PR #1048 remains a merge prerequisite for this feature; this
+conflict resolution does not duplicate that implementation.
+
+Integrated validation: 1,118 TUI tests passed with seven parent-driven child
+fixtures ignored. Eight focused history persistence tests passed with one
+parent-driven writer fixture ignored.

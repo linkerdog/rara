@@ -121,7 +121,7 @@ async fn resume_picker_search_filters_and_clear_restores_threads() {
     assert_eq!(app.recent_threads.len(), 2);
 
     for c in "resume-search".chars() {
-        app.push_resume_search_char(c);
+        app.insert_active_input_char(c);
     }
     app.finish_resume_query_for_test().await;
 
@@ -709,13 +709,13 @@ async fn reset_transcript_clears_live_log() {
     app.reset_transcript();
     app.flush_storage().await.unwrap();
 
-    assert!(
-        thread_turn_log::load_live_entries(
-            &app.state_db.as_ref().unwrap().rollout_root(),
-            "live-reset-session"
-        )
-        .is_empty()
+    let entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-reset-session",
     );
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].role, "System");
+    assert_eq!(entries[0].message, "Cleared local transcript view.");
 }
 
 // ── Command palette selection persistence ──────────────────────────

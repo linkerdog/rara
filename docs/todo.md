@@ -130,11 +130,12 @@ Active backlog only. Keep this file small and current.
       [the viewport checkpoint](journal/2026-10-03-inline-terminal-viewport.md).
       Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by
       [the job-control checkpoint](journal/2026-10-03-tui-interrupt-suspend.md).
-- [ ] Complete remaining keyboard contracts: resume-search cursor editing,
-      Help General/Runtime scrolling, atomic large-paste placeholder editing,
-      and an explicit opt-in Vim mode. Cache editor grapheme boundaries for
+- [ ] Complete remaining keyboard contracts: atomic large-paste placeholder
+      editing and an explicit opt-in Vim mode. Cache editor grapheme boundaries for
       repeated cursor reads on long drafts. See
-      [input risks](interaction/composer-and-overlays.md#open-risks).
+      [input risks](interaction/composer-and-overlays.md#open-risks). Resume
+      search editing and indexed pagination are covered by
+      [the resume checkpoint](journal/2026-10-05-resume-indexed-search.md).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).

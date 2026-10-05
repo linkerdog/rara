@@ -4,15 +4,7 @@ pub(super) fn handle_paste(text: String, app: &mut TuiApp) {
     let normalized = super::display_sanitize::sanitize_paste_text(&text);
     if !app.composer_input_is_active() {
         let text = normalized.replace('\n', " ");
-        if app.overlay
-            == Some(super::state::Overlay::ListPicker(
-                super::state::ListPickerKind::Resume,
-            ))
-        {
-            app.insert_resume_search_text(&text);
-        } else {
-            app.insert_active_input_text(&text);
-        }
+        app.insert_active_input_text(&text);
         return;
     }
     if normalized.contains('\n') || normalized.len() > 1000 {

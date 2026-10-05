@@ -734,7 +734,7 @@ impl<'a> ThreadStore<'a> {
                     return Err(err).context("load canonical session transcript");
                 }
                 Err(err) => {
-                    eprintln!(
+                    log::warn!(
                         "Warning: could not load canonical session transcript for {thread_id}: {err}"
                     );
                 }
