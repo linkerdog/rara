@@ -14,7 +14,7 @@ use super::provider_flow::{
 };
 use super::runtime::start_oauth_task;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
-use super::session_restore::restore_thread_by_id;
+use super::session_restore::request_restore_thread;
 use super::state::{
     ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
     ProviderFamily, QuitShortcutAction, QuitShortcutKey, TuiApp,
@@ -89,6 +89,9 @@ async fn dispatch_event_inner(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
+            if super::session_restore::cancel_restore(app, agent_slot) {
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
+            }
             if matches!(
                 app.overlay,
                 Some(Overlay::ListPicker(ListPickerKind::Resume))
@@ -98,6 +101,10 @@ async fn dispatch_event_inner(
             app.dismiss_overlay();
         }
         AppEvent::CancelRunningTask => {
+            if super::session_restore::cancel_restore(app, agent_slot) {
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
+                return Ok(false);
+            }
             if let Some(runtime_port) = runtime_port {
                 runtime_port
                     .send(RuntimeCommand::Session(
@@ -136,26 +143,12 @@ async fn dispatch_event_inner(
             app.insert_newline_in_composer();
         }
         AppEvent::InputChar(c) => {
-            if matches!(
-                app.overlay,
-                Some(Overlay::ListPicker(ListPickerKind::Resume))
-            ) {
-                app.push_resume_search_char(c);
-                return Ok(false);
-            }
             if app.composer_input_is_active() && app.bottom_pane.input.is_empty() {
                 app.transcript_scroll.follow_tail();
             }
             app.insert_active_input_char(c);
         }
         AppEvent::Backspace => {
-            if matches!(
-                app.overlay,
-                Some(Overlay::ListPicker(ListPickerKind::Resume))
-            ) {
-                app.pop_resume_search_char();
-                return Ok(false);
-            }
             app.backspace_active_input();
         }
         AppEvent::DeleteForward => {
@@ -225,6 +218,10 @@ async fn dispatch_event_inner(
             let Some(Overlay::ListPicker(kind)) = app.overlay else {
                 return Ok(false);
             };
+            if kind == ListPickerKind::Resume {
+                app.move_resume_selection(delta);
+                return Ok(false);
+            }
             let max = kind.item_count(app).saturating_sub(1) as i32;
             let next = (kind.idx(app) as i32 + delta).clamp(0, max);
             kind.set_idx(app, next as usize);
@@ -469,6 +466,14 @@ async fn dispatch_event_inner(
         }
         AppEvent::SelectStatusTab(tab) => {
             app.open_overlay(Overlay::Status(tab));
+        }
+        AppEvent::ToggleResumeScope => app.toggle_resume_scope(),
+        AppEvent::RefreshResume => app.refresh_recent_threads_for_resume_picker(),
+        AppEvent::ResumePageUp => {
+            app.move_resume_selection(-(app.resume_query.page_items.max(1) as i32))
+        }
+        AppEvent::ResumePageDown => {
+            app.move_resume_selection(app.resume_query.page_items.max(1) as i32)
         }
         AppEvent::CycleResumeSort => {
             app.cycle_resume_sort();
@@ -778,30 +783,15 @@ async fn dispatch_event_inner(
                         }
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
+                                && let Err(error) =
+                                    request_restore_thread(thread_id.as_str(), app, agent_slot)
                             {
-                                if let Err(error) =
-                                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)
-                                {
-                                    log::warn!("Could not resume thread {thread_id}: {error:#}");
-                                    app.push_notice(
-                                        NoticeLevel::Error,
-                                        format!("Could not resume thread {thread_id}: {error:#}"),
-                                    );
-                                    return Ok(false);
-                                }
-                                let mode = app.permission_mode;
-                                if mode == super::state::PermissionMode::FullAccess {
-                                    if let Some(runtime_port) = runtime_port {
-                                        runtime_port
-                                            .send(RuntimeCommand::SetPermissionMode(mode))
-                                            .await?;
-                                    } else {
-                                        super::runtime::request_permission_mode(
-                                            app, agent_slot, mode,
-                                        );
-                                    }
-                                }
-                                app.dismiss_overlay();
+                                log::warn!("Could not resume thread {thread_id}: {error:#}");
+                                app.push_notice(
+                                    NoticeLevel::Error,
+                                    format!("Could not resume thread {thread_id}: {error:#}"),
+                                );
+                                return Ok(false);
                             }
                         }
                         ListPickerKind::OpenAiEndpointKind => {

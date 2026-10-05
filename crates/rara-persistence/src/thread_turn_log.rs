@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -52,8 +52,10 @@ pub fn append_turn_record(
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(&path)
         .with_context(|| format!("open thread turn log {}", path.display()))?;
+    ensure_line_separator(&mut file)?;
     file.write_all(&line)?;
     file.sync_data()?;
     if let Some(parent) = path.parent() {
@@ -111,17 +113,49 @@ pub fn append_rollout_fragment(
     session_id: &str,
     entry: &PersistedTurnEntry,
 ) -> Result<()> {
+    append_rollout_fragments(root_dir, session_id, std::slice::from_ref(entry))
+}
+
+/// Append a buffered group of live entries with one open and one write.
+pub fn append_rollout_fragments(
+    root_dir: &Path,
+    session_id: &str,
+    entries: &[PersistedTurnEntry],
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
     let dir = root_dir.join(session_id);
     fs::create_dir_all(&dir)?;
     let path = dir.join(LIVE_LOG_FILE);
-    let mut line = serde_json::to_vec(entry)?;
-    line.push(b'\n');
+    let mut lines = Vec::new();
+    for entry in entries {
+        serde_json::to_writer(&mut lines, entry)?;
+        lines.push(b'\n');
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(&path)
         .with_context(|| format!("open live log {}", path.display()))?;
-    file.write_all(&line)?;
+    ensure_line_separator(&mut file)?;
+    file.write_all(&lines)?;
+    Ok(())
+}
+
+fn ensure_line_separator(file: &mut fs::File) -> std::io::Result<()> {
+    if file.metadata()?.len() == 0 {
+        return Ok(());
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0];
+    file.read_exact(&mut last)?;
+    if last[0] != b'\n' {
+        // A prior interrupted write must not swallow a successfully retried
+        // record. Preserve the fragment and start the next JSON record cleanly.
+        file.write_all(b"\n")?;
+    }
     Ok(())
 }
 

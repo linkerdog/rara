@@ -2,8 +2,9 @@ use std::io;
 
 use super::{RestoreAction, restore_all};
 
-const RESTORE_ACTIONS: [RestoreAction; 6] = [
+const RESTORE_ACTIONS: [RestoreAction; 7] = [
     RestoreAction::SynchronizedOutput,
+    RestoreAction::Keyboard,
     RestoreAction::Mouse,
     RestoreAction::BracketedPaste,
     RestoreAction::Focus,
@@ -75,8 +76,37 @@ mod pty {
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
     use super::super::TerminalModeGuard;
+    use super::super::keyboard_tests as keyboard;
 
     const SCENARIO_ENV: &str = "RARA_TEST_TERMINAL_EXIT";
+
+    enum OutputFailure {
+        Write,
+        Flush,
+    }
+
+    struct FailingKeyboardOutput {
+        failure: OutputFailure,
+        wrote_prefix: bool,
+    }
+
+    impl Write for FailingKeyboardOutput {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if matches!(self.failure, OutputFailure::Write) && !bytes.is_empty() {
+                if self.wrote_prefix {
+                    return Err(std::io::Error::other("injected keyboard write failure"));
+                }
+                self.wrote_prefix = true;
+                return std::io::stdout().write(&bytes[..1]);
+            }
+            std::io::stdout().write(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            std::io::stdout().flush()?;
+            Err(std::io::Error::other("injected keyboard flush failure"))
+        }
+    }
 
     #[test]
     fn terminal_modes_restore_on_exit_without_disabling_caught_workers() {
@@ -85,11 +115,16 @@ mod pty {
             "normal",
             "error",
             "partial",
+            "before_keyboard",
+            "push_write",
+            "push_flush",
             "panic",
             "init_panic",
             "caught",
             "worker",
             "repeat",
+            "enhanced",
+            "legacy",
         ] {
             let pair = native_pty_system()
                 .openpty(PtySize::default())
@@ -107,9 +142,28 @@ mod pty {
             let mut child = pair.slave.spawn_command(command).expect("spawn PTY child");
             drop(pair.slave);
             let mut reader = pair.master.try_clone_reader().expect("PTY output");
+            let mut writer = pair.master.take_writer().expect("PTY input");
             let output_task = std::thread::spawn(move || {
                 let mut output = String::new();
-                reader.read_to_string(&mut output).expect("read PTY output");
+                let mut buffer = [0; 4096];
+                let mut sent_input = false;
+                loop {
+                    let count = reader.read(&mut buffer).expect("read PTY output");
+                    if count == 0 {
+                        break;
+                    }
+                    output.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                    if !sent_input && output.contains("KEYS_READY") {
+                        if scenario == "enhanced" {
+                            assert!(output.contains("\x1b[>1u"), "{output}");
+                        }
+                        writer
+                            .write_all(&keyboard::input(scenario))
+                            .expect("keyboard input");
+                        writer.flush().expect("flush keyboard input");
+                        sent_input = true;
+                    }
+                }
                 output
             });
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -129,7 +183,30 @@ mod pty {
             assert!(status.success(), "{scenario}: {output}");
             assert_eq!(after, before, "{scenario}: kernel terminal modes");
             assert!(output.contains("raw_after=false"), "{scenario}: {output}");
+            let entries = match scenario {
+                "pipe" | "before_keyboard" | "push_write" => 0,
+                "repeat" => 2,
+                _ => 1,
+            };
+            assert_eq!(
+                output.matches("\x1b[>1u").count(),
+                entries,
+                "{scenario}: {output}"
+            );
+            assert_eq!(
+                output.matches("\x1b[<1u").count(),
+                entries,
+                "{scenario}: {output}"
+            );
+            assert!(
+                !output.contains("\x1b[?u"),
+                "startup must not wait for a terminal response"
+            );
             if scenario == "normal" {
+                assert!(
+                    output.contains("\x1b[>1u"),
+                    "keyboard disambiguation was not enabled: {output}"
+                );
                 assert!(
                     output.contains("\x1b[?1004h"),
                     "focus reporting was not enabled: {output}"
@@ -149,6 +226,12 @@ mod pty {
                 );
             }
             if matches!(scenario, "panic" | "init_panic" | "caught") {
+                let before_hook = output.split("previous_hook_raw=").next().unwrap();
+                assert_eq!(
+                    before_hook.matches("\x1b[<1u").count(),
+                    1,
+                    "{scenario}: {output}"
+                );
                 assert!(
                     output.contains("previous_hook_raw=false"),
                     "{scenario}: {output}"
@@ -167,6 +250,11 @@ mod pty {
                 assert!(parser.screen().contents().contains("FRAME-BOTTOM"));
             }
             if scenario == "worker" {
+                let before_hook = output.split("previous_hook_raw=").next().unwrap();
+                assert!(
+                    !before_hook.contains("\x1b[<1u"),
+                    "worker must preserve keyboard reporting"
+                );
                 assert!(
                     output.contains("previous_hook_raw=true"),
                     "{scenario}: {output}"
@@ -238,10 +326,13 @@ mod pty {
                 .expect_err("loop error");
                 assert_eq!(error.to_string(), "injected loop error");
             }
-            "partial" => {
+            "partial" | "before_keyboard" => {
                 let error = TerminalModeGuard::acquire_with(|| {
                     enable_raw_mode()?;
                     execute!(std::io::stdout(), EnableBracketedPaste, Hide)?;
+                    if scenario == "partial" {
+                        super::super::enable_keyboard_enhancement(std::io::stdout())?;
+                    }
                     Err(std::io::Error::other("injected startup error"))
                 })
                 .err()
@@ -280,6 +371,7 @@ mod pty {
                     std::panic::catch_unwind(|| {
                         TerminalModeGuard::acquire_with(|| {
                             enable_raw_mode()?;
+                            super::super::enable_keyboard_enhancement(std::io::stdout())?;
                             panic!("injected initializer panic");
                         })
                     })
@@ -317,6 +409,28 @@ mod pty {
                     assert!(is_raw_mode_enabled().expect("raw mode state"));
                     drop(guard);
                 }
+            }
+            "enhanced" | "legacy" => {
+                let _guard = TerminalModeGuard::start().expect("start terminal modes");
+                println!("KEYS_READY");
+                std::io::stdout().flush().expect("flush keyboard readiness");
+                keyboard::check_input(&scenario);
+            }
+            "push_write" | "push_flush" => {
+                let error = TerminalModeGuard::acquire_with(|| {
+                    enable_raw_mode()?;
+                    super::super::enable_keyboard_enhancement(FailingKeyboardOutput {
+                        failure: if scenario == "push_write" {
+                            OutputFailure::Write
+                        } else {
+                            OutputFailure::Flush
+                        },
+                        wrote_prefix: false,
+                    })
+                })
+                .err()
+                .expect("keyboard setup failure");
+                assert!(error.to_string().contains("injected keyboard"));
             }
             other => panic!("unknown PTY scenario: {other}"),
         }

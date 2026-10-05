@@ -9,8 +9,13 @@ use crate::agent::Agent;
 
 impl TuiApp {
     pub fn apply_runtime_snapshot(&mut self, agent: &Agent, extensions: RuntimeExtensionSnapshot) {
-        let runtime_context = agent.shared_runtime_context();
-        let shared_task_root = agent.workspace.rara_dir.join("tasks");
+        self.configure_shared_task_watch(
+            agent.workspace.rara_dir.join("tasks"),
+            &agent.task_list_id,
+        );
+        let shared_tasks = self.snapshot.shared_tasks.clone();
+        let files = self.observe_context_files(agent);
+        let runtime_context = agent.display_runtime_context(files, shared_tasks);
         let existing_pending_approval_id = self
             .pending_command_approval()
             .and_then(|item| item.approval.as_ref())
@@ -197,7 +202,6 @@ impl TuiApp {
         .into();
         self.agent_execution_mode = agent.execution_mode;
         self.bash_approval_mode = agent.bash_approval_mode;
-        self.configure_shared_task_watch(shared_task_root, &agent.task_list_id);
         self.populate_skill_picker_entries(agent);
         self.persist_runtime_state();
     }

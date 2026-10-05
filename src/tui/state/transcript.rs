@@ -328,7 +328,7 @@ impl TuiApp {
         }
         let turn = std::mem::take(&mut self.active_turn).into_inner();
         self.committed_turns.push(turn);
-        self.clear_live_log();
+        // The writer clears the live log only after this turn is durable.
         // Append preserves prior immutable render blocks; layout sees the new count.
         self.clear_active_live_sections();
     }
@@ -341,7 +341,6 @@ impl TuiApp {
         self.bottom_pane.approval_details = Default::default();
         self.committed_turns = turns;
         self.active_turn.entries.clear();
-        self.clear_live_log();
         self.invalidate_committed_render_cache();
         self.transcript_scroll = TranscriptScroll::default();
         self.agent_markdown_stream = None;

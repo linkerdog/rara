@@ -96,8 +96,11 @@ impl Fixture {
         }
     }
 
-    fn restore(&mut self) {
-        restore_thread_by_id(THREAD_ID, &mut self.app, &mut self.agent).unwrap();
+    async fn restore(&mut self) {
+        restore_thread_by_id(THREAD_ID, &mut self.app, &mut self.agent)
+            .await
+            .unwrap();
+        self.app.flush_storage().await.unwrap();
     }
 
     fn assert_mode(&self, expected: BashApprovalMode, persisted: &str) {
@@ -115,15 +118,15 @@ impl Fixture {
     }
 }
 
-#[test]
-fn known_modes_restore_without_recovery_warning() {
+#[tokio::test]
+async fn known_modes_restore_without_recovery_warning() {
     for (stored, expected) in [
         ("once", BashApprovalMode::Once),
         ("always", BashApprovalMode::Always),
         ("suggestion", BashApprovalMode::Suggestion),
     ] {
         let mut fixture = Fixture::new(stored);
-        fixture.restore();
+        fixture.restore().await;
         fixture.assert_mode(expected, stored);
         assert_eq!(fixture.app.notice().unwrap().level(), NoticeLevel::Info);
         assert_eq!(
@@ -133,8 +136,8 @@ fn known_modes_restore_without_recovery_warning() {
     }
 }
 
-#[test]
-fn unknown_modes_recover_conservatively_on_both_startup_paths() {
+#[tokio::test]
+async fn unknown_modes_recover_conservatively_on_both_startup_paths() {
     for stored in [
         "future-mode",
         "",
@@ -149,6 +152,10 @@ fn unknown_modes_recover_conservatively_on_both_startup_paths() {
         ] {
             let mut fixture = Fixture::new(stored);
             apply_startup_resume(&target, &mut fixture.app, &mut fixture.agent);
+            super::loading::finish_restore_for_test(&mut fixture.app, &mut fixture.agent)
+                .await
+                .unwrap();
+            fixture.app.flush_storage().await.unwrap();
             fixture.assert_mode(BashApprovalMode::Suggestion, "suggestion");
             assert_eq!(fixture.app.notice().unwrap().level(), NoticeLevel::Warning);
             assert_eq!(
@@ -165,21 +172,21 @@ fn unknown_modes_recover_conservatively_on_both_startup_paths() {
                     .count(),
                 1
             );
-            fixture.restore();
+            fixture.restore().await;
             fixture.assert_mode(BashApprovalMode::Suggestion, "suggestion");
             assert_eq!(fixture.app.notice().unwrap().level(), NoticeLevel::Info);
         }
     }
 }
 
-#[test]
-fn approval_recovery_keeps_other_restore_warnings() {
+#[tokio::test]
+async fn approval_recovery_keeps_other_restore_warnings() {
     let mut fixture = Fixture::new("future-mode");
     fixture
         .db
         .save_goal(THREAD_ID, &json!({ "status": "unknown" }))
         .unwrap();
-    fixture.restore();
+    fixture.restore().await;
     fixture.assert_mode(BashApprovalMode::Suggestion, "suggestion");
     let notice = fixture.app.notice().unwrap();
     assert_eq!(notice.level(), NoticeLevel::Warning);
@@ -187,21 +194,21 @@ fn approval_recovery_keeps_other_restore_warnings() {
     assert!(notice.message().contains(RECOVERY_WARNING));
 }
 
-#[test]
-fn approval_recovery_preserves_explicit_full_access() {
+#[tokio::test]
+async fn approval_recovery_preserves_explicit_full_access() {
     let mut fixture = Fixture::new("future-mode");
     fixture.agent.as_mut().unwrap().set_full_access_mode(true);
-    fixture.restore();
+    fixture.restore().await;
     fixture.assert_mode(BashApprovalMode::Suggestion, "suggestion");
     assert!(fixture.agent.as_ref().unwrap().full_access_mode);
 }
 
-#[test]
-fn incomplete_live_restore_keeps_entries_and_other_recovery_warnings() {
+#[tokio::test]
+async fn incomplete_live_restore_keeps_entries_and_other_recovery_warnings() {
     let mut fixture = Fixture::new("future-mode");
     let path = fixture.db.rollout_root().join(THREAD_ID).join("live.jsonl");
     std::fs::write(&path, b"{\"role\":\"Agent\",\"message\":\"before corruption\"}\n{invalid}\n{\"role\":\"Agent\",\"message\":\"after corruption\"}\n").unwrap();
-    fixture.restore();
+    fixture.restore().await;
     let notice = fixture.app.notice().unwrap();
     assert_eq!(notice.level(), NoticeLevel::Warning);
     assert!(notice.message().contains(RECOVERY_WARNING));
@@ -254,7 +261,7 @@ impl LlmBackend for BashRequestBackend {
 #[tokio::test]
 async fn recovered_mode_keeps_mutating_bash_pending_approval() {
     let mut fixture = Fixture::new("future-mode");
-    fixture.restore();
+    fixture.restore().await;
     let agent = fixture.agent.as_mut().unwrap();
     agent.llm_backend = Arc::new(BashRequestBackend::default());
     agent

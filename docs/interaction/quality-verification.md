@@ -101,7 +101,8 @@ boundary below.
 | Protected behavior | Production seam and regression owner |
 | --- | --- |
 | Terminal scrollback, resize, wide-cell replacement, synchronized output | `testing::terminal_emulator::EmulatorBackend` and `custom_terminal::inline::tests` |
-| Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children |
+| Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children, including balanced keyboard enhancement entries |
+| Enhanced key decoding and legacy fallback | `keyboard_protocol_tests`, real CSI-u and legacy bytes through the isolated terminal fixture and production input translator |
 | Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |

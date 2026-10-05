@@ -91,6 +91,7 @@ mod tasklist;
     reason = "Explicit thread CLI inspection and export output."
 )]
 mod thread_cli;
+mod thread_io;
 mod thread_store;
 mod todo;
 mod tool_result;

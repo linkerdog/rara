@@ -161,6 +161,7 @@ impl Fixture {
             &mut self.processor,
             &self.oauth,
             &mut self.source,
+            super::StartupMaintenance::None,
         )
         .await
     }
@@ -377,6 +378,7 @@ async fn input_error_is_visible_and_eof_ends_the_loop() {
         &mut fixture.processor,
         &fixture.oauth,
         &mut fixture.source,
+        super::StartupMaintenance::None,
     );
     tokio::pin!(future);
     assert!(poll!(&mut future).is_pending());

@@ -99,8 +99,8 @@ fn classified_notices_record_their_existing_presentation_kind_once() {
     ));
 }
 
-#[test]
-fn expired_notices_remain_redacted_in_live_and_committed_storage() {
+#[tokio::test]
+async fn expired_notices_remain_redacted_in_live_and_committed_storage() {
     use rara_persistence::thread_turn_log;
     use rara_state::state_db::StateDb;
 
@@ -112,16 +112,48 @@ fn expired_notices_remain_redacted_in_live_and_committed_storage() {
     app.snapshot.session_id = "notice-history".into();
     app.push_notice(NoticeLevel::Error, "token=synthetic-secret-value");
     assert!(app.expire_notice(Instant::now() + NOTICE_LIFETIME));
+    app.flush_storage().await.unwrap();
     let live = thread_turn_log::load_live_entries(&root, "notice-history");
     assert_eq!(live.len(), 1);
     assert_eq!(live[0].role, "System");
     assert_eq!(live[0].message, "token=[REDACTED_SECRET]");
 
     app.finalize_active_turn();
+    app.flush_storage().await.unwrap();
     let turns = thread_turn_log::load_turn_records(&root, "notice-history").unwrap();
     assert_eq!(turns.len(), 1);
     assert_eq!(turns[0].entries.len(), 1);
     assert_eq!(turns[0].entries[0].role, live[0].role);
     assert_eq!(turns[0].entries[0].message, live[0].message);
     assert!(thread_turn_log::load_live_entries(&root, "notice-history").is_empty());
+    app.shutdown_storage().await.unwrap();
+}
+
+#[tokio::test]
+async fn storage_notices_do_not_recursively_queue_transcript_writes() {
+    let (dir, mut app) = app();
+    let db = std::sync::Arc::new(
+        rara_state::state_db::StateDb::new_for_root_dir(dir.path().join("state")).unwrap(),
+    );
+    let root = db.rollout_root();
+    app.snapshot.session_id = "notice-thread".into();
+    app.attach_state_db(db);
+    app.flush_storage().await.unwrap();
+    app.push_unpersisted_notice(NoticeLevel::Error, "token=synthetic-secret-value");
+    assert_eq!(app.notice().unwrap().level(), NoticeLevel::Error);
+    assert_eq!(app.notice_text(), Some("token=[REDACTED_SECRET]"));
+    assert_eq!(
+        app.active_turn.entries.last().unwrap().message,
+        "token=[REDACTED_SECRET]"
+    );
+    app.flush_storage().await.unwrap();
+    assert!(
+        rara_persistence::thread_turn_log::load_live_entries(&root, "notice-thread").is_empty()
+    );
+    app.push_notice(NoticeLevel::Info, "regular notice");
+    app.flush_storage().await.unwrap();
+    let entries = rara_persistence::thread_turn_log::load_live_entries(&root, "notice-thread");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].message, "regular notice");
+    app.shutdown_storage().await.unwrap();
 }
