@@ -30,6 +30,15 @@ pub(super) fn render_overlay(
     overlay: Overlay,
 ) -> Option<(u16, u16)> {
     match overlay {
+        Overlay::HistorySearch => {
+            let popup = popup_rect(f.area(), 96, 80);
+            render_dimmer(f, f.area());
+            f.render_widget(Clear, popup);
+            let block = popup_block();
+            let inner = block.inner(popup);
+            f.render_widget(block, popup);
+            crate::tui::prompt_history::render_history_search(f, app, inner)
+        }
         Overlay::Diff => {
             let popup = f.area();
             f.render_widget(Clear, popup);

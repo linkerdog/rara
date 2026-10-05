@@ -268,6 +268,7 @@ pub fn general_help_text() -> &'static str {
         "/compact  Summarize older conversation history\n",
         "/resume  Restore a recent thread\n\n",
         "Shift+Enter or Ctrl+J: insert a newline\n",
+        "Ctrl+R: search prompt history; Enter uses a match, Esc restores the draft\n",
         "Esc: close an overlay, reject shell approval, or cancel a task\n",
         "Ctrl+C: close an overlay, cancel a task, or clear the composer\n",
         "Ctrl+C again within 1s: quit; Ctrl+D twice: quit with empty input\n",

@@ -85,6 +85,7 @@ impl ApiKeyTarget {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
+    HistorySearch,
     Diff,
     Goal,
     Help(HelpTab),
@@ -794,6 +795,7 @@ pub struct TuiApp {
     pub(super) notices: super::notices::NoticeState,
     pub(crate) diagnostics: Option<crate::diagnostics::DiagnosticReader>,
     pub input_history: Vec<String>,
+    pub(crate) prompt_history: crate::tui::prompt_history::HistoryState,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
     pub committed_turns: Vec<TranscriptTurn>,

@@ -285,7 +285,11 @@ impl TuiHarness {
     }
 
     pub(crate) fn expect_command(&self, expected: RuntimeCommand) {
-        assert_eq!(self.runtime.commands(), [expected]);
+        self.expect_commands(&[expected]);
+    }
+
+    pub(crate) fn expect_commands(&self, expected: &[RuntimeCommand]) {
+        assert_eq!(self.runtime.commands(), expected);
     }
 
     pub(crate) fn expect_runtime_phase(&self, expected: RuntimePhase) {

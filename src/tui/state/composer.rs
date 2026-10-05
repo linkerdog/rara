@@ -1,7 +1,5 @@
 use super::types::{Overlay, TuiApp};
-use super::{
-    INPUT_HISTORY_LIMIT, TextInputTarget, char_offset_to_byte_index, effective_cursor_offset,
-};
+use super::{TextInputTarget, char_offset_to_byte_index, effective_cursor_offset};
 use crate::tui::input_text::{
     ceil_grapheme_offset, floor_grapheme_offset, next_grapheme_offset, previous_grapheme_offset,
 };
@@ -9,6 +7,7 @@ use crate::tui::input_text::{
 impl TuiApp {
     fn active_text_input_target(&self) -> Option<TextInputTarget> {
         match self.overlay {
+            Some(Overlay::HistorySearch) => Some(TextInputTarget::HistorySearch),
             Some(Overlay::Goal) => matches!(
                 self.goal_ui.dialog,
                 Some(crate::tui::goal_ui::GoalDialog::Edit(_))
@@ -57,6 +56,10 @@ impl TuiApp {
         target: TextInputTarget,
     ) -> (&mut String, &mut Option<usize>) {
         match target {
+            TextInputTarget::HistorySearch => (
+                &mut self.prompt_history.query,
+                &mut self.prompt_history.query_cursor,
+            ),
             TextInputTarget::ResumeSearch => (
                 &mut self.resume_search_query,
                 &mut self.resume_search_cursor_offset,
@@ -87,6 +90,7 @@ impl TuiApp {
 
     fn update_after_active_input_edit(&mut self, target: TextInputTarget) {
         match target {
+            TextInputTarget::HistorySearch => self.prompt_history.reset_selection(),
             TextInputTarget::Composer => {
                 self.reset_input_history_navigation();
                 self.sync_command_palette_with_input();
@@ -159,34 +163,14 @@ impl TuiApp {
         self.sync_command_palette_with_input();
     }
 
-    pub fn record_input_history(&mut self, input: &str) {
-        let input = input.trim();
-        if input.is_empty() {
-            return;
-        }
-        if self
-            .input_history
-            .last()
-            .is_some_and(|previous| previous == input)
-        {
-            self.reset_input_history_navigation();
-            return;
-        }
-        self.input_history.push(input.to_string());
-        if self.input_history.len() > INPUT_HISTORY_LIMIT {
-            let excess = self.input_history.len() - INPUT_HISTORY_LIMIT;
-            self.input_history.drain(..excess);
-        }
-        self.reset_input_history_navigation();
-    }
-
     pub fn reset_input_history_navigation(&mut self) {
+        self.cancel_pending_history_navigation();
         self.input_history_cursor = None;
         self.input_history_draft = None;
     }
 
     pub fn should_handle_input_history_navigation(&self, delta: i32) -> bool {
-        if self.input_history.is_empty() {
+        if self.input_history.is_empty() && !self.prompt_history_can_load() {
             return false;
         }
         if self.bottom_pane.input.is_empty() {
@@ -197,12 +181,20 @@ impl TuiApp {
             cursor == 0 || self.input_history_cursor.is_some()
         } else {
             delta > 0
-                && cursor == self.bottom_pane.input.chars().count()
-                && self.input_history_cursor.is_some()
+                && (self.prompt_history_navigation_pending()
+                    || (cursor == self.bottom_pane.input.chars().count()
+                        && self.input_history_cursor.is_some()))
         }
     }
 
     pub fn navigate_input_history(&mut self, delta: i32) {
+        if self.request_history_navigation(delta) {
+            return;
+        }
+        self.navigate_loaded_input_history(delta);
+    }
+
+    pub(crate) fn navigate_loaded_input_history(&mut self, delta: i32) {
         if self.input_history.is_empty() || delta == 0 {
             return;
         }

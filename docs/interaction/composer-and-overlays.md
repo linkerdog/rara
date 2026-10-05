@@ -32,6 +32,9 @@ must not both dismiss an overlay and cancel a turn or approve a request.
 | Command palette or model search | Up/Down | Move the selected result |
 | Command palette or model search | Enter | Apply the selected result |
 | Command palette or model search | Esc | Close the search surface |
+| Prompt history search | Printable characters, cursor keys, Backspace/Delete, paste | Edit the separate query; query edits select the newest match |
+| Prompt history search | Ctrl+R/Up; Down/Ctrl+S | Select an older/newer unique match without wrapping |
+| Prompt history search | Enter; Esc/Ctrl+C | Load the selected prompt without submitting; restore the unchanged draft and cursor |
 | Non-search list or permission picker | Up/Down or j/k | Move selection; Enter applies |
 | Resume picker | Printable characters; Left/Right, Home/End, Backspace/Delete | Edit the search query with the shared grapheme editor |
 | Resume picker | Up/Down; PageUp/PageDown; wheel | Move selection; load the next result page when needed |
@@ -71,6 +74,15 @@ not inherit the plain-list j/k shortcuts.
   no-op, except for the explicit shell-approval rejection action in RUN-03.
 - Up/Down first follow the existing input-history boundary rules, otherwise
   move inside multiline input or scroll when the composer is empty.
+- Ctrl+R opens incremental prompt search from the composer or command palette,
+  unless a pending interaction owns the input. It never inserts a literal `r`
+  into another overlay. Search shows a separate query, newest-first unique
+  matches, and a wrapped multiline preview. Cancel preserves pending large-paste
+  payloads; acceptance replaces the draft and clears its old payload ownership.
+  Background refresh selects the newest match unless the user explicitly
+  traversed results while loading. Draft/cursor/overlay changes invalidate
+  delayed Up recall. Persistence, privacy filters, bounds, disabled behavior,
+  and shutdown ordering are defined in [Prompt History](../features/prompt-history.md).
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
@@ -218,6 +230,7 @@ navigation can still change the selection for the initial frame.
 | INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
 | Quit shortcuts | Overlay ownership, busy cancellation, same-key confirmation, expiry, input disarming, reported repeats, and footer rendering through production key dispatch |
 | Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
+| Prompt recall/search | Restart and cross-session refresh, stale-read fencing, query editing, accept without submit, draft/paste restoration, reviewed preview snapshot and narrow cursor bounds |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
@@ -255,6 +268,7 @@ for the search fields and live-pagination contract.
 
 ## Source Journals
 
+- [Persistent prompt history](../journal/2026-10-05-prompt-history.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)

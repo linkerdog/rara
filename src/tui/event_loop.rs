@@ -72,12 +72,14 @@ pub async fn run_tui(
     }
     let completed = result?;
     completed.processor.drain_memory().await;
+    completed.history_flush?;
     Ok(completed.session_id)
 }
 
 struct CompletedTuiSession {
     session_id: Option<String>,
     processor: RuntimeCommandProcessor,
+    history_flush: anyhow::Result<()>,
 }
 
 async fn run_tui_session(
@@ -89,6 +91,7 @@ async fn run_tui_session(
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
+    app.attach_prompt_history();
     app.terminal_capabilities = rara_terminal_detection::TerminalCapabilities::detect();
     app.diagnostics = Some(diagnostics);
     app.goal_handle = runtime.goal_handle.clone();
@@ -169,17 +172,24 @@ async fn run_tui_session(
     if let Err(error) = &storage_result {
         log::warn!("Storage cleanup failed; writes were not acknowledged: {error:#}");
     }
+    let handoff = terminal
+        .finish_inline_viewport()
+        .map_err(anyhow::Error::from);
+    if let Err(error) = &handoff {
+        log::warn!("Failed to position shell cursor after TUI error: {error}");
+    }
+    let restored = terminal_modes.restore().map_err(anyhow::Error::from);
+    if let Err(error) = &restored {
+        log::warn!("Failed to restore terminal before history cleanup: {error}");
+    }
+    let history = maintainer.app_mut().shutdown_prompt_history().await;
+    if let Err(error) = &history {
+        log::warn!("Prompt history cleanup failed: {error:#}");
+    }
     if let Some(handle) = maintainer.app_mut().repo_context_task.take() {
         handle.abort();
     }
-    let result = result.and(storage_result);
-    if let Err(error) = terminal.finish_inline_viewport() {
-        if result.is_ok() {
-            return Err(error.into());
-        }
-        log::warn!("Failed to position shell cursor after TUI error: {error}");
-    }
-    result?;
+    result.and(storage_result).and(handoff).and(restored)?;
     let session_id = processor.session_id().or_else(|| {
         (!maintainer.app().snapshot.session_id.is_empty())
             .then(|| maintainer.app().snapshot.session_id.clone())
@@ -187,6 +197,7 @@ async fn run_tui_session(
     Ok(CompletedTuiSession {
         session_id,
         processor,
+        history_flush: history,
     })
 }
 
@@ -260,6 +271,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.app_mut().poll_prompt_history();
         needs_redraw |= maintainer.app_mut().poll_diagnostics();
         if exit_flush.is_none() {
             if matches!(startup_maintenance, StartupMaintenance::Rebuild)

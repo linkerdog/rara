@@ -59,6 +59,9 @@ mod markdown_render;
 mod markdown_stream;
 mod message_role;
 mod presentation_revision;
+mod prompt_history;
+#[cfg(test)]
+mod prompt_history_tests;
 pub(crate) use message_role::MessageRole;
 mod model_search;
 mod pane_geometry;

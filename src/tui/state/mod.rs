@@ -71,7 +71,6 @@ mod model_selection;
 mod provider_setup;
 mod support;
 
-pub(super) use support::INPUT_HISTORY_LIMIT;
 use support::{
     TextInputTarget, effective_cursor_offset, startup_warning_for_config, state_db_status_error,
     terminal_multiplexer_label, terminal_remote_label,

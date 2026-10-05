@@ -29,6 +29,7 @@ impl TuiApp {
             notices: Default::default(),
             diagnostics: None,
             input_history: Vec::new(),
+            prompt_history: Default::default(),
             input_history_cursor: None,
             input_history_draft: None,
             committed_turns: Vec::new(),
