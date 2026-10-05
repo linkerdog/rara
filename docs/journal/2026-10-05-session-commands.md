@@ -104,8 +104,8 @@ are unchanged. This journal retains the implementation decisions.
 ## Follow-Ups
 
 No implementation follow-up is deferred from #990. Default remote CI remains
-the publication gate, including Bazel; the branch depends on #1029's storage
-worker and does not alter Bazel configuration.
+the publication gate, including Bazel. The storage worker from #1029 is now on
+main; this branch does not alter Bazel configuration.
 
 ## Updated Storage Base Integration
 
@@ -119,3 +119,12 @@ text because both transcript selections and `/copy` use the same owner.
 Integrated TUI validation passed 1,110 tests, with seven parent-driven child
 fixture entry points ignored. Existing command and clipboard tests now observe
 the typed notice owner; the clipboard matrix still verifies severity.
+
+## Merged Storage Base And Main
+
+Integrate the final storage branch and main `54ce33e6` before retargeting the PR
+to main. Preserve the command worker's non-cancellable accepted mutations,
+execution-mode checkpoints, durable next-turn ordinals, title-aware resume
+search, and diff polling across the squash-merge conflicts. The duplicated
+restore-cancellation block from automatic merging is reduced to one call.
+This is an ancestry and integration repair; the command contract is unchanged.
