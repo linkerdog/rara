@@ -22,16 +22,43 @@ acknowledgement variants does not establish their implementation.
 
 ### Controlled MCP delivery boundary
 
-Controlled MCP registration is being implemented as a session-owned source. Its transport
-component must validate a bounded complete tool catalogue before admission, issue a single
-`tools/call` request without implicit retries, and close the source child before reporting
+Controlled MCP registration is a session-owned source. Its transport
+component validates a bounded complete tool catalogue before admission, issues a single
+`tools/call` request without implicit retries, and closes the source child before reporting
 retirement. Dynamic sources use the same outer authorization as configured sources; they do not
 load ambient MCP configuration or grant authority through model arguments.
 
-The stdio handshake must not advertise source registration until the session registry, exact
-source ownership, actual tool invocation and retirement are wired through the canonical session
-actor and covered by executable tests. A callable client component alone does not enable the
-app-server operation.
+The stdio handshake advertises source registration, removal and query through the canonical
+session actor. Capability qualification includes exact source ownership, actual native tool
+invocation and retirement; a callable client component alone does not establish this boundary.
+
+The controlled source contract uses a separate `mcp_source` family with `register`,
+`unregister` and `query` operations. It does not reuse the legacy status manager.
+Registration carries a source ID, absolute executable path, arguments and an explicit
+environment; cwd is always the owning session workspace and ambient environment is cleared.
+The controller authorizes these commands before sending them. Model tool arguments and
+untrusted provenance labels cannot grant registration authority.
+
+Sources require explicit builder opt-in. Frozen profiles and session-stable schema experiments reject this opt-in rather than
+widening their tool allowlist. All source controls use the idle session actor; a busy or
+waiting session refuses mutation. A complete catalogue is admitted atomically under stable
+source/tool-derived names only after checking capacity and collisions with existing tools.
+Tool invocation requires the owning session, turn and call context. Nested agents receive
+no source connection or credentials.
+
+Registration is bounded to 16 sources and 512 controlled tools per session. Each registration
+allows at most 128 arguments, 64 environment entries and 64 KiB of serialized configuration.
+Provider-visible names use the reserved `mcp_` plus 60 hexadecimal digits derived from the
+source ID and original tool name. These tools are available only in execute mode: MCP schema
+annotations cannot grant write authority in plan or review mode. Full call responses use the
+ordinary native tool-result projection; MCP error results retain the native error flag.
+
+Unregistration removes exactly the source's tools and closes admission before waiting for
+child retirement. Previously retained tool handles also refuse new calls. Cleanup or
+connection uncertainty prevents further turns and source controls until the owner is
+replaced; shutdown must retain that uncertainty. Queries and events contain IDs and tool
+names, never launch arguments or environment values. The existing bounded request receipt
+and event stream remain the operation acknowledgement and observation channels.
 
 ## Non-Goals
 
@@ -119,13 +146,14 @@ types and their session dispatcher.
 
 The process dispatcher supports session creation and state query, targeted cancel
 and interrupt, native prompt/follow-up and user/plan/shell answers, bounded prompt
-sources, inline skill registration/disable/query, finite output replay and semantic
+sources, inline skill registration/disable/query, controlled stdio MCP source
+registration/removal/query, finite output replay and semantic
 shutdown. Session creation has no caller-supplied target; all other controls name
 an owned session. Source provenance is normalized to the untrusted app-server
 boundary regardless of claimed controller/trust/authorship fields.
 
 Resume, protocol skill roots, generic approval, subscription mutation and
-memory/MCP/hook controls remain explicitly unsupported and are absent from the
+memory, legacy MCP status/refresh/reconnect, and hook controls remain explicitly unsupported and are absent from the
 method list. Their enum presence must not widen negotiated capabilities. A state
 query emits a canonical `session.runtime_state` event. Finite replay returns
 original event identities through the existing output channel; duplicate receipts

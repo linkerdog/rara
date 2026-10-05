@@ -27,6 +27,7 @@ pub(super) fn handshake() -> Handshake {
             "input",
             "prompt_source",
             "skill_source",
+            "mcp_source",
             "output",
             "server",
         ]
@@ -48,6 +49,9 @@ pub(super) fn handshake() -> Handshake {
             "skill_source.register",
             "skill_source.disable",
             "skill_source.query",
+            "mcp_source.register",
+            "mcp_source.unregister",
+            "mcp_source.query",
             "output.replay",
             "server.shutdown",
         ]

@@ -110,6 +110,11 @@ pub(super) async fn control(
                 .apply_prompt_source(request.clone(), provenance)
                 .await?
         }
+        RuntimeControlRequest::McpSource(request) => {
+            session
+                .apply_mcp_source(request.clone(), provenance)
+                .await?
+        }
         RuntimeControlRequest::SkillSource(request) => match request {
             SkillSourceControlRequest::RegisterRoot { .. } => {
                 return Err(DispatchError::Rejected(RejectionCode::Unsupported));

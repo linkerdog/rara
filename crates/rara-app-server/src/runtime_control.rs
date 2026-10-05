@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -86,6 +88,7 @@ pub enum RuntimeControlRequest {
     PromptSource(PromptSourceControlRequest),
     SkillSource(SkillSourceControlRequest),
     Mcp(McpControlRequest),
+    McpSource(McpSourceControlRequest),
     Memory(MemoryControlRequest),
     Hook(HookControlRequest),
     Approval(ApprovalControlRequest),
@@ -226,6 +229,36 @@ pub enum McpControlRequest {
     QueryStatus,
     Refresh { server_name: Option<String> },
     Reconnect { server_name: String },
+}
+
+/// Explicit session-owned stdio source; the controller owns launch authorization.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct McpSourceRegistration {
+    pub source_id: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+}
+
+impl std::fmt::Debug for McpSourceRegistration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("McpSourceRegistration")
+            .field("source_id", &self.source_id)
+            .field("launch", &"[redacted]")
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum McpSourceControlRequest {
+    Register(McpSourceRegistration),
+    Unregister { source_id: String },
+    QuerySources,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

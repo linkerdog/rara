@@ -462,6 +462,11 @@ impl Agent {
     }
 
     pub(super) fn is_tool_allowed_in_current_mode(&self, name: &str) -> bool {
+        if self.execution_mode != AgentExecutionMode::Execute
+            && crate::runtime_session::is_controlled_mcp_tool(name)
+        {
+            return false;
+        }
         match self.execution_mode {
             AgentExecutionMode::Execute => name != EXIT_PLAN_MODE_TOOL_NAME,
             AgentExecutionMode::Review => !matches!(

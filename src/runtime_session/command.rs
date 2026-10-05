@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use crate::llm::LlmBackend;
 use crate::runtime_control::{
-    PromptSourceControlRequest, RuntimeProvenance, SkillSourceControlRequest,
+    McpSourceControlRequest, PromptSourceControlRequest, RuntimeProvenance,
+    SkillSourceControlRequest,
 };
 
 pub(super) enum NativeControl {
+    McpSource {
+        request: McpSourceControlRequest,
+        provenance: RuntimeProvenance,
+    },
     ReplaceBackend {
         backend: Arc<dyn LlmBackend>,
     },

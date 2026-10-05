@@ -42,6 +42,9 @@ where
     F: FnMut(RuntimeControlEvent) + Send,
 {
     match &envelope.request {
+        RuntimeControlRequest::McpSource(_) => {
+            Err("controlled MCP sources require the session actor".into())
+        }
         RuntimeControlRequest::Mcp(mcp_request) => {
             mcp_manager.handle_control(mcp_request).await;
             Ok(())

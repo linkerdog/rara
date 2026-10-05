@@ -29,6 +29,7 @@ use crate::{
 };
 
 mod framing_receipts;
+mod mcp_sources;
 
 const DEADLINE: Duration = Duration::from_secs(5);
 
@@ -104,6 +105,7 @@ impl Harness {
         let task = tokio::spawn(async move {
             server::serve(reader, writer, owner, server::handshake(), move || {
                 RuntimeSessionBuilder::new(RaraConfig::default(), &root)
+                    .with_controlled_mcp_sources()
                     .with_backend(backend.clone())
                     .with_state_root(root.join("state"))
                     .without_extension_discovery()

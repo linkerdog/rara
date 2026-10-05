@@ -9,6 +9,7 @@ use rara_runtime::{
 
 use super::command::NativeControl;
 use super::input::TurnInput;
+use super::mcp_sources::{McpSourcePolicy, McpSources};
 use super::{RuntimePendingInput, RuntimeSessionError, RuntimeSessionId, RuntimeTurnId};
 use crate::agent::{Agent, AgentEvent, AgentOutputMode};
 use crate::llm::Message;
@@ -28,6 +29,7 @@ pub(super) struct NativeSessionDriver {
     id: RuntimeSessionId,
     client: RuntimeClient,
     agent_tree_control: Arc<AgentTreeControl>,
+    mcp_sources: McpSources,
 }
 
 pub(super) struct NativeTurn {
@@ -43,8 +45,11 @@ impl NativeSessionDriver {
         id: RuntimeSessionId,
         client: RuntimeClient,
         agent_tree_control: Arc<AgentTreeControl>,
+        policy: McpSourcePolicy,
+        workspace: std::path::PathBuf,
     ) -> Self {
         Self {
+            mcp_sources: McpSources::new(policy, id.to_string(), workspace),
             id,
             client,
             agent_tree_control,
@@ -124,6 +129,7 @@ impl SessionDriver for NativeSessionDriver {
         input: NativeInput,
         context: TurnContext,
     ) -> Result<NativeTurn, RuntimeSessionError> {
+        self.mcp_sources.ensure_available()?;
         let mut agent = self
             .client
             .agent_mut()
@@ -185,10 +191,33 @@ impl SessionDriver for NativeSessionDriver {
     }
 
     async fn control(&mut self, control: NativeControl) -> Result<(), RuntimeSessionError> {
+        self.mcp_sources.ensure_available()?;
         match control {
+            NativeControl::McpSource {
+                request,
+                provenance,
+            } => {
+                let agent = self
+                    .client
+                    .agent_mut()
+                    .as_mut()
+                    .ok_or(RuntimeSessionError::ActorStopped)?;
+                let event = self
+                    .mcp_sources
+                    .control(request, &mut agent.tool_manager)
+                    .await?;
+                self.client.event_bus.publish_control_with_turn(
+                    RuntimeEvent::Mcp(event),
+                    provenance,
+                    None,
+                );
+            }
             NativeControl::ReplaceBackend { backend } => self.agent_mut()?.llm_backend = backend,
             NativeControl::SetMaxTurns { max_turns } => self.agent_mut()?.set_max_turns(max_turns),
-            NativeControl::DisableTools => self.agent_mut()?.tool_manager.retain(|_| false),
+            NativeControl::DisableTools => {
+                self.mcp_sources.shutdown().await?;
+                self.agent_mut()?.tool_manager.retain(|_| false);
+            }
             NativeControl::DisableExtensionExecution => {
                 self.agent_mut()?.disable_extension_execution()
             }
@@ -252,7 +281,9 @@ impl SessionDriver for NativeSessionDriver {
 
     async fn shutdown(&mut self) -> anyhow::Result<()> {
         let result = self.agent_tree_control.shutdown().await;
+        let source_result = self.mcp_sources.shutdown().await;
         self.client.drain_memory().await;
+        source_result?;
         result.map_err(Into::into)
     }
 
