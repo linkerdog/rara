@@ -1,6 +1,55 @@
 use super::*;
 
 #[tokio::test]
+async fn query_error_records_one_redacted_renderable_notice() {
+    use crate::tui::state::{NoticeLevel, SystemMessageKind, TranscriptEntryPayload};
+
+    let temp = tempdir().unwrap();
+    let mut app = TuiApp::new(ConfigManager {
+        path: temp.path().join("config.json"),
+    })
+    .unwrap();
+    let agent = create_test_agent(&temp);
+    install_completed_query_task(
+        &mut app,
+        agent,
+        Err(anyhow::anyhow!("token=synthetic-secret-value")),
+    );
+    let completion = (&mut app.bottom_pane.running_task.as_mut().unwrap().handle).await;
+    super::super::finish_running_task_if_ready_from_runtime_port(
+        &mut app,
+        &mut None,
+        Some(completion),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.notice().unwrap().level(), NoticeLevel::Error);
+    let entries = app
+        .active_turn
+        .entries
+        .iter()
+        .filter(|entry| entry.message.starts_with("Query failed:"))
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(
+        entries[0].payload,
+        Some(TranscriptEntryPayload::System(SystemMessageKind::Other))
+    ));
+    assert!(!entries[0].message.contains("synthetic-secret-value"));
+    assert_eq!(Some(entries[0].message.as_str()), app.notice_text());
+    assert!(app.expire_notice(tokio::time::Instant::now() + Duration::from_secs(8)));
+    let rendered = crate::tui::render::active_turn_cell(&app)
+        .display_lines(100)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Query failed:"));
+    assert!(rendered.contains("[REDACTED_SECRET]"));
+}
+
+#[tokio::test]
 async fn rebuild_config_save_failure_keeps_replacement_and_history() {
     let temp = tempdir().unwrap();
     let config_path = temp.path().join("config.json");
@@ -32,13 +81,7 @@ async fn rebuild_config_save_failure_keeps_replacement_and_history() {
     assert_eq!(agent.history, expected_history);
     assert!(!app.is_busy());
     assert_eq!(app.runtime_phase, RuntimePhase::BackendReady);
-    assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("not saved")
-    );
+    assert!(app.notice_text().unwrap().contains("not saved"));
     assert!(
         app.committed_turns
             .iter()
@@ -72,13 +115,7 @@ async fn join_failure_clears_decisions_but_retains_queued_input() {
     assert!(!app.is_busy());
     assert!(app.active_pending_interaction().is_none());
     assert!(app.has_queued_follow_up_messages());
-    assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("rebuild")
-    );
+    assert!(app.notice_text().unwrap().contains("rebuild"));
 
     install_runtime_services(&mut app);
     let mut slot = None;

@@ -229,9 +229,7 @@ fn app_starts_with_warning_instead_of_api_key_editor_for_hosted_provider_without
     let app = TuiApp::new(cm).expect("app");
     assert!(app.overlay.is_none());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.starts_with("Warning:"))
     );
 }
@@ -594,7 +592,7 @@ async fn kimi_coding_connection_uses_the_dedicated_profile_and_endpoint() {
         Some("sk-codex")
     );
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Saved Kimi For Coding API key. Rebuilding backend.")
     );
     assert!(app.bottom_pane.running_task.is_none());
