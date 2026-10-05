@@ -10,6 +10,7 @@ use crate::tui::runtime::{
     tasks::start_pending_approval_task_with_services,
     tasks::start_plan_approval_resume_task_with_services, tasks::start_query_task_with_services,
 };
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{
     ActivePendingInteractionKind, InteractionKind, RuntimePhase, TaskKind, TuiApp,
 };
@@ -40,8 +41,8 @@ pub(crate) fn submit_user_prompt_with_services(
 ) -> InputControlOutcome {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
-        if app.bottom_pane.notice.is_none() {
-            app.bottom_pane.notice = Some("Ready.".into());
+        if app.notice_text().is_none() {
+            app.push_notice(NoticeLevel::Info, "Ready.");
         }
         return InputControlOutcome::Noop;
     }
@@ -70,7 +71,10 @@ pub(crate) fn submit_user_prompt_with_services(
         } else {
             String::new()
         };
-        app.bottom_pane.notice = Some(format!("Agent not ready — rebuilding now{suffix}."));
+        app.push_notice(
+            NoticeLevel::Info,
+            format!("Agent not ready — rebuilding now{suffix}."),
+        );
         publish_input_event(
             app,
             InputEvent::FollowUpQueued {
@@ -116,18 +120,21 @@ pub(crate) fn submit_follow_up(
     } else {
         " 1 follow-up message is queued.".to_string()
     };
-    app.bottom_pane.notice = Some(format!(
-        "{}{suffix}",
-        if release_after_next_tool_boundary {
-            "Queued for after the next tool call boundary."
-        } else if app.active_pending_interaction().is_some()
-            && app.pending_request_input().is_none()
-        {
-            "Queued until the pending interaction is answered."
-        } else {
-            "Queued for after the current task finishes."
-        }
-    ));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!(
+            "{}{suffix}",
+            if release_after_next_tool_boundary {
+                "Queued for after the next tool call boundary."
+            } else if app.active_pending_interaction().is_some()
+                && app.pending_request_input().is_none()
+            {
+                "Queued until the pending interaction is answered."
+            } else {
+                "Queued for after the current task finishes."
+            }
+        ),
+    );
     publish_input_event(
         app,
         InputEvent::FollowUpQueued {
@@ -209,11 +216,11 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
     services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     if !app.has_pending_plan_approval() {
-        app.push_notice("No pending plan approval.");
+        app.push_notice(NoticeLevel::Info, "No pending plan approval.");
         return InputControlOutcome::Rejected;
     }
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Approval is still preparing. Try again.");
+        app.push_notice(NoticeLevel::Info, "Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
     let (summary, notice) = match decision {
@@ -238,7 +245,10 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
     if decision == PlanApprovalDecision::Reject {
         let mut agent = agent;
         if let Err(err) = agent.reject_pending_plan_approval(feedback.as_deref()) {
-            app.push_notice(format!("Failed to record plan rejection: {err}"));
+            app.push_notice(
+                NoticeLevel::Error,
+                format!("Failed to record plan rejection: {err}"),
+            );
             *agent_slot = Some(agent);
             return InputControlOutcome::Rejected;
         }
@@ -252,7 +262,7 @@ pub(crate) fn answer_plan_approval_with_feedback_and_services(
             None,
         );
         app.set_agent_execution_mode(agent.execution_mode);
-        app.bottom_pane.notice = Some(notice.to_string());
+        app.push_notice(NoticeLevel::Info, notice.to_string());
         app.set_runtime_phase(RuntimePhase::Idle, Some("plan cancelled".into()));
         *agent_slot = Some(agent);
         return InputControlOutcome::Answered;
@@ -322,15 +332,15 @@ pub(crate) fn answer_shell_approval_with_services(
     services: Option<RuntimeTaskServices>,
 ) -> InputControlOutcome {
     let Some(interaction) = app.active_pending_interaction() else {
-        app.push_notice("No pending shell approval.");
+        app.push_notice(NoticeLevel::Info, "No pending shell approval.");
         return InputControlOutcome::Rejected;
     };
     if interaction.kind != ActivePendingInteractionKind::ShellApproval {
-        app.push_notice("No pending shell approval.");
+        app.push_notice(NoticeLevel::Info, "No pending shell approval.");
         return InputControlOutcome::Rejected;
     }
     let Some(agent) = agent_slot.take() else {
-        app.push_notice("Approval is still preparing. Try again.");
+        app.push_notice(NoticeLevel::Info, "Approval is still preparing. Try again.");
         return InputControlOutcome::Rejected;
     };
     let decision = BashApprovalDecision::from(decision);

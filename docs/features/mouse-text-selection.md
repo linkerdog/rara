@@ -21,7 +21,8 @@ area only:
 - releasing the left button copies the selected plain text;
 - dragging outside the top or bottom edge autoscrolls the transcript and
   extends the selection;
-- normal wheel scrolling remains available outside active drag selection.
+- vertical wheel scrolling cancels an active drag and immediately scrolls its
+  input owner.
 
 ## Non-Goals
 
@@ -116,6 +117,16 @@ copy is a request, not proof that the terminal accepted the clipboard write.
 
 - Selection only starts when there is no active overlay and the mouse down event
   lands inside the transcript snapshot.
+- Opening any overlay, losing terminal focus, or suspending the TUI cancels the
+  current selection immediately, without copying. Closing the overlay or
+  regaining focus does not resume the drag.
+- No-button mouse motion and vertical wheel input cancel a drag whose release
+  may have been lost. A fresh left press replaces the old drag even when the new
+  press lands outside the transcript. Wheel input still reaches the current
+  overlay or transcript on that same event.
+- Drag and release events without an accepted left press are ignored. Only a
+  matching left release copies text; cancellation never initializes clipboard
+  work or changes the clipboard.
 - Dragging outside the transcript area clamps to the nearest visible transcript
   row.
 - A zero-width selection does not copy anything.
@@ -157,6 +168,7 @@ copy is a request, not proof that the terminal accepted the clipboard write.
 | Active stream snapshot | Retained stable body allocations; current preview copy after drag extension; full/compact, suppression, thinking, and finalization transitions |
 | Snapshot refresh | Same-sized middle replacement and full styled-tail invalidation; width/cwd/visibility/reset/restore guards |
 | Mouse event routing | Existing TUI event tests plus focused selection events |
+| Lost release recovery | Production harness: overlay ownership, focus loss, no-button motion, wheel recovery, fresh presses outside the viewport, orphaned drag/release, and suspension |
 | Clipboard responsiveness | Scripted stalled backend while production input dispatch continues; bounded pending requests and completion ordering |
 | Clipboard delivery | UTF-8 byte limit and exact OSC 52 wrapping; write/spawn/exit failures; stalled stdin/exit timeout and child cleanup |
 | Clipboard environment | SSH skips native helpers; local oversized text reaches the native backend intact; no real clipboard writes in automated tests |
@@ -177,6 +189,10 @@ dependent on terminal policy.
   pinned `unicode-width` policy consistently across layout and selection.
 - The transcript snapshot is frame-based. If a mouse event arrives before the
   first transcript frame, selection start is ignored.
+- Recovery uses observable input and ownership changes, not an inactivity
+  timeout: terminals need not emit events while a button is held stationary for
+  edge autoscroll. If both release and focus reporting are lost, the next wheel,
+  no-button motion, fresh left press, overlay, or suspension cancels the drag.
 
 ## Source Journals
 
@@ -188,3 +204,4 @@ dependent on terminal policy.
 - [2026-10-03-display-text-boundary](../journal/2026-10-03-display-text-boundary.md)
 - [2026-10-03-unicode-boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [2026-10-03-ui-clipboard-safety](../journal/2026-10-03-ui-clipboard-safety.md)
+- [2026-10-05-selection-release-recovery](../journal/2026-10-05-selection-release-recovery.md)

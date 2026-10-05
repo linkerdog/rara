@@ -287,6 +287,40 @@ mod tests {
     }
 
     #[test]
+    fn large_preview_keeps_later_operations_and_exact_delta() {
+        let mut patch = "*** Begin Patch\n*** Add File: large.txt\n".to_string();
+        patch.push_str(&"+line\n".repeat(200));
+        patch.push_str("*** Delete File: gone.txt\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n-before\n+after\n*** End Patch");
+        let preview = preview_patch(PatchPreviewRequest {
+            patch,
+            files: BTreeMap::from([
+                ("gone.txt".into(), "one\ntwo\n".into()),
+                ("old.txt".into(), "before\n".into()),
+            ]),
+        })
+        .unwrap();
+        assert!(preview.preview.truncated);
+        assert!(
+            preview
+                .preview
+                .text
+                .contains("*** Delete File: gone.txt\n*** Preview Stats: +0 -2")
+        );
+        assert!(preview.preview.text.contains("*** Move to: new.txt"));
+        assert_eq!(preview.stats.added_lines, 201);
+        assert_eq!(preview.stats.removed_lines, 3);
+        assert!(preview.delta.exact);
+        assert_eq!(preview.delta.changes.len(), 3);
+        let VirtualPatchFileChange::Add { content, .. } = &preview.delta.changes[0].change else {
+            panic!("first change must remain an addition");
+        };
+        assert_eq!(content.lines().count(), 200);
+        let encoded = serde_json::to_value(&preview).unwrap();
+        assert_eq!(encoded["preview"]["truncated"], true);
+        assert_eq!(encoded["delta"]["changes"][2]["move_to"], "new.txt");
+    }
+
+    #[test]
     fn rejects_missing_update_target() {
         let error = preview_patch_with_files(
             "*** Begin Patch\n\

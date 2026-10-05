@@ -35,11 +35,12 @@ impl TuiApp {
     }
 
     pub(crate) fn flush_composer_paste(&mut self) -> bool {
-        let flushed = self.bottom_pane.flush_paste_burst();
-        if flushed {
-            self.update_after_active_input_edit(TextInputTarget::Composer);
-        }
-        flushed
+        let Some(notice) = self.bottom_pane.flush_paste_burst() else {
+            return false;
+        };
+        self.push_paste_notice(notice);
+        self.update_after_active_input_edit(TextInputTarget::Composer);
+        true
     }
 
     pub(crate) fn check_composer_paste_flush(&mut self) -> bool {
@@ -426,8 +427,8 @@ mod tests {
         assert_eq!(app.bottom_pane.input, "old promptfirst\nsecond");
         assert!(app.input_history_cursor.is_none());
         assert!(!app.check_composer_paste_flush());
-        app.bottom_pane.clear_input();
-        assert!(app.bottom_pane.notice.is_none());
+        app.clear_composer();
+        assert!(app.notice_text().is_none());
         assert!(app.bottom_pane.paste_burst_deadline.is_none());
         assert!(!app.check_composer_paste_flush());
     }

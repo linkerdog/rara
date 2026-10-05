@@ -1,5 +1,5 @@
 ---
-source: src/tui/markdown_render.rs
+source: src/tui/markdown_render_tests.rs
 expression: render_to_string(md)
 ---
 B+U(# )B+U(Overview)
@@ -19,5 +19,5 @@ fn main() {
 
 > Note: this is important.
 
-- [x] done task
-- [ ] pending
+B(☒ )done task
+B(☐ )pending

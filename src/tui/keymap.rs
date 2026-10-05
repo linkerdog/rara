@@ -4,7 +4,8 @@ use super::app_event::AppEvent;
 use super::file_mentions::FileMentionAction;
 use super::prompt_history::HistoryAction;
 use super::state::{
-    ApprovalDetailNavigation, HelpTab, Overlay, QuitShortcutKey, StatusTab, TuiApp,
+    ApprovalDetailNavigation, HelpTab, Overlay, OverlayNavigation, QuitShortcutKey, StatusTab,
+    TuiApp,
 };
 
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
@@ -82,6 +83,23 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             _ => {}
         }
     }
+    if matches!(
+        app.overlay,
+        Some(Overlay::Help(_) | Overlay::Status(_) | Overlay::Context)
+    ) {
+        let navigation = match code {
+            KeyCode::Up | KeyCode::Char('k') => Some(OverlayNavigation::Rows(-1)),
+            KeyCode::Down | KeyCode::Char('j') => Some(OverlayNavigation::Rows(1)),
+            KeyCode::PageUp => Some(OverlayNavigation::PageUp),
+            KeyCode::PageDown => Some(OverlayNavigation::PageDown),
+            KeyCode::Home => Some(OverlayNavigation::Start),
+            KeyCode::End => Some(OverlayNavigation::End),
+            _ => None,
+        };
+        if let Some(navigation) = navigation {
+            return AppEvent::NavigateOverlay(navigation);
+        }
+    }
     match app.overlay {
         Some(Overlay::HistorySearch) => match (code, modifiers) {
             (KeyCode::Esc, _) => AppEvent::CloseOverlay,
@@ -110,14 +128,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             _ => AppEvent::Noop,
         },
         Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
-        Some(Overlay::Help(tab)) => match key {
-            KeyEvent {
-                code: KeyCode::Up, ..
-            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(-1),
-            KeyEvent {
-                code: KeyCode::Down,
-                ..
-            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(1),
+        Some(Overlay::Help(_)) => match key {
             KeyEvent {
                 code: KeyCode::Esc, ..
             } => AppEvent::CloseOverlay,
@@ -160,10 +171,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         },
         Some(Overlay::Context) => match code {
             KeyCode::Esc | KeyCode::Enter => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::ScrollContext(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::ScrollContext(1),
-            KeyCode::PageUp => AppEvent::ScrollContext(-5),
-            KeyCode::PageDown => AppEvent::ScrollContext(5),
             _ => AppEvent::Noop,
         },
         Some(Overlay::SkillsPicker) => match code {

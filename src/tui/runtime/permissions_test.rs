@@ -342,9 +342,7 @@ async fn lost_agent_rejects_pending_permission_change() {
     assert!(app.pending_permission_mode.is_none());
     assert_eq!(app.permission_mode_label(), "accept-edits");
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .unwrap()
             .contains("Permissions not applied")
     );

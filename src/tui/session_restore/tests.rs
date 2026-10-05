@@ -375,7 +375,15 @@ fn restore_session_recovers_live_active_turn_entries() {
     .expect("restore thread");
 
     assert_eq!(restored_app.committed_turns.len(), 0);
-    assert_eq!(restored_app.active_turn.entries.len(), 5);
+    assert_eq!(restored_app.active_turn.entries.len(), 6);
+    assert_eq!(
+        restored_app.active_turn.entries[5].role,
+        MessageRole::System
+    );
+    assert_eq!(
+        Some(restored_app.active_turn.entries[5].message.as_str()),
+        restored_app.notice_text()
+    );
     assert!(
         restored_app
             .bottom_pane
@@ -422,7 +430,14 @@ fn restore_session_recovers_live_active_turn_entries() {
             .iter()
             .map(|entry| entry.role.as_str())
             .collect::<Vec<_>>(),
-        ["You", "Agent", "Tool Result", "legacy-note", "Agent Delta"],
+        [
+            "You",
+            "Agent",
+            "Tool Result",
+            "legacy-note",
+            "Agent Delta",
+            "System"
+        ],
     );
     restore_thread_by_id(
         &original_agent.session_id,
@@ -430,8 +445,14 @@ fn restore_session_recovers_live_active_turn_entries() {
         &mut restored_slot,
     )
     .expect("restore committed turn");
-    assert!(restored_app.active_turn.entries.is_empty());
+    assert_eq!(restored_app.active_turn.entries.len(), 1);
+    assert_eq!(
+        restored_app.active_turn.entries[0].role,
+        MessageRole::System
+    );
     let entries = &restored_app.committed_turns[0].entries;
+    assert_eq!(entries.len(), 6);
+    assert_eq!(entries[5].role, MessageRole::System);
     assert_eq!(entries[0].role, MessageRole::User);
     assert_eq!(entries[1].role, MessageRole::Agent);
     assert_eq!(entries[2].role, MessageRole::ToolResult);

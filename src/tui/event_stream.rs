@@ -6,7 +6,7 @@ use crossterm::event::{
 
 use super::app_event::AppEvent;
 use super::selection::ScreenPosition;
-use super::state::{Overlay, TuiApp};
+use super::state::{Overlay, OverlayNavigation, TuiApp};
 
 const MOUSE_WHEEL_SCROLL_LINES: i32 = 3;
 
@@ -34,7 +34,10 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 if control && key_event.code == KeyCode::Char('z') {
                     app.quit_shortcut.clear();
                     #[cfg(unix)]
-                    return Some(UiEvent::Suspend);
+                    {
+                        app.transcript_selection.clear();
+                        return Some(UiEvent::Suspend);
+                    }
                     #[cfg(not(unix))]
                     return Some(UiEvent::App(AppEvent::Noop));
                 }
@@ -51,7 +54,15 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 None
             }
         }
-        Event::Mouse(mouse_event) if mouse_event.kind == MouseEventKind::Moved => None,
+        Event::Mouse(mouse_event) if mouse_event.kind == MouseEventKind::Moved => {
+            if app.transcript_selection.is_dragging() {
+                // No-button motion proves that the terminal dropped the release.
+                app.transcript_selection.clear();
+                Some(UiEvent::Draw)
+            } else {
+                None
+            }
+        }
         Event::Mouse(mouse_event) => {
             app.quit_shortcut.clear();
             Some(UiEvent::App(map_mouse_to_event(mouse_event, app)))
@@ -64,6 +75,9 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
         Event::FocusGained | Event::FocusLost => {
             let focused = matches!(event, Event::FocusGained);
             app.terminal_focused = focused;
+            if !focused {
+                app.transcript_selection.clear();
+            }
             Some(UiEvent::FocusChanged(focused))
         }
     }
@@ -80,22 +94,25 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
                 mouse_event.row,
             ))
         }
-        MouseEventKind::Drag(MouseButton::Left) if app.overlay.is_none() => {
+        MouseEventKind::Drag(MouseButton::Left)
+            if app.overlay.is_none() && app.transcript_selection.is_dragging() =>
+        {
             AppEvent::DragTranscriptSelection(ScreenPosition::new(
                 mouse_event.column,
                 mouse_event.row,
             ))
         }
-        MouseEventKind::Up(MouseButton::Left) if app.overlay.is_none() => {
+        MouseEventKind::Up(MouseButton::Left)
+            if app.overlay.is_none() && app.transcript_selection.is_dragging() =>
+        {
             AppEvent::FinishTranscriptSelection(ScreenPosition::new(
                 mouse_event.column,
                 mouse_event.row,
             ))
         }
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-            if app.transcript_selection.is_dragging() {
-                return AppEvent::Noop;
-            }
+            // Wheel input takes ownership even if no release/focus event arrived.
+            app.transcript_selection.clear();
             let direction: i32 = if matches!(mouse_event.kind, MouseEventKind::ScrollUp) {
                 -1
             } else {
@@ -105,7 +122,9 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
                 MOUSE_WHEEL_SCROLL_LINES as f64 * app.scroll_acceleration.factor(Instant::now());
             let delta = (direction * lines.round() as i32).clamp(-15, 15);
             match &app.overlay {
-                Some(Overlay::Context) => AppEvent::ScrollContext(delta),
+                Some(Overlay::Context | Overlay::Help(_) | Overlay::Status(_)) => {
+                    AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta))
+                }
                 Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
                     AppEvent::MoveCommandSelection(delta)
                 }
