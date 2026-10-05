@@ -13,6 +13,7 @@ approve unrelated segments joined with shell control operators.
 - Reusable command-prefix approvals persisted in RARA config.
 - Legacy shell command strings and structured `program` plus `args` calls.
 - Read-only command auto-allow classification.
+- Recovery of persisted session bash approval modes.
 
 ## Non-Goals
 
@@ -47,6 +48,21 @@ When RARA cannot derive a reusable prefix for a shell command, a user approval
 may still be stored as the exact command summary. Exact-command approvals are
 replayed only for the same normalized summary. They do not become starts-with
 prefix rules and do not cover additional shell segments.
+
+### Persisted Mode Recovery
+
+Session restoration accepts exactly `once`, `always`, and `suggestion`. Unknown
+values, including empty strings, do not grant session approval: restore
+`Suggestion`, record a warning in the transcript, and show the same warning in
+the status notice. Keep any other recovery warnings in that notice. Do not echo
+the invalid persisted value into diagnostics.
+
+The agent, TUI state, and next persisted runtime snapshot must agree on the
+recovered mode. A subsequent resume of that repaired record needs no new warning.
+Under normal permissions, an unapproved mutating bash request must still stop
+for approval after recovery. Existing read-only and prefix grants remain valid.
+An explicitly selected global Full Access profile retains its existing override
+semantics; recovering a bash setting does not select or revoke that profile.
 
 ## Control-Plane Readiness
 
@@ -140,6 +156,10 @@ does not answer or clear a pending plan or shell decision.
 - TUI tests cover shell approval card navigation, direct `Enter` selection,
   `Esc` rejection, scope preservation, and render output without duplicated
   approval-choice summaries.
+- Restore tests cover all three known values, unknown and malformed strings,
+  requested/latest thread entry points, durable repair, combined recovery
+  warnings, explicit Full Access preservation, and a real agent-loop request
+  that remains pending approval after recovery.
 
 ## Open Risks
 
@@ -155,3 +175,4 @@ does not answer or clear a pending plan or shell decision.
 - `docs/journal/2026-05-04-shell-approval-segments.md`
 - `docs/journal/2026-05-24-shell-approval-card-selection.md`
 - `docs/journal/2026-09-16-goal-resume-permission-tui.md`
+- `docs/journal/2026-10-05-session-approval-recovery.md`

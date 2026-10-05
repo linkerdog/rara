@@ -7,6 +7,7 @@ use crate::tui::is_ssh_session;
 
 impl TuiApp {
     pub fn open_overlay(&mut self, overlay: Overlay) {
+        self.transcript_selection.clear();
         if matches!(
             overlay,
             Overlay::CommandPalette
@@ -174,7 +175,7 @@ impl TuiApp {
         // When dismissing the command palette, clear the `/` input so
         // sync_command_palette_with_input won't immediately re-open it.
         if matches!(self.overlay, Some(Overlay::CommandPalette)) {
-            self.bottom_pane.clear_input();
+            self.clear_composer();
             self.command_palette_idx = 0;
         }
 
