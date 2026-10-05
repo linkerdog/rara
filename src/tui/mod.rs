@@ -91,7 +91,9 @@ mod submit;
 mod terminal_control;
 mod terminal_event;
 mod terminal_feedback;
+mod terminal_glyphs;
 mod terminal_modes;
+mod terminal_presentation;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;

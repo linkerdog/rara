@@ -33,7 +33,9 @@ must not both dismiss an overlay and cancel a turn or approve a request.
 | Command palette or model search | Enter | Apply the selected result |
 | Command palette or model search | Esc | Close the search surface |
 | Non-search list or permission picker | Up/Down or j/k | Move selection; Enter applies |
-| Resume picker | Printable characters | Search recent threads; Up/Down selects; Tab cycles sort |
+| Resume picker | Printable characters; Left/Right, Home/End, Backspace/Delete | Edit the search query with the shared grapheme editor |
+| Resume picker | Up/Down; PageUp/PageDown; wheel | Move selection; load the next result page when needed |
+| Resume picker | Tab/BackTab; Ctrl+S; Ctrl+R | Toggle cwd/all; toggle updated/created order; refresh or retry |
 | Help | 1/2/3 | Choose General/Commands/Runtime tab |
 | Help Commands tab | Up/Down or j/k; wheel | Move through wrapped command entries |
 | Status | 1/2/3 or Left/Right/Tab/BackTab | Change status tab |
@@ -219,12 +221,30 @@ navigation can still change the selection for the initial frame.
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
+| Resume search | Full-path scope/fallback and old-index matches; cursor pages and stale completions; every footer binding; grapheme editing/paste and visible cursor at 40/60/80 columns |
 | INPUT-06 | All seven Help/Status/Context bodies at 80x24, 60x20, and 40x12; final-row reachability, CJK/long-line wrapping, entry navigation, immediate scroll clamping, resize/content shrink, and draft/transcript isolation |
+
+### Resume Search And Scope
+
+The initial scope prefers the full current cwd and falls back to all directories
+only when that cwd has no other resumable sessions, independent of the search
+text. The scope label reflects the effective result. Explicit cwd/all toggles
+are authoritative: an explicitly empty cwd stays empty. Rows show the stored
+full cwd; workspace basenames are never filtering identities. Current-session exclusion and
+scope/search filtering occur once in the indexed query.
+
+Search covers the complete index, with 50-result cursor pages loaded on demand.
+The visible count describes loaded rows and indicates whether more exist.
+Page keys move by the measured list capacity. Loading another page keeps
+existing rows available; a new search clears stale rows immediately. Errors
+appear in the picker with an explicit retry control. Esc clears a nonempty
+query first, then closes an empty-query picker. Enter resumes the selected row.
+Editing the query never edits the hidden composer, and its cursor remains
+visible at narrow widths. See [indexed thread listing](../features/threads.md#indexed-thread-listing)
+for the search fields and live-pagination contract.
 
 ## Open Risks
 
-- Resume search retains append/backspace editing; full cursor editing there
-  remains a separate follow-up.
 - A configurable Vim mode remains outside the current editor contract.
 - Large-paste placeholders are not atomic editing elements yet; editing their
   label can prevent expansion on submit. Grapheme-safe editing does not imply
@@ -243,4 +263,5 @@ navigation can still change the selection for the initial frame.
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
+- [Indexed resume search and input ownership](../journal/2026-10-05-resume-indexed-search.md)
 - [Bounded read-only overlays](../journal/2026-10-05-overlay-scroll-bounds.md)

@@ -1,5 +1,8 @@
 use std::sync::OnceLock;
 
+mod capabilities;
+pub use capabilities::{ColorLevel, GlyphSet, TerminalCapabilities};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TerminalInfo {
     pub name: TerminalName,

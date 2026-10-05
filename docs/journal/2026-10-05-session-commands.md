@@ -104,8 +104,8 @@ are unchanged. This journal retains the implementation decisions.
 ## Follow-Ups
 
 No implementation follow-up is deferred from #990. Default remote CI remains
-the publication gate, including Bazel; the branch depends on #1029's storage
-worker and does not alter Bazel configuration.
+the publication gate, including Bazel. The storage worker from #1029 is now on
+main; this branch does not alter Bazel configuration.
 
 ## Updated Storage Base Integration
 
@@ -119,3 +119,32 @@ text because both transcript selections and `/copy` use the same owner.
 Integrated TUI validation passed 1,110 tests, with seven parent-driven child
 fixture entry points ignored. Existing command and clipboard tests now observe
 the typed notice owner; the clipboard matrix still verifies severity.
+
+## Merged Storage Base And Main
+
+Integrate the final storage branch and main `54ce33e6` before retargeting the PR
+to main. Preserve the command worker's non-cancellable accepted mutations,
+execution-mode checkpoints, durable next-turn ordinals, title-aware resume
+search, and diff polling across the squash-merge conflicts. The duplicated
+restore-cancellation block from automatic merging is reduced to one call.
+This is an ancestry and integration repair; the command contract is unchanged.
+
+The next main update, `50a6d864` (#1032), moves resume filtering into a paginated
+SQL query. Preserve title projection and literal title matching in that query,
+and title-first labels in the extracted resume renderer. Keep the indexed
+query as the single recent-list implementation; remove the superseded local
+filter and duplicated query method. A regression with 250 threads reproduced
+an older named thread disappearing from search (zero matches instead of one)
+before title matching was restored. The existing production rename/new-thread
+test also covers title recall through the asynchronous query owner.
+
+The local Codex resume picker checks both thread name and preview, while Claude
+Code's `LogSelector` checks the displayed title. Preserve that name-as-searchable-
+identity pattern from the previously inspected revisions, adapting it to the
+full SQL index rather than filtering only already-loaded pages.
+
+Validation against `50a6d864`: `cargo test --locked -p rara-state` passed 14 tests;
+`cargo test --locked --lib tui::` passed 1,140 tests (seven parent-driven fixtures);
+`cargo test --locked --lib thread_store::` passed 29 tests. The title-search
+regression was red before restoring the predicate and green afterward.
+Strict locked workspace/all-target Clippy and formatting/diff checks passed.

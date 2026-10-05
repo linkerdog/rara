@@ -15,6 +15,9 @@ use ratatui::style::Color;
 
 use crate::config::TuiThemeConfig;
 
+mod terminal_palette;
+pub(crate) use terminal_palette::TerminalPalette;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum ThemeToken {
     UiElementBg,
