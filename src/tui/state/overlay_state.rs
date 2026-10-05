@@ -7,6 +7,7 @@ use crate::tui::is_ssh_session;
 
 impl TuiApp {
     pub fn open_overlay(&mut self, overlay: Overlay) {
+        self.transcript_selection.clear();
         if matches!(overlay, Overlay::CommandPalette | Overlay::ModelSearch) {
             self.command_palette_idx = 0;
         }

@@ -127,6 +127,9 @@ are clipped rather than wrapped a second time at degenerate widths.
 
 ### INPUT-03: Overlay Lifecycle
 
+- Opening an overlay immediately cancels transcript selection and edge
+  autoscroll without copying. Dismissal does not resume the previous drag;
+  wheel input belongs to the current overlay or transcript.
 - A slash token opens the command palette; adding argument whitespace returns
   to the composer so arguments can be entered explicitly.
 - Explicit palette dismissal clears its slash input so it does not reopen
