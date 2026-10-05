@@ -20,6 +20,7 @@ pub fn render(f: &mut Frame, app: &mut TuiApp) {
     } else {
         render_narrow(f, app, bottom_pane_height);
     }
+    crate::tui::terminal_presentation::project_frame(f.buffer_mut(), app.terminal_capabilities);
 }
 
 fn render_narrow(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
