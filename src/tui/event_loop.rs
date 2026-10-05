@@ -20,7 +20,7 @@ use super::runtime::RuntimeCommandProcessor;
 use super::runtime_port::{
     InProcessRuntimeClientPort, RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand,
 };
-use super::session_restore::{restore_latest_thread, restore_thread_by_id};
+use super::session_restore::apply_startup_resume;
 use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
@@ -30,6 +30,7 @@ use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {
@@ -50,12 +51,14 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
+    let diagnostics = crate::diagnostics::TerminalDiagnostics::start()?;
     let mut terminal_modes = TerminalModeGuard::start()?;
     let result = TerminalModeGuard::run_owner(run_tui_session(
         runtime,
         oauth_manager,
         startup,
         &mut terminal_modes,
+        diagnostics.reader(),
     ))
     .await?;
     if let Err(error) = terminal_modes.restore() {
@@ -79,9 +82,11 @@ async fn run_tui_session(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
     terminal_modes: &mut TerminalModeGuard,
+    diagnostics: crate::diagnostics::DiagnosticReader,
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
+    app.diagnostics = Some(diagnostics);
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
@@ -118,22 +123,7 @@ async fn run_tui_session(
             let app = maintainer.app_mut();
             let agent_slot = processor.agent_mut();
             app.attach_state_db(state_db);
-            match &startup.resume {
-                StartupResumeTarget::Fresh => {
-                    let _ = agent_slot;
-                }
-                StartupResumeTarget::Latest => {
-                    if let Some(state_db) = app.state_db.as_ref().cloned() {
-                        restore_latest_thread(&state_db, app, agent_slot)?;
-                    }
-                }
-                StartupResumeTarget::ThreadId(thread_id) => {
-                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)?;
-                }
-                StartupResumeTarget::Picker => {
-                    app.open_overlay(Overlay::ListPicker(ListPickerKind::Resume));
-                }
-            }
+            apply_startup_resume(&startup.resume, app, agent_slot);
         }
         Err(err) => maintainer.app_mut().set_state_db_error(err.to_string()),
     }
@@ -250,6 +240,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.app_mut().poll_diagnostics();
         needs_redraw |= maintainer.queue_restored_goal(processor).await;
         if maintainer.poll_repo_context().await {
             needs_redraw = true;
@@ -276,10 +267,11 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 if let Some(clipboard) = &mut app.clipboard
                     && let Some(notice) = clipboard.poll().await
                 {
-                    app.push_notice(notice);
+                    app.push_notice(notice.level, notice.message);
                     changed = true;
                 }
                 changed |= app.quit_shortcut.expire(std::time::Instant::now());
+                changed |= app.expire_notice(Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);
                     changed = true;
@@ -308,6 +300,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     }
                     RuntimeActivity::Command(None) => {}
                 }
+                needs_redraw |= maintainer.resync_after_event_loss(processor);
             }
             maybe_event = events.next_event() => {
                 match maybe_event {
@@ -351,7 +344,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     Some(Err(err)) => {
                         maintainer
                             .app_mut()
-                            .push_notice(format!("Terminal event error: {err}"));
+                            .push_notice(NoticeLevel::Error, format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
                     None => break,

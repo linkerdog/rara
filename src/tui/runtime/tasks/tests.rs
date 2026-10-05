@@ -38,6 +38,8 @@ use crate::tui::state::{
 };
 use crate::workspace::WorkspaceMemory;
 
+mod recovery;
+
 struct PlainAnswerBackend;
 
 #[path = "continuity_tests.rs"]
@@ -415,7 +417,7 @@ async fn rebuild_success_keeps_long_warnings_in_transcript() {
     }
 
     assert_eq!(
-        app.bottom_pane.notice.as_deref(),
+        app.notice_text(),
         Some("Startup warning added to transcript.")
     );
     assert!(
@@ -463,9 +465,7 @@ fn browser_oauth_is_rejected_before_task_start_in_ssh() {
 
     assert!(app.bottom_pane.running_task.is_none());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Browser login is unavailable"))
     );
 }
@@ -529,7 +529,9 @@ async fn queued_follow_ups_start_as_one_multiline_turn() {
 
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
-    assert_eq!(app.active_turn.entries.len(), 1);
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[1].role, MessageRole::System);
+    assert_eq!(app.active_turn.entries[1].message, "Running prompt.");
     assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(
         app.active_turn.entries[0].message,
@@ -577,7 +579,9 @@ async fn queued_follow_up_starts_after_query_failure() {
 
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
-    assert_eq!(app.active_turn.entries.len(), 1);
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[1].role, MessageRole::System);
+    assert_eq!(app.active_turn.entries[1].message, "Running prompt.");
     assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(app.active_turn.entries[0].message, "inspect the failure");
 
@@ -625,13 +629,34 @@ async fn queued_follow_up_starts_after_query_cancellation() {
 
     assert_eq!(app.queued_follow_up_count(), 0);
     assert!(app.bottom_pane.running_task.is_some());
-    assert_eq!(app.active_turn.entries.len(), 1);
+    assert_eq!(app.active_turn.entries.len(), 2);
+    assert_eq!(app.active_turn.entries[1].role, MessageRole::System);
+    assert_eq!(app.active_turn.entries[1].message, "Running prompt.");
     assert_eq!(app.active_turn.entries[0].role, MessageRole::User);
     assert_eq!(app.active_turn.entries[0].message, "continue after cancel");
 
     if let Some(task) = app.bottom_pane.running_task.take() {
         task.handle.abort();
     }
+}
+
+async fn finish_plan_tasks(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(task) = app.bottom_pane.running_task.as_mut() {
+            let completion = (&mut task.handle).await;
+            super::completion::finish_running_task_if_ready_with_completion_mode(
+                app,
+                agent_slot,
+                Some(completion),
+                true,
+                None,
+            )
+            .await
+            .expect("finish plan task");
+        }
+    })
+    .await
+    .expect("plan tasks must complete");
 }
 
 #[tokio::test]
@@ -690,15 +715,7 @@ async fn plan_turn_completion_keeps_plan_mode_after_plain_answer() {
 
     start_query_task(&mut app, "inspect only".to_string(), agent);
     let mut agent_slot = None;
-    for _ in 0..20 {
-        finish_running_task_if_ready(&mut app, &mut agent_slot)
-            .await
-            .expect("finish task");
-        if app.bottom_pane.running_task.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    finish_plan_tasks(&mut app, &mut agent_slot).await;
 
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.agent_execution_mode, AgentExecutionMode::Plan);

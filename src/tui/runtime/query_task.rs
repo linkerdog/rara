@@ -165,6 +165,13 @@ impl QueryTaskControl {
     }
 
     /// Called only after execution returns, before publishing its final boundary.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unreachable,
+            reason = "The owning query task calls publish_finished once after execution returns; repeated completion is an internal lifecycle violation."
+        )
+    )]
     fn finish(&self, result: anyhow::Result<()>) -> (anyhow::Result<()>, SessionEvent) {
         let mut state = self.lock();
         let stop = match *state {

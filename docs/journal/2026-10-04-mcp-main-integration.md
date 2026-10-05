@@ -54,3 +54,16 @@ service credential policy is added by this integration.
 MCP invocation and automatic headless discovery remain separate work under the
 existing [runtime contract](../features/mcp-runtime.md) and [backlog](../todo.md).
 This checkpoint does not claim a live cloud credential probe.
+
+## 2026-10-05 Conflict Checkpoint
+
+Merged main through `44d8c9f0`, retaining HTTP/SSE discovery and main's updated
+`thiserror` dependency. The cache continues logging the redacted complete probe
+error chain; replacing it with main's raw error formatting would regress the
+review fix. No package versions were manually upgraded and no Bazel configuration
+was changed.
+
+Validation on the combined tree: nine HTTP client tests, 64 configuration tests,
+and 37 application MCP tests passed. All five original review threads were
+confirmed resolved. Current-head remote Bazel and downstream checks remain the
+merge gate; the earlier revision's green CI is historical evidence only.

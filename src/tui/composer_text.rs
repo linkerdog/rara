@@ -61,7 +61,7 @@ impl WrappedText {
 
     pub(crate) fn offset_for_position(&self, target: VisualPosition) -> usize {
         if target.row >= self.rows.len() {
-            return self.positions.last().expect("initial cursor boundary").0;
+            return self.positions.last().map_or(0, |(offset, _)| *offset);
         }
         self.positions
             .iter()

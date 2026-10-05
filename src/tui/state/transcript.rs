@@ -10,6 +10,7 @@ use super::{
     TranscriptTurn, TuiApp,
 };
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 use crate::tui::terminal_event::TerminalEvent;
 
 fn is_agent_segment_boundary(entry: &TranscriptEntry) -> bool {
@@ -250,13 +251,8 @@ impl TuiApp {
         self.push_entry(MessageRole::Agent, message);
     }
 
-    pub fn push_notice(&mut self, message: impl Into<String>) {
-        let message = redact_secrets(message.into());
-        self.bottom_pane.notice = Some(message.clone());
-        self.push_entry(MessageRole::System, message);
-    }
-
     pub fn reset_transcript(&mut self) {
+        self.bottom_pane.approval_details = Default::default();
         self.committed_turns.clear();
         self.active_turn.entries.clear();
         self.clear_live_log();
@@ -270,17 +266,7 @@ impl TuiApp {
         self.bottom_pane.queued_follow_up_messages.clear();
         self.running_tool_boundary_count = 0;
         self.clear_pending_plan_approval();
-        self.bottom_pane.notice = Some("Cleared local transcript view.".into());
-    }
-
-    pub fn scroll_context(&mut self, delta: i32) {
-        if delta > 0 {
-            self.context_scroll = self.context_scroll.saturating_add(delta as u16);
-        } else {
-            self.context_scroll = self
-                .context_scroll
-                .saturating_sub(delta.unsigned_abs() as u16);
-        }
+        self.push_notice(NoticeLevel::Info, "Cleared local transcript view.");
     }
 
     pub fn set_runtime_phase(&mut self, phase: RuntimePhase, detail: Option<String>) {
@@ -318,10 +304,6 @@ impl TuiApp {
         self.recent_commands.truncate(5);
     }
 
-    pub fn has_any_transcript(&self) -> bool {
-        !self.committed_turns.is_empty() || !self.active_turn.entries.is_empty()
-    }
-
     pub fn transcript_entry_count(&self) -> usize {
         self.committed_turns
             .iter()
@@ -356,6 +338,7 @@ impl TuiApp {
     }
 
     pub fn restore_committed_turns(&mut self, turns: Vec<TranscriptTurn>) {
+        self.bottom_pane.approval_details = Default::default();
         self.committed_turns = turns;
         self.active_turn.entries.clear();
         self.clear_live_log();
@@ -592,10 +575,8 @@ impl TuiApp {
     #[cfg(test)]
     pub fn queue_planning_suggestion(&mut self, prompt: impl Into<String>) {
         self.bottom_pane.pending_planning_suggestion = Some(prompt.into()).into();
-        self.bottom_pane.notice = Some(
-            "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
-                .into(),
-        );
+        self.push_notice(NoticeLevel::Info, "This looks like a non-trivial task. Enter planning mode first or continue in execute mode."
+                );
         self.transcript_scroll = TranscriptScroll::default();
     }
 

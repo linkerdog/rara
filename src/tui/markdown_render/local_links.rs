@@ -4,9 +4,23 @@ use std::sync::LazyLock;
 use regex_lite::Regex;
 use url::Url;
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "The fixed source regex is exercised by local-link location tests and has no external input."
+    )
+)]
 static COLON_LOCATION_SUFFIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r":\d+(?::\d+)?(?:[-–]\d+(?::\d+)?)?$").expect("valid regex"));
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "The fixed source regex is exercised by local-link location tests and has no external input."
+    )
+)]
 static HASH_LOCATION_SUFFIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^L\d+(?:C\d+)?(?:-L\d+(?:C\d+)?)?$").expect("valid regex"));
 
@@ -205,4 +219,25 @@ fn display_local_link_path(path_text: &str, cwd: Option<&Path>) -> String {
         }
     }
     path_text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_location_patterns_preserve_local_link_targets() {
+        for (input, expected) in [
+            ("/work/lib.rs:12", "/work/lib.rs:12"),
+            ("/work/lib.rs:12:4-20:8", "/work/lib.rs:12:4-20:8"),
+            ("/work/lib.rs#L12C4-L20C8", "/work/lib.rs:12:4-20:8"),
+            ("/work/lib.rs#L12", "/work/lib.rs:12"),
+            ("/work/lib.rs#Linux", "/work/lib.rs#Linux"),
+        ] {
+            assert_eq!(
+                render_local_link_target(input, None).as_deref(),
+                Some(expected)
+            );
+        }
+    }
 }

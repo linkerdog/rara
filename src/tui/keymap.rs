@@ -1,7 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app_event::AppEvent;
-use super::state::{HelpTab, Overlay, QuitShortcutKey, StatusTab, TuiApp};
+use super::state::{
+    ApprovalDetailNavigation, HelpTab, Overlay, OverlayNavigation, QuitShortcutKey, StatusTab,
+    TuiApp,
+};
 
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
@@ -52,16 +55,26 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             _ => {}
         }
     }
+    if matches!(
+        app.overlay,
+        Some(Overlay::Help(_) | Overlay::Status(_) | Overlay::Context)
+    ) {
+        let navigation = match code {
+            KeyCode::Up | KeyCode::Char('k') => Some(OverlayNavigation::Rows(-1)),
+            KeyCode::Down | KeyCode::Char('j') => Some(OverlayNavigation::Rows(1)),
+            KeyCode::PageUp => Some(OverlayNavigation::PageUp),
+            KeyCode::PageDown => Some(OverlayNavigation::PageDown),
+            KeyCode::Home => Some(OverlayNavigation::Start),
+            KeyCode::End => Some(OverlayNavigation::End),
+            _ => None,
+        };
+        if let Some(navigation) = navigation {
+            return AppEvent::NavigateOverlay(navigation);
+        }
+    }
     match app.overlay {
         Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
-        Some(Overlay::Help(tab)) => match key {
-            KeyEvent {
-                code: KeyCode::Up, ..
-            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(-1),
-            KeyEvent {
-                code: KeyCode::Down,
-                ..
-            } if tab == HelpTab::Commands => AppEvent::MoveCommandSelection(1),
+        Some(Overlay::Help(_)) => match key {
             KeyEvent {
                 code: KeyCode::Esc, ..
             } => AppEvent::CloseOverlay,
@@ -104,10 +117,6 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         },
         Some(Overlay::Context) => match code {
             KeyCode::Esc | KeyCode::Enter => AppEvent::CloseOverlay,
-            KeyCode::Up | KeyCode::Char('k') => AppEvent::ScrollContext(-1),
-            KeyCode::Down | KeyCode::Char('j') => AppEvent::ScrollContext(1),
-            KeyCode::PageUp => AppEvent::ScrollContext(-5),
-            KeyCode::PageDown => AppEvent::ScrollContext(5),
             _ => AppEvent::Noop,
         },
         Some(Overlay::SkillsPicker) => match code {
@@ -206,6 +215,22 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                     return AppEvent::SelectPendingOption(3);
                 }
                 if app.bottom_pane.input.is_empty() {
+                    if app.active_pending_interaction().is_some_and(|interaction| {
+                        interaction.kind
+                            == super::state::ActivePendingInteractionKind::ShellApproval
+                    }) && modifiers.is_empty()
+                    {
+                        let direction = match code {
+                            KeyCode::PageUp => Some(ApprovalDetailNavigation::PageUp),
+                            KeyCode::PageDown => Some(ApprovalDetailNavigation::PageDown),
+                            KeyCode::Home => Some(ApprovalDetailNavigation::Start),
+                            KeyCode::End => Some(ApprovalDetailNavigation::End),
+                            _ => None,
+                        };
+                        if let Some(direction) = direction {
+                            return AppEvent::ScrollApprovalDetails(direction);
+                        }
+                    }
                     match (code, modifiers) {
                         (
                             KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k'),

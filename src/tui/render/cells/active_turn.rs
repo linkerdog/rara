@@ -199,6 +199,7 @@ impl ActiveTurnCell<'_> {
             .iter()
             .find(|entry| entry.role == MessageRole::User)
             .map(|entry| entry.message.as_str())
+            .or(self.app.bottom_pane.pending_planning_suggestion.as_deref())
             .unwrap_or("");
         let latest_agent = current_turn
             .iter()
@@ -456,17 +457,14 @@ impl ActiveTurnCell<'_> {
             if let Some(shortcut_text) = pending_interaction_shortcut_text(pending.kind) {
                 request_lines.push(shortcut_text.to_string());
             }
-            // Skip transcript rendering for interaction kinds that have a dock
-            // panel rendered above the composer.  ShellApproval and plan
-            // interactions now show action buttons in the dock instead of
-            // numbered options in the transcript.
-            let shows_dock = matches!(
+            // Shell approvals retain complete detail in history as well as the
+            // navigable dock; plan interactions use their dedicated plan card.
+            let uses_compact_hint = matches!(
                 pending.kind,
-                ActivePendingInteractionKind::ShellApproval
-                    | ActivePendingInteractionKind::PlanApproval
+                ActivePendingInteractionKind::PlanApproval
                     | ActivePendingInteractionKind::PlanningQuestion
             );
-            if !shows_dock {
+            if !uses_compact_hint {
                 cells.push(Box::new(PendingInteractionCell::new(
                     pending.kind,
                     request_lines,

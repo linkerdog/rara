@@ -1,25 +1,6 @@
 use super::*;
 use crate::tui::runtime::{QueryStopKind, QueryTaskControl};
 
-async fn finish_plan_tasks(app: &mut TuiApp, agent_slot: &mut Option<Agent>) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while let Some(task) = app.bottom_pane.running_task.as_mut() {
-            let completion = (&mut task.handle).await;
-            super::super::completion::finish_running_task_if_ready_with_completion_mode(
-                app,
-                agent_slot,
-                Some(completion),
-                true,
-                None,
-            )
-            .await
-            .expect("finish plan task");
-        }
-    })
-    .await
-    .expect("plan tasks must complete");
-}
-
 #[tokio::test]
 async fn agent_driven_plan_mode_auto_approves_and_resumes_execution() {
     let temp = tempdir().unwrap();
@@ -207,7 +188,14 @@ async fn query_heartbeat_preserves_running_tool_phase() {
         Some("streaming bash output".into()),
     );
 
-    emit_query_heartbeat(&mut app);
+    app.push_notice(
+        crate::tui::state::NoticeLevel::Warning,
+        "Retain this warning",
+    );
+    let entry_count = app.transcript_entry_count();
+    assert!(emit_query_heartbeat(&mut app));
+    assert_eq!(app.notice_text(), Some("Retain this warning"));
+    assert_eq!(app.transcript_entry_count(), entry_count);
 
     assert_eq!(app.runtime_phase, RuntimePhase::RunningTool);
     assert_eq!(

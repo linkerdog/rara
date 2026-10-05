@@ -28,7 +28,7 @@ fn render_to_string(md: &str) -> String {
         .join("\n")
 }
 
-fn render_to_string_width(md: &str, width: usize) -> String {
+pub(super) fn render_to_string_width(md: &str, width: usize) -> String {
     render_markdown_text_with_width(md, Some(width))
         .lines
         .iter()
@@ -144,14 +144,14 @@ fn markdown_table() {
 }
 
 #[test]
-fn markdown_table_narrow_truncation() {
+fn markdown_table_narrow_wrapping() {
     let md = concat!(
         "| Column A | Column B | Column C |\n",
         "|----------|----------|----------|\n",
         "| long long long value | short | also quite long here |\n",
     );
     assert_snapshot!(
-        "markdown_table_narrow_truncation",
+        "markdown_table_narrow_wrapping",
         render_to_string_width(md, 40)
     );
 }

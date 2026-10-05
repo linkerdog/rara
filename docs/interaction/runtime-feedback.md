@@ -63,6 +63,21 @@ commands such as `/compact` can display their own lifecycle events.
 If the broadcast stream lags, retained task events recover the missing tail and
 terminal feedback in sequence without duplicating output. A task panic retains
 already-produced text, closes the live stream, and surfaces the task failure.
+It also clears busy state and pending decisions owned by the lost agent,
+without terminating the terminal session. Queued text remains available; the
+next submitted prompt uses the existing missing-agent rebuild path. A rebuild
+failure remains visible and retryable. The failed agent's in-memory state is
+not reused after a panic.
+
+Broadcast lag is repaired from the bounded runtime replay window before later
+events are shown. Successful recovery is silent. If replay and query receipts
+cannot recover a missing range, the transcript shows that runtime events were
+lost and state is being refreshed. The refresh uses the owned runtime state,
+including goals and background agent activity; a busy agent is refreshed when
+it returns. Retained transcript text remains visible, but missing transient
+output is not presented as recovered. Recovery does not signal turn completion
+or reset the fence for terminal or foreign-session events. Repeated gaps while
+the same state refresh remains pending share one transcript notice.
 
 ### RUN-03: Approval Focus And Scope
 
@@ -84,15 +99,33 @@ input. The visible card, option count, and keyboard mapping must agree.
 - Pending decisions can use the full terminal viewport. Reserve action rows
   before allocating space to command previews. Long or multiline commands must
   not push choices below the visible panel. Measure visual rows after wrapping,
-  elide excess preview with a visible marker, and stack choices when they do not
-  fit on one line. The selected action stays visible through terminal resizing.
-  This layout is shared by local and SSH sessions.
+  and stack choices when they do not fit on one line. Shell details use the
+  available height and remain fully reachable with PageUp/PageDown and Home/End
+  when the composer is empty. A row-range indicator identifies the visible
+  portion. Arrows continue to select actions; paging never authorizes execution.
+  The working directory has a fixed summary row when space permits, and its
+  complete path also appears in the scrollable details. On very short screens,
+  omit decorative header rows before hiding command content or actions.
+  Scroll position belongs to the pending tool call, resets for a new call, and
+  clamps after resizing. The transcript approval card retains the full command
+  and working directory. This layout is shared by local and SSH sessions.
 
 See [planning mode](../features/planning-mode.md),
 [shell approval](../features/shell-approval-policy.md), and
 [thread goals](../features/thread-goals.md) for the underlying decisions.
 
 ### RUN-04: Transcript And Recovery
+
+A failed resume keeps the current session and resume picker available, with a
+visible error. Startup resume failure keeps the fresh session available.
+Credential synchronization failure keeps the model picker available and does
+not start a rebuild. Required resume reads complete before changing session
+identity, history, or goal binding.
+
+A successful backend rebuild installs the replacement agent even when saving
+configuration fails. The in-session backend remains usable, and a visible
+warning explains that the configuration was not saved. Terminal I/O and
+transport errors retain their own error contracts.
 
 Render live progress, committed turns, tool lifecycle, thinking visibility,
 and pending decisions from typed presentation state. Keep event chronology and
@@ -163,7 +196,18 @@ fails; Drop must not repeat that failed cleanup attempt. Signal termination
 such as SIGTERM/SIGHUP and non-unwinding aborts are outside this contract.
 
 Only one TUI may own the process terminal at a time. Restoration is idempotent
-and does not modify keyboard enhancement stacks that the TUI never enabled.
+and pops each keyboard enhancement entry at most once, including when the
+panic hook restores before the guard unwinds. On Unix TTYs, enable kitty
+`DISAMBIGUATE_ESCAPE_CODES` while the guard owns the terminal; suspend pops
+that entry and resume pushes a new one. Preserve the parent's stack instead
+of resetting all keyboard flags. Native Windows keeps its existing input path.
+
+Keyboard setup sends the progressive enhancement command without a blocking
+capability query. Unsupported ANSI terminals ignore it and retain legacy input;
+no terminal response is required to start or resume. Only disambiguation is
+requested, not release reporting, alternate keys, or modifyOtherKeys. The input
+translator still ignores reported releases and accepts ordinary repeats, while
+repeated Ctrl+C/Ctrl+D/Ctrl+Z cannot confirm quit or suspend.
 This contract does not cover uncatchable termination such as SIGKILL. Viewport
 and normal shell handoff are covered by RUN-06; Unix job control by RUN-07.
 
@@ -199,6 +243,11 @@ Ctrl+Z yields the foreground process group with SIGTSTP. Before signalling,
 stop the input event stream, hand off the inline viewport on a clean line, and
 restore all owned terminal modes. Do not stop a job whose terminal cleanup
 failed. Signal failures surface and still attempt to reacquire terminal modes.
+Register for SIGCONT before signalling and wait for that notification before
+reacquiring any mode: a process-group signal can be delivered on another thread
+after the signalling call returns. If no resume notification arrives after
+bounded polling while runnable, exit with an error and leave modes restored.
+Time spent stopped must not exhaust this polling budget.
 
 After the shell resumes the job with `fg`, reacquire terminal modes and the
 input stream, then reserve and fully redraw the viewport relative to the
@@ -217,6 +266,66 @@ Suspension does not issue a runtime cancellation or change goal policy.
 Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
 control are outside this keyboard-driven contract.
 
+### RUN-08: Typed, Redacted, Transient Notices
+
+All TUI notices enter through one application-owned publishing path with an
+explicit information, warning, or error level. Redaction occurs before both
+the current notice and its system transcript entry are created. Callers cannot
+assign arbitrary notice text to the bottom pane or construct mutable notice
+contents directly. Startup, setup, paste, restore, and runtime task feedback
+follow the same rule. A notice is recorded once; callers must not separately
+append an identical transcript entry.
+
+Recording retains the existing transcript presentation contract: routine system
+records do not create conversation cards, while classified diagnostic, bootstrap,
+OAuth, and compaction feedback remains renderable. Routine records alone must
+not hide the startup introduction or the pending planning prompt. Expiration
+does not remove records from either live or committed persistence.
+
+The current notice lasts eight seconds from publication, measured by a
+monotonic clock. Replacement starts a new deadline. Expiration removes only
+the transient notice, retains its transcript entry, and requests a repaint
+through the existing event loop, including while idle. No delayed callback may
+clear a newer notice. Clearing a composer removes its paste-owned notice while
+preserving a later unrelated notice, even if their text happens to match.
+
+Idle warnings and errors use the corresponding status label and semantic color;
+severity is never inferred from a message prefix. Information notices use the
+normal idle status with their text until expiry. Completion text follows this
+same lifetime instead of special-case string matching. Running work, backend
+rebuilds, and pending decisions retain their existing status priority; notices
+remain in the transcript when those surfaces take precedence. Warning/error
+notices take precedence over the idle planning-mode hint.
+
+This contract does not add a notification queue, persistent status overrides,
+new runtime events, or serialized notice state. Pending decisions remain in
+their owned interaction state and do not expire with their transient notice.
+
+### RUN-09: Runtime Diagnostics Respect Terminal Ownership
+
+Library and background runtime diagnostics use the logging facade, never direct
+stdout/stderr prints. The CLI installs a warning/error receiver before runtime
+assembly. While the terminal belongs to the TUI, an application-owned bounded
+queue captures diagnostics from all process threads; the UI drains it into
+classified transcript records and typed notices through its normal event loop.
+The process logger holds only a weak reference to that queue, not runtime handles.
+
+Redact messages before queueing. Bound message size and pending record count,
+coalesce consecutive duplicate diagnostics, and report queue overflow visibly.
+Do not replace a current recovery notice with a same-severity diagnostic already
+contained in that notice; retain the complete summary and its single record.
+Recording a persistence diagnostic must not create an endless logging loop when
+the diagnostic's own transcript write fails. The capture lifetime encloses raw
+mode and terminal restoration, including errors and panic unwinding. Remaining
+messages may reach stderr only after terminal restoration. Outside TUI ownership,
+the CLI's receiver writes redacted diagnostics to stderr; protocol stdout stays
+reserved for protocol output. Embedders retain their own logging initialization.
+
+An incomplete live-log restore retains valid entries and a warning in the resume
+notice and history. An index failure must distinguish a saved canonical turn
+from its unavailable index. Workspace Clippy rejects library print macros;
+exceptions are limited to explicit CLI/protocol consumers and test fixtures.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -225,9 +334,11 @@ control are outside this keyboard-driven contract.
 | RUN-02 | `controller::cancellation_tests`, typed query-control races, and `tasks::tests::query_lifecycle` scripted cancel/interrupt/task-return interleavings |
 | RUN-03 | Pending-input dispatch, permission-mode tests, approval card render tests |
 | RUN-04 | `TuiHarness` lifecycle tests, runtime event projection tests, transcript restore tests |
-| RUN-05 | Cleanup failure injection and Unix PTY subprocess tests for normal, error, partial-startup, and panic exits |
+| RUN-05 | Cleanup failure injection; Unix PTY subprocess tests for normal, error, partial-startup, and panic exits; balanced keyboard stack entries and enhanced/legacy input bytes through crossterm |
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 | RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
+| RUN-08 | Real settings dispatch redaction/recording regressions; injected-time expiry and replacement; typed buffer colors; paste ownership; paused-time production event-loop repaint |
+| RUN-09 | Isolated TUI harness stderr capture, bounded diagnostic queue tests, logger handoff, partial live-log recovery, and terminal-owner lifecycle tests |
 
 ## Open Risks
 
@@ -240,6 +351,8 @@ control are outside this keyboard-driven contract.
 
 ## Source Journals
 
+- [Runtime diagnostics](../journal/2026-10-05-runtime-diagnostics.md)
+- [Transient notice lifecycle](../journal/2026-10-05-transient-notice-lifecycle.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)
@@ -250,3 +363,4 @@ control are outside this keyboard-driven contract.
 - [Inline terminal viewport](../journal/2026-10-03-inline-terminal-viewport.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
+- [Keyboard enhancement and suspend ownership](../journal/2026-10-05-keyboard-enhancement.md)

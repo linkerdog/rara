@@ -65,6 +65,8 @@ impl TranscriptSelection {
     }
 
     pub(crate) fn start(&mut self, position: ScreenPosition) -> bool {
+        // A fresh press replaces a drag even when its previous release was lost.
+        self.clear();
         let Some(point) = self
             .snapshot
             .point_for_position(position, PointClamp::InsideOnly)

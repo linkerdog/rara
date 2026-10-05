@@ -103,7 +103,8 @@ fn active_turn_cell_renders_pending_approval_without_transcript_entries() {
         .join("\n");
 
     assert!(rendered.contains("# Shell Approval"));
-    assert!(rendered.contains("Responding via dock"));
+    assert!(rendered.contains("git diff origin/main -- src/context/assembler.rs"));
+    assert!(rendered.contains("Working directory:"));
     assert!(!rendered.contains("resuming after approval"));
 }
 
@@ -158,7 +159,7 @@ fn active_turn_cell_renders_progress_sections_as_compact_stack() {
 }
 
 #[test]
-fn active_turn_cell_renders_planning_suggestion_without_active_turn_entries() {
+fn active_turn_cell_renders_planning_prompt_with_recorded_notice() {
     let temp = tempdir().unwrap();
     let mut app = TuiApp::new(ConfigManager {
         path: temp.path().join("config.json"),

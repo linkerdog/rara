@@ -31,6 +31,7 @@ pub(crate) use crate::runtime_client::{goal_budget_limit_prompt, goal_continuati
 use crate::runtime_control::RuntimeProvenance;
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 fn local_tui_event_provenance(session_id: &str) -> RuntimeProvenance {
     RuntimeProvenance::local_tui(session_id.to_string())
@@ -139,7 +140,7 @@ fn try_start_queued_follow_up(
         return;
     };
 
-    app.bottom_pane.notice = Some("Running queued follow-up.".to_string());
+    app.push_notice(NoticeLevel::Info, "Running queued follow-up.".to_string());
     if let Some(services) = services {
         start_query_task_with_services(app, prompt, agent, services);
     } else {
@@ -158,6 +159,13 @@ fn sync_bash_prefixes_from_config(app: &TuiApp, agent: &mut Agent) {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::panic,
+        reason = "Production commands and completions must supply processor-owned services; only compatibility tests assemble services from TuiApp (runtime-task-service-ownership journal)."
+    )
+)]
 fn legacy_task_services(app: &TuiApp) -> RuntimeTaskServices {
     #[cfg(test)]
     {
@@ -199,6 +207,13 @@ pub(super) fn start_input_control_task(
     );
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "run_tui_session installs the session event bus, MCP manager, and memory handler before accepting input; compatibility fixtures install the same handles."
+    )
+)]
 pub(crate) fn start_input_control_task_with_services(
     app: &mut TuiApp,
     agent: Agent,
@@ -217,7 +232,7 @@ pub(crate) fn start_input_control_task_with_services(
     app.clear_pending_planning_suggestion();
     app.clear_active_live_sections();
     app.begin_running_turn();
-    app.bottom_pane.notice = Some(notice);
+    app.push_notice(NoticeLevel::Info, notice);
     app.set_runtime_phase(phase, phase_detail);
 
     let mcp_manager = app.mcp_manager.clone().expect("mcp_manager must exist");
@@ -356,7 +371,7 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     agent.set_execution_mode(app.agent_execution_mode);
     agent.set_bash_approval_mode(app.bash_approval_mode);
     agent.set_full_access_mode(app.permission_mode == PermissionMode::FullAccess);
-    app.bottom_pane.notice = Some("Compacting conversation history.".into());
+    app.push_notice(NoticeLevel::Info, "Compacting conversation history.");
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("compacting history".into()),
@@ -396,9 +411,18 @@ pub(super) fn start_compact_task(app: &mut TuiApp, mut agent: Agent) {
     });
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::expect_used,
+        reason = "run_tui_session installs the session event bus before dispatching review commands; compatibility fixtures install the same handle."
+    )
+)]
 pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Agent) {
     use crate::agent::{AgentExecutionMode, BashApprovalMode};
     let (sender, receiver) = mpsc::unbounded_channel();
+    let cancellation_token = Arc::new(AtomicBool::new(false));
+    agent.set_cancellation_token(Some(cancellation_token.clone()));
     let bus = app.event_bus.clone().expect("event bus must exist");
     let query_control = QueryTaskControl::new(agent.session_id.clone());
     let task_control = query_control.clone();
@@ -407,7 +431,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
     agent.set_full_access_mode(false);
-    app.bottom_pane.notice = Some("Running code review.".into());
+    app.push_notice(NoticeLevel::Info, "Running code review.");
     app.set_runtime_phase(
         RuntimePhase::ProcessingResponse,
         Some("reviewing changes".into()),
@@ -459,7 +483,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
         handle,
         started_at: Instant::now(),
         next_heartbeat_after_secs: 2,
-        cancellation_token: None,
+        cancellation_token: Some(cancellation_token),
         query_control: Some(task_control_for_app),
     });
 }
@@ -600,7 +624,10 @@ pub(super) fn start_rebuild_task(
     let plugin_dirs = app.explicit_plugin_dirs.clone();
     let provider = config.provider.clone();
     let model = config.model.clone().unwrap_or_else(|| "-".to_string());
-    app.bottom_pane.notice = Some(format!("Rebuilding backend for {provider} / {model}."));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!("Rebuilding backend for {provider} / {model}."),
+    );
     app.set_runtime_phase(
         RuntimePhase::RebuildingBackend,
         Some(format!("preparing {provider} / {model}")),
@@ -647,7 +674,10 @@ pub(super) fn start_model_catalog_task(app: &mut TuiApp, provider: ModelCatalogP
         ModelCatalogProvider::DeepSeek => "DeepSeek",
         ModelCatalogProvider::Kimi => "Moonshot AI",
     };
-    app.bottom_pane.notice = Some(format!("Loading {provider_label} models."));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!("Loading {provider_label} models."),
+    );
     app.set_runtime_phase(
         RuntimePhase::RebuildingBackend,
         Some("loading models".into()),
@@ -699,16 +729,35 @@ fn model_catalog_connection(
 
 pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QueryStopKind) -> bool {
     let Some(task) = app.bottom_pane.running_task.as_mut() else {
-        app.bottom_pane.notice = Some("No running task to cancel.".into());
+        app.push_notice(NoticeLevel::Info, "No running task to cancel.");
         return false;
     };
+    if matches!(task.kind, TaskKind::ReviewPreparation) {
+        let Some(token) = &task.cancellation_token else {
+            log::warn!("Review preparation is missing its cancellation control");
+            app.push_notice(
+                NoticeLevel::Warning,
+                "Review preparation cannot be cancelled right now.",
+            );
+            return false;
+        };
+        if token.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        task.handle.abort();
+        app.push_notice(NoticeLevel::Info, "Stopping review preparation.");
+        crate::tui::goal_resume::defer_for_user_stop(app);
+        return true;
+    }
     if !matches!(task.kind, TaskKind::Query) {
-        app.bottom_pane.notice =
-            Some("Only running model queries can be cancelled from the TUI.".into());
+        app.push_notice(
+            NoticeLevel::Warning,
+            "Only running model queries can be cancelled from the TUI.",
+        );
         return false;
     }
     if task.handle.is_finished() {
-        app.bottom_pane.notice = Some("The query has already stopped.".into());
+        app.push_notice(NoticeLevel::Info, "The query has already stopped.");
         crate::tui::goal_resume::defer_for_user_stop(app);
         return false;
     }
@@ -719,12 +768,14 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
     {
         match control.request_stop(kind, token) {
             QueryStopRequest::AlreadyRequested => {
-                app.bottom_pane.notice =
-                    Some("Stop already requested. Waiting for the provider stream to stop.".into());
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Stop already requested. Waiting for the provider stream to stop.",
+                );
                 return false;
             }
             QueryStopRequest::Finished => {
-                app.bottom_pane.notice = Some("The query has already stopped.".into());
+                app.push_notice(NoticeLevel::Info, "The query has already stopped.");
                 crate::tui::goal_resume::defer_for_user_stop(app);
                 return false;
             }
@@ -735,12 +786,15 @@ pub(super) fn request_running_task_cancellation(app: &mut TuiApp, kind: QuerySto
             QueryStopKind::Cancel => ("Cancellation requested.", "cancelling query"),
             QueryStopKind::Interrupt => ("Interruption requested.", "interrupting query"),
         };
-        app.bottom_pane.notice = Some(notice.into());
+        app.push_notice(NoticeLevel::Info, notice);
         app.set_runtime_phase(RuntimePhase::ProcessingResponse, Some(detail.into()));
         crate::tui::goal_resume::defer_for_user_stop(app);
         true
     } else {
-        app.bottom_pane.notice = Some("This running task does not expose cancellation.".into());
+        app.push_notice(
+            NoticeLevel::Warning,
+            "This running task does not expose cancellation.",
+        );
         false
     }
 }

@@ -129,37 +129,35 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
 }
 
 pub(super) fn composer_hint(app: &TuiApp) -> Line<'static> {
-    let text: &'static str = if matches!(
-        app.overlay,
-        Some(super::super::super::state::Overlay::CommandPalette)
-    ) {
-        ""
-    } else if app.bottom_pane.input.trim_start().starts_with('/') {
-        "slash command  Enter run  Esc close"
-    } else if let Some(pending) = app.active_pending_interaction() {
-        pending_interaction_hint_text(pending.kind)
-    } else if app.has_pending_follow_up_messages() {
-        pending_follow_up_hint()
-    } else if app.has_queued_follow_up_messages() {
-        queued_follow_up_hint()
-    } else if app.is_busy() {
-        if app
-            .bottom_pane
-            .running_task
-            .as_ref()
-            .is_some_and(|task| matches!(task.kind, TaskKind::Query))
-        {
-            "Enter queue  Esc/Ctrl+C cancel"
+    let text =
+        if matches!(
+            app.overlay,
+            Some(super::super::super::state::Overlay::CommandPalette)
+        ) {
+            ""
+        } else if app.bottom_pane.input.trim_start().starts_with('/') {
+            "slash command  Enter run  Esc close"
+        } else if let Some(pending) = app.active_pending_interaction() {
+            pending_interaction_hint_text(pending.kind)
+        } else if app.has_pending_follow_up_messages() {
+            pending_follow_up_hint()
+        } else if app.has_queued_follow_up_messages() {
+            queued_follow_up_hint()
+        } else if app.is_busy() {
+            if app.bottom_pane.running_task.as_ref().is_some_and(|task| {
+                matches!(task.kind, TaskKind::Query | TaskKind::ReviewPreparation)
+            }) {
+                "Enter queue  Esc/Ctrl+C cancel"
+            } else {
+                "Enter queue"
+            }
+        } else if app.has_pending_planning_suggestion() {
+            "planning suggested  1 enter planning mode  2 continue in execute mode"
+        } else if app.agent_execution_mode_label() == "plan" {
+            "planning mode  read-only planning; approve to execute"
         } else {
-            "Enter queue"
-        }
-    } else if app.has_pending_planning_suggestion() {
-        "planning suggested  1 enter planning mode  2 continue in execute mode"
-    } else if app.agent_execution_mode_label() == "plan" {
-        "planning mode  read-only planning; approve to execute"
-    } else {
-        ""
-    };
+            ""
+        };
 
     if text.is_empty() {
         return Line::default();

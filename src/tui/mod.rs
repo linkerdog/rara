@@ -1,3 +1,16 @@
+// Test fixtures use assertions and injected panics; the normal library target
+// still enforces these gates in all-targets Clippy runs.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::unreachable
+    )
+)]
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![deny(clippy::disallowed_methods)]
 
@@ -11,6 +24,8 @@ mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
+#[cfg(test)]
+mod diagnostics_tests;
 #[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
@@ -62,8 +77,13 @@ pub(crate) use self::runtime_port::{
     RuntimeProjectionEvent,
 };
 mod selection;
+#[cfg(test)]
+mod selection_input_tests;
 mod session_restore;
 pub(crate) mod state;
+
+#[cfg(test)]
+mod notice_tests;
 mod status_display;
 mod sub_agent_display;
 mod submit;

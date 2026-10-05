@@ -11,15 +11,53 @@ use crate::agent::{
 use crate::thread_store::{CompactionRecord, RolloutItem, ThreadStore};
 use crate::tools::bash::BashCommandInput;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
+
+#[cfg(test)]
+mod recovery_tests;
+
+#[cfg(test)]
+mod approval_tests;
+
+pub(super) fn apply_startup_resume(
+    target: &super::event_loop::StartupResumeTarget,
+    app: &mut TuiApp,
+    agent_slot: &mut Option<Agent>,
+) {
+    use super::event_loop::StartupResumeTarget;
+    let result = match target {
+        StartupResumeTarget::Fresh => return,
+        StartupResumeTarget::Picker => {
+            app.open_overlay(super::state::Overlay::ListPicker(
+                super::state::ListPickerKind::Resume,
+            ));
+            return;
+        }
+        StartupResumeTarget::Latest => match app.state_db.as_ref().cloned() {
+            Some(state_db) => restore_latest_thread(&state_db, app, agent_slot),
+            None => Err(anyhow::anyhow!("session storage is unavailable")),
+        },
+        StartupResumeTarget::ThreadId(thread_id) => {
+            restore_thread_by_id(thread_id, app, agent_slot)
+        }
+    };
+    if let Err(error) = result {
+        log::warn!("Startup resume failed: {error:#}");
+        app.push_notice(
+            NoticeLevel::Error,
+            format!("Could not resume thread; continuing with the current session: {error:#}"),
+        );
+    }
+}
 
 pub(super) fn restore_latest_thread(
     state_db: &Arc<StateDb>,
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
     let store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let Some(thread) = store.latest_thread_summary()? else {
         return Ok(());
@@ -32,18 +70,20 @@ pub(super) fn restore_thread_by_id(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
 ) -> Result<()> {
-    let Some(agent) = agent_slot.as_mut() else {
-        return Ok(());
-    };
-    let Some(state_db) = app.state_db.as_ref() else {
-        return Ok(());
-    };
+    let agent = agent_slot
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("runtime agent is not ready"))?;
+    let state_db = app
+        .state_db
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("session storage is unavailable"))?;
     let thread_store = ThreadStore::new(agent.session_manager.as_ref(), state_db.as_ref());
     let thread = thread_store.load_thread(thread_id)?;
     let todo_state = agent.session_manager.load_todo_state(thread_id)?;
     let runtime_state = state_db.load_session_runtime_state(thread_id)?;
     // Required thread reads succeed before rebinding optional goal state.
     let mut resume_notice = format!("Resumed thread {thread_id}.");
+    let mut resume_level = NoticeLevel::Info;
     let restored_goal = match app
         .goal_handle
         .restore_for_thread(thread_id, state_db.clone())
@@ -55,6 +95,7 @@ pub(super) fn restore_thread_by_id(
             app.goal_handle
                 .disable_after_persistence_failure(reason.clone());
             resume_notice.push_str(&format!(" Goal persistence unavailable: {reason}"));
+            resume_level = NoticeLevel::Warning;
             None
         }
     };
@@ -72,9 +113,18 @@ pub(super) fn restore_thread_by_id(
     agent.session_id = metadata.session_id;
     agent.todo_state = todo_state;
     if let Some(runtime_state) = runtime_state {
-        agent.set_bash_approval_mode(parse_bash_approval_mode(
-            runtime_state.bash_approval.as_str(),
-        ));
+        let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
+            Some(mode) => mode,
+            None => {
+                let warning = "Unknown saved bash approval mode; restored suggestion mode.";
+                log::warn!("{warning}");
+                resume_notice.push(' ');
+                resume_notice.push_str(warning);
+                resume_level = NoticeLevel::Warning;
+                BashApprovalMode::Suggestion
+            }
+        };
+        agent.set_bash_approval_mode(approval_mode);
         let mut prompt_config = agent.prompt_config().clone();
         prompt_config.append_system_prompt = runtime_state.prompt_runtime.append_system_prompt;
         prompt_config.warnings = runtime_state.prompt_runtime.warnings;
@@ -229,10 +279,18 @@ pub(super) fn restore_thread_by_id(
     } else {
         app.reset_transcript();
     }
-    let live_entries =
-        rara_persistence::thread_turn_log::load_live_entries(&rollout_root, thread_id);
-    if !live_entries.is_empty() {
-        app.active_turn.entries = live_entries
+    let live_log = rara_persistence::thread_turn_log::load_live_entries_with_recovery(
+        &rollout_root,
+        thread_id,
+    );
+    if let Some(warning) = live_log.warning() {
+        resume_notice.push(' ');
+        resume_notice.push_str(&warning);
+        resume_level = NoticeLevel::Warning;
+    }
+    if !live_log.entries.is_empty() {
+        app.active_turn.entries = live_log
+            .entries
             .into_iter()
             .map(|entry| {
                 TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message)
@@ -268,7 +326,7 @@ pub(super) fn restore_thread_by_id(
 
     app.goal = restored_goal;
 
-    app.bottom_pane.notice = Some(resume_notice);
+    app.push_notice(resume_level, resume_notice);
     super::goal_resume::arm_after_restore(app);
     Ok(())
 }
@@ -288,11 +346,12 @@ fn apply_compaction_record(agent: &mut Agent, compaction: &CompactionRecord) {
     agent.compact_state.last_compaction_after_tokens = compaction.after_tokens;
 }
 
-fn parse_bash_approval_mode(mode: &str) -> BashApprovalMode {
+fn parse_bash_approval_mode(mode: &str) -> Option<BashApprovalMode> {
     match mode {
-        "once" => BashApprovalMode::Once,
-        "suggestion" => BashApprovalMode::Suggestion,
-        _ => BashApprovalMode::Always,
+        "once" => Some(BashApprovalMode::Once),
+        "always" => Some(BashApprovalMode::Always),
+        "suggestion" => Some(BashApprovalMode::Suggestion),
+        _ => None,
     }
 }
 

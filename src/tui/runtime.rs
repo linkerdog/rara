@@ -7,6 +7,7 @@ mod events;
 pub(super) use events::apply_tui_event;
 mod processor;
 mod query_task;
+pub(super) mod review;
 pub(crate) use query_task::{QueryStopKind, QueryStopRequest, QueryTaskControl};
 pub(super) mod tasks;
 pub(super) use processor::RuntimeCommandProcessor;
