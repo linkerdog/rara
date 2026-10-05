@@ -58,6 +58,15 @@ preserving the native runtime as the authority for actual mutation.
 - `preview`: bounded patch text preview and truncation flag.
 - `delta`: exact virtual patch delta.
 
+The shared text producer retains every file and move directive in patch order,
+with at most 120 source hunk/content lines per file. Validated action previews
+include `*** Preview Stats: +N -N` with complete per-file counts, including
+deleted content, and `*** Preview Omitted: N` when that file is truncated.
+The truncation flag is true when any file omits lines. These display directives
+are not executable patch input; the original patch and exact delta are unchanged.
+Serialized field names and types remain compatible. The TUI's additional
+presentation limit is defined by [DIFF-02](../interaction/patch-previews.md#diff-02-per-file-hunk-budgets).
+
 ### `VirtualPatchDelta`
 
 - `exact`: always `true` for successful pure previews because every input file
@@ -96,5 +105,7 @@ underlying patch failure message.
   convenience imports.
 
 ## Source Journals
+
+- [Per-file patch previews](../journal/2026-10-05-per-file-patch-previews.md)
 
 - `docs/journal/2026-08-08-wasm-core-patch-preview.md`
