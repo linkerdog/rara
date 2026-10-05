@@ -135,3 +135,10 @@ startup. Keep that initialization alongside prompt-history attachment and the
 diagnostic reader; neither concern replaces the other.
 Integrated validation passed 1,149 TUI tests, with seven parent-driven child
 fixtures.
+
+Main `f110ec2d` adds session commands. Keep both `HistorySearch` and `Diff`
+variants with their own key dispatch and render branches. Both remain excluded
+from the generic read-only overlay body; opening or scrolling a diff does not
+replace the history query editor.
+Integrated TUI validation passed 1,162 tests, with seven parent-driven child
+fixtures.

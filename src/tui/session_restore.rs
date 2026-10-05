@@ -37,6 +37,7 @@ fn apply_prepared_restore(
         todo_state,
         runtime_state,
         turns,
+        next_turn_ordinal,
         live_entries,
         live_recovery_warning,
         latest_plan_lifecycle,
@@ -211,6 +212,7 @@ fn apply_prepared_restore(
     app.bottom_pane.queued_follow_up_messages.clear();
     app.running_tool_boundary_count = 0;
     app.restore_committed_turns(turns);
+    app.next_turn_ordinal = next_turn_ordinal;
     app.active_turn.entries = live_entries;
     if let Some(warning) = live_recovery_warning {
         resume_notice.push(' ');

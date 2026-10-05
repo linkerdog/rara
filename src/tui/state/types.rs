@@ -86,6 +86,7 @@ impl ApiKeyTarget {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
     HistorySearch,
+    Diff,
     Goal,
     Help(HelpTab),
     CommandPalette,
@@ -171,10 +172,16 @@ impl PermissionMode {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LocalCommandKind {
+    Diff,
+    Copy,
+    Init,
+    Export,
+    New,
     Help,
     Status,
     Context,
     Clear,
+    Rename,
     Resume,
     Plan,
     Approval,
@@ -395,6 +402,7 @@ pub struct CompletedInteractionSnapshot {
 
 #[derive(Debug)]
 pub enum TaskKind {
+    ThreadCommand,
     Query,
     ReviewPreparation,
     Compact,
@@ -413,6 +421,9 @@ pub enum OAuthLoginMode {
 // TaskCompletion carries task-specific results across the async join boundary;
 // boxing individual variants would complicate every completion handler.
 pub enum TaskCompletion {
+    ThreadCommand {
+        result: anyhow::Result<crate::runtime_client::ThreadCommandResult>,
+    },
     ReviewPrepared {
         result: anyhow::Result<crate::tui::runtime::review::ReviewPreparation>,
     },
@@ -788,8 +799,10 @@ pub struct TuiApp {
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
     pub committed_turns: Vec<TranscriptTurn>,
+    pub(crate) next_turn_ordinal: usize,
     pub active_turn: PresentationInput<TranscriptTurn>,
     pub overlay: Option<Overlay>,
+    pub(crate) diff_view: crate::tui::diff_view::DiffView,
     /// Dialog stack for back-navigation. The last element is always the
     /// current overlay.  When empty, no overlay is shown.
     pub overlay_stack: Vec<Overlay>,

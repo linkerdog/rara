@@ -26,6 +26,7 @@ impl TuiApp {
                 Overlay::Help(_)
                 | Overlay::Status(_)
                 | Overlay::Context
+                | Overlay::Diff
                 | Overlay::SkillsPicker
                 | Overlay::PermissionPicker
                 | Overlay::ListPicker(_),

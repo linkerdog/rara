@@ -81,6 +81,7 @@ future appserver integrations can use.
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
   and compact TUI contracts aligned with Codex 0.154.
+- `session-commands.md`: copy, new-thread, diff, init, rename, and export contracts.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
 - `multi-agent-orchestration.md`: session-tree ownership, shared child capacity,

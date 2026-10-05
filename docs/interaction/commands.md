@@ -32,14 +32,20 @@ complete alias in the palette ranks its canonical command first.
 | `/compact` | Request one history compaction pass | None |
 | `/connect` | Open provider connection setup | None |
 | `/context` | Inspect assembled context and its sources | `/memory` |
+| `/copy [code]` | Copy the last completed assistant answer or its last code block | None |
+| `/diff` | Browse staged and unstaged changes in a scrollable overlay | None |
+| `/export [path]` | Save the durable conversation as Markdown or JSON without overwriting files | None |
 | `/goal` | Show or manage the current thread goal | None |
 | `/help` | Open General, Commands, and Runtime help tabs | None |
+| `/init` | Submit a normal agent request to create or update repository instructions | None |
 | `/mcp` | Show configured MCP server status | None |
 | `/mem` | Configure the builtin memory connection | None |
 | `/model` | Open the unified model picker | None |
+| `/new` | Persist the current thread and start an empty runtime thread with the same configuration | None |
 | `/permissions` | Open the permission preset picker | `/permission` |
 | `/plan` | Enter read-only planning mode | None |
 | `/quit` | Persist local runtime state and leave the terminal UI | `/exit` |
+| `/rename <name>` | Persist an explicit title for resume, inspection, and export | None |
 | `/resume` | Open the recent thread picker | `/threads` |
 | `/review` | Collect staged and unstaged changes asynchronously, then review them when an agent is available | None |
 | `/skills` | Inspect loaded skills and invocation availability; read-only | None |
@@ -63,11 +69,12 @@ a list named `[task_list_id]`.
 
 ### CMD-03: Local Submission And Errors
 
-- A parsed built-in command is handled locally, without becoming an LLM prompt.
+- A parsed built-in command uses its typed handler. `/init` deliberately submits
+  its repository-inspection prompt through the ordinary agent path.
 - An unknown slash command produces an explicit notice and is not submitted
   as ordinary task input.
 - During a running task, allow `/help`, `/status`, `/context`, `/permissions`,
-  `/skills`, `/mcp`, `/tasks` without an argument, `/goal` without an argument or with `pause`,
+  `/skills`, `/mcp`, `/copy`, `/diff`, `/tasks` without an argument, `/goal` without an argument or with `pause`,
   and `/quit`, including aliases. Inspection must preserve the running phase.
 - Commands that replace or mutate the active runtime wait until the task ends.
   The palette and Commands help show the same disabled reason that submission
@@ -75,6 +82,8 @@ a list named `[task_list_id]`.
   Ordinary text follows [RUN-01](runtime-feedback.md#run-01-submission-and-queueing).
 - `/goal` argument semantics are owned by [thread goals](../features/thread-goals.md).
 - `/tasks` argument semantics are owned by [shared task lists](../features/shared-task-lists.md).
+- New-thread isolation, title persistence, copy/init, diff scrolling, and export
+  contracts are owned by [session commands](../features/session-commands.md).
 
 ### CMD-04: Help Matches Reachable Behavior
 
@@ -133,8 +142,8 @@ an executed goal turn. No Git operation is awaited on the UI event-loop path.
 
 ## Open Risks
 
-- `/clear` does not start a new runtime session. New-session semantics require
-  a separate lifecycle design; do not assume another client's `/clear` contract.
+- `/clear` retains the runtime and durable turns. `/new` owns the separate
+  runtime lifecycle transition.
 - Command parsing and execution still have separate match tables. New entries
   must be checked through dispatch, not only registry enumeration.
 

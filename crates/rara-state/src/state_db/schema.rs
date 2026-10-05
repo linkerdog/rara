@@ -10,6 +10,7 @@ impl StateDb {
             "
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
+                title TEXT,
                 cwd TEXT NOT NULL,
                 branch TEXT NOT NULL,
                 provider TEXT NOT NULL,
@@ -118,6 +119,7 @@ impl StateDb {
             "TEXT NOT NULL DEFAULT 'fresh'",
         )?;
         ensure_column(&conn, "sessions", "forked_from_thread_id", "TEXT")?;
+        ensure_column(&conn, "sessions", "title", "TEXT")?;
         ensure_column(&conn, "spawn_agent_edges", "token_budget", "INTEGER")?;
         ensure_column(
             &conn,

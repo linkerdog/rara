@@ -24,6 +24,7 @@ pub enum AppEvent {
     MoveCursorDown,
     NavigateInputHistory(i32),
     ScrollTranscript(i32),
+    NavigateDiff(super::diff_view::DiffNavigation),
     StartTranscriptSelection(ScreenPosition),
     DragTranscriptSelection(ScreenPosition),
     FinishTranscriptSelection(ScreenPosition),

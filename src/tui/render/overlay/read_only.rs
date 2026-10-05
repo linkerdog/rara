@@ -103,6 +103,7 @@ impl OverlayBody {
             Overlay::Status(tab) => render_status_lines(app, tab),
             Overlay::Context => render_context_lines(app, width),
             Overlay::HistorySearch
+            | Overlay::Diff
             | Overlay::Goal
             | Overlay::CommandPalette
             | Overlay::ModelSearch
@@ -228,6 +229,7 @@ pub(super) fn render_modal(f: &mut Frame, app: &mut TuiApp, area: Rect, overlay:
             chunks[0],
         ),
         Overlay::HistorySearch
+        | Overlay::Diff
         | Overlay::Goal
         | Overlay::CommandPalette
         | Overlay::ModelSearch

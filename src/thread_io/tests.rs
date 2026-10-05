@@ -54,6 +54,7 @@ fn checkpoint(history_len: usize) -> WriteOperation {
         provider: "mock".into(),
         model: "mock".into(),
         base_url: None,
+        agent_mode: "execute".into(),
         bash_approval: "always".into(),
         plan_explanation: None,
         prompt_runtime: Default::default(),
@@ -64,6 +65,74 @@ fn checkpoint(history_len: usize) -> WriteOperation {
         interactions: Vec::new(),
         rollout: Vec::new(),
     }))
+}
+
+#[tokio::test]
+async fn accepted_command_survives_a_dropped_receipt_and_shutdown_drains_it() {
+    let store = RecordingStore::default();
+    let writes = store.writes.clone();
+    let mut io = ThreadIo::with_store_on_barriers(Box::new(store)).unwrap();
+    let (release, wait) = mpsc::channel();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let blocked = io
+        .read(move || {
+            entered.send(()).unwrap();
+            wait.recv()?;
+            Ok(())
+        })
+        .unwrap();
+    ready.await.unwrap();
+    io.submit(checkpoint(1)).unwrap();
+    let observed = writes.clone();
+    let receipt = io
+        .execute(move || {
+            assert_eq!(*observed.lock().unwrap(), ["runtime:1"]);
+            observed.lock().unwrap().push("command".into());
+            Ok(())
+        })
+        .unwrap();
+    drop(receipt);
+    io.submit(checkpoint(2)).unwrap();
+    release.send(()).unwrap();
+    blocked.await.unwrap().unwrap();
+    io.shutdown().await.unwrap();
+    assert_eq!(
+        *writes.lock().unwrap(),
+        ["runtime:1", "command", "runtime:2"]
+    );
+}
+
+#[tokio::test]
+async fn failed_preceding_write_rejects_a_command_without_executing_it() {
+    let store = RecordingStore::default();
+    let fail = store.fail_commit.clone();
+    fail.store(true, Ordering::SeqCst);
+    let mut io = ThreadIo::with_store_on_barriers(Box::new(store)).unwrap();
+    io.submit(WriteOperation::CommitTurn {
+        session_id: "test".into(),
+        ordinal: 0,
+        entries: vec![entry("keep me")],
+    })
+    .unwrap();
+    let executed = Arc::new(AtomicBool::new(false));
+    let observed = executed.clone();
+    let result = io
+        .execute(move || {
+            observed.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("scripted commit failure")
+    );
+    assert!(!executed.load(Ordering::SeqCst));
+    fail.store(false, Ordering::SeqCst);
+    io.shutdown().await.unwrap();
 }
 
 #[tokio::test]

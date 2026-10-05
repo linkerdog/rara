@@ -57,6 +57,7 @@ impl From<PersistedCompactionEvent> for CompactionRecord {
 #[derive(Debug, Clone)]
 pub struct ThreadMetadata {
     pub session_id: String,
+    pub title: Option<String>,
     pub cwd: String,
     pub branch: String,
     pub provider: String,
@@ -136,6 +137,7 @@ impl From<PersistedThreadRecord> for ThreadMetadata {
     fn from(value: PersistedThreadRecord) -> Self {
         Self {
             session_id: value.session_id,
+            title: value.title,
             cwd: value.cwd,
             branch: value.branch,
             provider: value.provider,
@@ -174,6 +176,7 @@ impl From<PersistedRecentThreadRecord> for ThreadSummary {
         Self {
             metadata: ThreadMetadata {
                 session_id: value.session_id,
+                title: value.title,
                 cwd: value.cwd,
                 branch: value.branch,
                 provider: value.provider,

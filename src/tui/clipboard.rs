@@ -84,10 +84,7 @@ impl Clipboard {
             ClipboardFeedback::new(NoticeLevel::Info, "Clipboard copy queued.")
         } else {
             self.start(request);
-            ClipboardFeedback::new(
-                NoticeLevel::Info,
-                "Copying transcript selection to clipboard...",
-            )
+            ClipboardFeedback::new(NoticeLevel::Info, "Copying text to clipboard...")
         }
     }
 
@@ -130,18 +127,15 @@ impl Clipboard {
             return None;
         }
         Some(match result {
-            Ok(()) => ClipboardFeedback::new(
-                NoticeLevel::Info,
-                "Copied transcript selection to clipboard.",
-            ),
+            Ok(()) => ClipboardFeedback::new(NoticeLevel::Info, "Copied text to clipboard."),
             Err(error) => match task.terminal {
                 Ok(()) => ClipboardFeedback::new(
                     NoticeLevel::Warning,
-                    format!("Sent selection to terminal clipboard; native copy failed: {error}"),
+                    format!("Sent text to terminal clipboard; native copy failed: {error}"),
                 ),
                 Err(terminal) => ClipboardFeedback::new(
                     NoticeLevel::Error,
-                    format!("Failed to copy transcript selection: {terminal}; {error}"),
+                    format!("Failed to copy text: {terminal}; {error}"),
                 ),
             },
         })
@@ -160,12 +154,11 @@ fn terminal_notice(result: io::Result<()>) -> ClipboardFeedback {
     match result {
         Ok(()) => ClipboardFeedback::new(
             NoticeLevel::Info,
-            "Sent selection to terminal clipboard (acceptance depends on terminal policy).",
+            "Sent text to terminal clipboard (acceptance depends on terminal policy).",
         ),
-        Err(error) => ClipboardFeedback::new(
-            NoticeLevel::Error,
-            format!("Failed to copy transcript selection: {error}"),
-        ),
+        Err(error) => {
+            ClipboardFeedback::new(NoticeLevel::Error, format!("Failed to copy text: {error}"))
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
+mod diff;
 mod goal;
 mod read_only;
 pub(crate) use read_only::navigate_overlay;
@@ -37,6 +38,12 @@ pub(super) fn render_overlay(
             let inner = block.inner(popup);
             f.render_widget(block, popup);
             crate::tui::prompt_history::render_history_search(f, app, inner)
+        }
+        Overlay::Diff => {
+            let popup = f.area();
+            f.render_widget(Clear, popup);
+            diff::render(f, app, popup);
+            None
         }
         Overlay::Goal => {
             let popup = popup_rect(f.area(), 85, 70);

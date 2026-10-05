@@ -94,6 +94,10 @@ Current backend slice:
 - Runtime metadata is written to per-session `thread.json` before updating the
   `StateDb` listing/index row. `ThreadStore` prefers `thread.json` and only
   falls back to `StateDb` metadata for older sessions.
+- An optional explicit `title` is stored in canonical metadata and the SQLite
+  index. Metadata/index mutations share a per-thread advisory lock; ordinary
+  checkpoints preserve the stored title. Named empty threads are resumable.
+  Older records and databases gain the optional title without rewriting history.
 - `ThreadStore` treats `runtime_state` entries as snapshots and materializes
   only the latest snapshot into current plan/interactions, avoiding duplicate
   rollout items from stale snapshots.
@@ -116,6 +120,11 @@ Current backend slice:
   compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown
   transcript with frontmatter, summary, and message sections.
+- Export prefers committed display turns, which retain pre-compaction content
+  and turns hidden by `/clear`; legacy threads fall back to message history.
+  Display clearing never resets the durable turn ordinal. Source corruption
+  fails export explicitly. The TUI also supports versioned JSON and atomic,
+  no-overwrite file creation as specified in [session commands](session-commands.md).
 - `distill_thread_summary(memory_store, session_id) -> Option<MemoryRecord>`
   persists one summary-style `MemoryRecord` linked to the source session/thread.
 

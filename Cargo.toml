@@ -66,6 +66,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+tempfile = { workspace = true }
 rara-runtime = { path = "crates/rara-runtime" }
 rara-persistence = { path = "crates/rara-persistence" }
 rara-mcp-client = { path = "crates/rara-mcp-client" }
@@ -146,7 +147,6 @@ ethnum = "1.5.3"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["test-util"] }
-tempfile = "3.17"
 insta = "1.43"
 vt100 = "0.16.2"
 

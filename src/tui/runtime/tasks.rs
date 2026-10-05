@@ -113,7 +113,7 @@ fn merge_rebuilt_agent(rebuilt: Agent, previous: Agent) -> Agent {
     crate::runtime_client::RuntimeClient::merge_rebuilt_agent(rebuilt, previous)
 }
 
-fn try_start_queued_follow_up(
+pub(super) fn try_start_queued_follow_up(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     services: Option<RuntimeTaskServices>,

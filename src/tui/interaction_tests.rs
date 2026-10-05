@@ -32,15 +32,22 @@ async fn type_text(harness: &mut TuiHarness, text: &str) {
 async fn palette_renders_canonical_commands_without_duplicate_aliases() {
     let mut tui = harness();
     type_text(&mut tui, "/").await;
-    let screen = tui.screen_text(120, 64);
+    let mut screen = tui.screen_text(120, 64);
+    assert!(screen.contains("24 commands"), "{screen}");
+    for _ in 0..24 {
+        press(&mut tui, KeyCode::Down).await;
+        screen.push_str(&tui.screen_text(120, 64));
+    }
 
-    for command in ["/status", "/context", "/resume", "/model", "/mem"] {
+    for command in [
+        "/status", "/context", "/resume", "/model", "/mem", "/copy", "/new", "/diff", "/init",
+        "/rename", "/export",
+    ] {
         assert!(screen.contains(command), "missing {command}:\n{screen}");
     }
     for alias in ["/runtime", "/memory", "/threads"] {
         assert!(!screen.contains(alias), "duplicate {alias}:\n{screen}");
     }
-    assert!(screen.contains("18 commands"), "{screen}");
 }
 
 #[tokio::test]
