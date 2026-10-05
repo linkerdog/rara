@@ -106,3 +106,16 @@ are unchanged. This journal retains the implementation decisions.
 No implementation follow-up is deferred from #990. Default remote CI remains
 the publication gate, including Bazel; the branch depends on #1029's storage
 worker and does not alter Bazel configuration.
+
+## Updated Storage Base Integration
+
+Preserved both diff-overlay navigation and bounded read-only overlay navigation
+when merging the updated background-storage base. Command admission still
+distinguishes review preparation from an active thread command. Clipboard and
+thread-command feedback use the shared typed notice path, preserving severity,
+redaction, expiry, and transcript recording. Clipboard wording refers to copied
+text because both transcript selections and `/copy` use the same owner.
+
+Integrated TUI validation passed 1,110 tests, with seven parent-driven child
+fixture entry points ignored. Existing command and clipboard tests now observe
+the typed notice owner; the clipboard matrix still verifies severity.

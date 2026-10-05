@@ -1,6 +1,8 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
 mod diff;
 mod goal;
+mod read_only;
+pub(crate) use read_only::navigate_overlay;
 mod setup;
 
 use ratatui::{
@@ -8,7 +10,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Padding,
-    widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use self::setup::{
@@ -16,19 +18,17 @@ use self::setup::{
     render_openai_profile_label_editor_modal, render_permission_picker_modal,
     render_skills_picker_modal,
 };
-use super::super::command::{
-    general_help_text, matching_commands, model_help_text, palette_commands,
-    recent_transcript_preview, status_metrics_text, status_prompt_sources_text,
-    status_runtime_text, status_workspace_text,
-};
+use super::super::command::{matching_commands, palette_commands};
 use super::super::custom_terminal::Frame;
-use super::super::state::{CommandSpec, HelpTab, Overlay, StatusTab, TuiApp};
+use super::super::state::{CommandSpec, Overlay, TuiApp};
 use super::bottom_pane::desired_bottom_pane_height;
-use crate::tui::context_display::render_context_lines;
 use crate::tui::pane_geometry::PaneColumns;
-use crate::tui::status_display::render_status_lines;
 
-pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> Option<(u16, u16)> {
+pub(super) fn render_overlay(
+    f: &mut Frame,
+    app: &mut TuiApp,
+    overlay: Overlay,
+) -> Option<(u16, u16)> {
     match overlay {
         Overlay::Diff => {
             let popup = f.area();
@@ -42,11 +42,11 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             f.render_widget(Clear, popup);
             goal::render_goal_dialog(f, app, popup)
         }
-        Overlay::Help(tab) => {
+        Overlay::Help(_) | Overlay::Status(_) | Overlay::Context => {
             let popup = popup_rect(f.area(), 80, 60);
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            render_help_modal(f, app, popup, tab);
+            read_only::render_modal(f, app, popup, overlay);
             None
         }
         Overlay::CommandPalette => {
@@ -59,20 +59,6 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             let popup = command_palette_rect(f.area(), app);
             f.render_widget(Clear, popup);
             render_model_search(f, app, popup)
-        }
-        Overlay::Status(tab) => {
-            let popup = popup_rect(f.area(), 80, 60);
-            render_dimmer(f, f.area());
-            f.render_widget(Clear, popup);
-            render_status_modal(f, app, popup, tab);
-            None
-        }
-        Overlay::Context => {
-            let popup = popup_rect(f.area(), 80, 60);
-            render_dimmer(f, f.area());
-            f.render_widget(Clear, popup);
-            render_context_modal(f, app, popup);
-            None
         }
         Overlay::ListPicker(kind) => {
             let popup = if kind == super::super::state::ListPickerKind::Resume {
@@ -134,118 +120,6 @@ pub(super) fn render_overlay(f: &mut Frame, app: &TuiApp, overlay: Overlay) -> O
             None
         }
     }
-}
-
-fn render_help_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: HelpTab) {
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Min(10),
-            Constraint::Length(2),
-        ])
-        .split(inner);
-    let titles = ["General", "Commands", "Runtime"]
-        .into_iter()
-        .map(Line::from)
-        .collect::<Vec<_>>();
-    let selected = match tab {
-        HelpTab::General => 0,
-        HelpTab::Commands => 1,
-        HelpTab::Runtime => 2,
-    };
-    f.render_widget(
-        Tabs::new(titles)
-            .select(selected)
-            .style(token_fg(ThemeToken::TextSecondary))
-            .highlight_style(help_selected_tab_style()),
-        chunks[0],
-    );
-    match tab {
-        HelpTab::General => {
-            f.render_widget(
-                Paragraph::new(panel_text("general", general_help_text()))
-                    .wrap(Wrap { trim: false }),
-                chunks[1],
-            );
-        }
-        HelpTab::Commands => {
-            let query = app.command_query();
-            let items = help_command_items(query)
-                .into_iter()
-                .map(|spec| command_palette_item(app, spec))
-                .collect::<Vec<_>>();
-            let mut state = command_palette_list_state(app.command_palette_idx);
-            f.render_stateful_widget(
-                List::new(items)
-                    .highlight_style(command_list_highlight_style())
-                    .highlight_symbol("› "),
-                chunks[1],
-                &mut state,
-            );
-        }
-        HelpTab::Runtime => {
-            let inner = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(chunks[1]);
-            let left = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(8),
-                    Constraint::Length(6),
-                    Constraint::Min(5),
-                ])
-                .split(inner[0]);
-            let right = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(6), Constraint::Min(8)])
-                .split(inner[1]);
-            f.render_widget(
-                Paragraph::new(panel_text("runtime", &status_runtime_text(app)))
-                    .wrap(Wrap { trim: false }),
-                left[0],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text("workspace", &status_workspace_text(app)))
-                    .wrap(Wrap { trim: false }),
-                left[1],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text(
-                    "prompt sources",
-                    &status_prompt_sources_text(app),
-                ))
-                .wrap(Wrap { trim: false }),
-                left[2],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text("metrics", &status_metrics_text(app)))
-                    .wrap(Wrap { trim: false }),
-                right[0],
-            );
-            f.render_widget(
-                Paragraph::new(panel_text(
-                    "models / recent",
-                    &format!(
-                        "{}\n\n{}",
-                        model_help_text(app),
-                        recent_transcript_preview(app, 4)
-                    ),
-                ))
-                .wrap(Wrap { trim: false }),
-                right[1],
-            );
-        }
-    }
-    f.render_widget(
-        Paragraph::new("Esc close  1 general  2 commands  3 runtime  / open slash menu")
-            .alignment(Alignment::Center),
-        chunks[2],
-    );
 }
 
 fn render_command_palette(f: &mut Frame, app: &TuiApp, area: Rect) {
@@ -341,6 +215,10 @@ fn help_command_items(query: &str) -> Vec<&'static CommandSpec> {
 }
 
 fn command_palette_item(app: &TuiApp, spec: &CommandSpec) -> ListItem<'static> {
+    ListItem::new(command_entry_line(app, spec))
+}
+
+fn command_entry_line(app: &TuiApp, spec: &CommandSpec) -> Line<'static> {
     // Display name with leading slash for consistent width
     let full_name = format!("/{}", spec.name);
     let description = match crate::tui::command::parse_local_command(&full_name) {
@@ -352,13 +230,13 @@ fn command_palette_item(app: &TuiApp, spec: &CommandSpec) -> ListItem<'static> {
             "Command unavailable."
         }
     };
-    ListItem::new(Line::from(vec![
+    Line::from(vec![
         Span::styled(
             format!("{full_name:<12}"),
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::styled(description, token_fg(ThemeToken::TextMuted)),
-    ]))
+    ])
 }
 
 #[cfg(test)]
@@ -380,80 +258,6 @@ fn command_list_highlight_style() -> Style {
         .fg(theme_color(ThemeToken::OverlayHighlightFg))
         .bg(theme_color(ThemeToken::OverlayHighlightBg))
         .add_modifier(Modifier::BOLD)
-}
-
-fn help_selected_tab_style() -> Style {
-    Style::default()
-        .fg(theme_color(ThemeToken::OverlayHighlightFg))
-        .bg(theme_color(ThemeToken::OverlayHighlightBg))
-        .add_modifier(Modifier::BOLD)
-}
-
-fn render_status_modal(f: &mut Frame, app: &TuiApp, area: Rect, tab: StatusTab) {
-    let lines = render_status_lines(app, tab);
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Fill(1),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-    let titles = status_tab_titles();
-    f.render_widget(
-        Tabs::new(titles)
-            .select(status_tab_index(tab))
-            .style(token_fg(ThemeToken::TextSecondary))
-            .highlight_style(help_selected_tab_style()),
-        chunks[0],
-    );
-    f.render_widget(Paragraph::new(lines), chunks[1]);
-    f.render_widget(
-        Paragraph::new("Esc close  1 overview  2 config  3 context  <-> switch")
-            .style(token_fg(ThemeToken::TextMuted))
-            .alignment(Alignment::Center),
-        chunks[2],
-    );
-}
-
-fn status_tab_titles() -> Vec<Line<'static>> {
-    ["Overview", "Config", "Context"]
-        .into_iter()
-        .map(Line::from)
-        .collect()
-}
-
-fn status_tab_index(tab: StatusTab) -> usize {
-    match tab {
-        StatusTab::Overview => 0,
-        StatusTab::Config => 1,
-        StatusTab::Context => 2,
-    }
-}
-
-fn render_context_modal(f: &mut Frame, app: &TuiApp, area: Rect) {
-    let lines = render_context_lines(app, area.width);
-    let block = popup_block();
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(8), Constraint::Length(2)])
-        .split(inner);
-
-    f.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((app.context_scroll, 0)),
-        chunks[0],
-    );
-    f.render_widget(
-        Paragraph::new("esc close  j/k ↑↓ scroll").alignment(Alignment::Center),
-        chunks[1],
-    );
 }
 
 /// Bottom-anchored compact popup for list pickers (model, provider, etc.).

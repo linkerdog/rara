@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use crate::agent::Agent;
 use crate::runtime_client::{RuntimeClient, ThreadCommandOutcome, ThreadCommandResult};
-use crate::tui::state::{RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp};
+use crate::tui::state::{NoticeLevel, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp};
 
 #[cfg(test)]
 mod tests;
@@ -64,7 +64,10 @@ fn wait_for_command(
     let receipt = match result {
         Ok(receipt) => receipt,
         Err(error) => {
-            app.push_notice(format!("Thread command failed: {error:#}"));
+            app.push_notice(
+                NoticeLevel::Error,
+                format!("Thread command failed: {error:#}"),
+            );
             return;
         }
     };
@@ -88,7 +91,7 @@ fn wait_for_command(
         query_control: None,
     });
     app.set_runtime_phase(RuntimePhase::LocalCommand, Some(description.into()));
-    app.push_notice(format!("{}...", description));
+    app.push_notice(NoticeLevel::Info, format!("{}...", description));
 }
 
 pub(super) fn start_export(app: &mut TuiApp, runtime: &RuntimeClient, path: Option<String>) {
@@ -125,10 +128,13 @@ pub(super) fn finish(
         );
         match saved.outcome {
             ThreadCommandOutcome::Exported { path } => {
-                app.push_notice(format!("Exported conversation to {}", path.display()));
+                app.push_notice(
+                    NoticeLevel::Info,
+                    format!("Exported conversation to {}", path.display()),
+                );
             }
             ThreadCommandOutcome::Renamed { title } => {
-                app.push_notice(format!("Thread renamed to: {title}"));
+                app.push_notice(NoticeLevel::Info, format!("Thread renamed to: {title}"));
             }
             ThreadCommandOutcome::Created { session_id, goal } => {
                 // Runtime services are unchanged; reuse their projection rather
@@ -155,7 +161,10 @@ pub(super) fn finish(
                 app.goal = None;
                 app.approval_picker_idx = 0;
                 app.apply_runtime_snapshot(agent, extensions);
-                app.push_notice(format!("Started thread {}.", agent.session_id));
+                app.push_notice(
+                    NoticeLevel::Info,
+                    format!("Started thread {}.", agent.session_id),
+                );
             }
         }
         app.set_runtime_phase(RuntimePhase::Idle, None);
@@ -163,7 +172,10 @@ pub(super) fn finish(
     });
     if let Err(error) = result {
         log::warn!("Thread command failed: {error:#}");
-        app.push_notice(format!("Thread command failed: {error:#}"));
+        app.push_notice(
+            NoticeLevel::Error,
+            format!("Thread command failed: {error:#}"),
+        );
         app.set_runtime_phase(RuntimePhase::Failed, Some("thread command failed".into()));
     }
     if let Some(mode) = app.pending_permission_mode.take() {

@@ -30,6 +30,7 @@ use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {
@@ -50,12 +51,14 @@ pub async fn run_tui(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
+    let diagnostics = crate::diagnostics::TerminalDiagnostics::start()?;
     let mut terminal_modes = TerminalModeGuard::start()?;
     let result = TerminalModeGuard::run_owner(run_tui_session(
         runtime,
         oauth_manager,
         startup,
         &mut terminal_modes,
+        diagnostics.reader(),
     ))
     .await?;
     if let Err(error) = terminal_modes.restore() {
@@ -79,9 +82,11 @@ async fn run_tui_session(
     oauth_manager: OAuthManager,
     startup: TuiStartupOptions,
     terminal_modes: &mut TerminalModeGuard,
+    diagnostics: crate::diagnostics::DiagnosticReader,
 ) -> anyhow::Result<CompletedTuiSession> {
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
+    app.diagnostics = Some(diagnostics);
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.snapshot();
     app.mcp_tool_cache = Some(runtime.mcp_tool_cache.clone());
@@ -247,6 +252,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
+        needs_redraw |= maintainer.app_mut().poll_diagnostics();
         if exit_flush.is_none() {
             if matches!(startup_maintenance, StartupMaintenance::Rebuild)
                 && !maintainer.app().is_busy()
@@ -301,7 +307,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                         }
                         let app = maintainer.app_mut();
                         app.poll_storage();
-                        app.bottom_pane.notice = Some(format!("Could not save session; exit cancelled: {error:#}"));
+                        app.push_unpersisted_notice(NoticeLevel::Error, format!("Could not save session; exit cancelled: {error:#}"));
                         needs_redraw = true;
                     }
                 }
@@ -318,10 +324,11 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 if let Some(clipboard) = &mut app.clipboard
                     && let Some(notice) = clipboard.poll().await
                 {
-                    app.push_notice(notice);
+                    app.push_notice(notice.level, notice.message);
                     changed = true;
                 }
                 changed |= app.quit_shortcut.expire(std::time::Instant::now());
+                changed |= app.expire_notice(Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);
                     changed = true;
@@ -365,7 +372,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     match maybe_event {
                         Some(Ok(Event::Key(key))) if key.code == crossterm::event::KeyCode::Esc => {
                             exit_flush = None;
-                            maintainer.app_mut().bottom_pane.notice = Some("Exit cancelled; pending writes remain queued.".into());
+                            maintainer.app_mut().push_notice(NoticeLevel::Info, "Exit cancelled; pending writes remain queued.");
                         }
                         Some(Ok(Event::Resize(_, _))) => terminal.invalidate_viewport(),
                         Some(Err(error)) => log::warn!("Terminal event error while saving: {error}"),
@@ -392,9 +399,9 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                                 match app.storage_flush_receiver() {
                                     Ok(receiver) => {
                                         exit_flush = Some(receiver);
-                                        app.bottom_pane.notice = Some("Saving session before exit... Press Esc to stay.".into());
+                                        app.push_unpersisted_notice(NoticeLevel::Info, "Saving session before exit... Press Esc to stay.");
                                     }
-                                    Err(error) => app.bottom_pane.notice = Some(format!("Could not save session; exit cancelled: {error:#}")),
+                                    Err(error) => app.push_unpersisted_notice(NoticeLevel::Error, format!("Could not save session; exit cancelled: {error:#}")),
                                 }
                             }
                             needs_redraw = true;
@@ -423,7 +430,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     Some(Err(err)) => {
                         maintainer
                             .app_mut()
-                            .push_notice(format!("Terminal event error: {err}"));
+                            .push_notice(NoticeLevel::Error, format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
                     None => {

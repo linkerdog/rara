@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::state::NoticeLevel;
 
 impl TuiApp {
     pub fn refresh_provider_connection_status(&mut self) {
@@ -203,9 +204,9 @@ impl TuiApp {
         if self.openai_setup_steps.is_empty() {
             self.openai_setup_keep_empty_api_key = false;
             self.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
-            self.bottom_pane.notice = Some(
-                "Endpoint setup complete. Review the active profile and press Enter to rebuild."
-                    .into(),
+            self.push_notice(
+                NoticeLevel::Info,
+                "Endpoint setup complete. Review the active profile and press Enter to rebuild.",
             );
             return;
         }

@@ -147,9 +147,7 @@ async fn failed_goal_commands_keep_the_loop_and_committed_snapshot_alive() {
             "{command}"
         );
         assert!(
-            app.bottom_pane
-                .notice
-                .as_deref()
+            app.notice_text()
                 .expect("failure notice")
                 .contains("Goal command failed"),
             "{command}"
@@ -274,9 +272,7 @@ async fn failed_exhausted_resume_write_sends_no_wrap_up() {
     assert!(runtime.commands().is_empty());
     assert!(slot.is_some());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .expect("notice")
             .contains("injected budget status failure")
     );

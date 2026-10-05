@@ -44,17 +44,17 @@ pub(crate) async fn capture_shell_environment_snapshot() -> ShellEnvironmentSnap
         .kill_on_drop(true);
 
     let Ok(Ok(output)) = timeout(SHELL_SNAPSHOT_TIMEOUT, command.output()).await else {
-        eprintln!("Warning: failed to capture shell PATH snapshot; using process PATH");
+        log::warn!("Warning: failed to capture shell PATH snapshot; using process PATH");
         return process_environment_snapshot();
     };
     if !output.status.success() {
-        eprintln!("Warning: shell PATH snapshot command failed; using process PATH");
+        log::warn!("Warning: shell PATH snapshot command failed; using process PATH");
         return process_environment_snapshot();
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let Some(path) = extract_marked_path(&stdout) else {
-        eprintln!("Warning: shell PATH snapshot output was not marked; using process PATH");
+        log::warn!("Warning: shell PATH snapshot output was not marked; using process PATH");
         return process_environment_snapshot();
     };
 

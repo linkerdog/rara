@@ -187,10 +187,15 @@ async fn blocked_exit_flush_can_be_cancelled_and_retried_without_losing_writes()
         .await
         .unwrap();
     let turns = rara_persistence::thread_turn_log::load_turn_records(&root, "exit-thread").unwrap();
-    assert_eq!(turns.len(), 1);
+    let conversation = turns
+        .iter()
+        .flat_map(|turn| &turn.entries)
+        .filter(|entry| entry.role != "System")
+        .map(|entry| (entry.role.as_str(), entry.message.as_str()))
+        .collect::<Vec<_>>();
     assert_eq!(
-        turns[0].entries[0].message,
-        "Keep this turn across a slow exit."
+        conversation,
+        [("You", "Keep this turn across a slow exit.")]
     );
     assert!(rara_persistence::thread_turn_log::load_live_entries(&root, "exit-thread").is_empty());
 }
