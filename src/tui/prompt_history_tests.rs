@@ -309,9 +309,7 @@ async fn failed_writes_remain_recallable_and_retry_after_storage_recovers() {
     assert_eq!(tui.app().history_matches(), vec!["retained pending prompt"]);
     assert!(
         tui.app()
-            .bottom_pane
-            .notice
-            .as_deref()
+            .notice_text()
             .unwrap()
             .contains("Could not read prompt history")
     );

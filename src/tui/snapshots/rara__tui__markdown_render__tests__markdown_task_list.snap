@@ -1,7 +1,7 @@
 ---
-source: src/tui/markdown_render.rs
+source: src/tui/markdown_render_tests.rs
 expression: render_to_string(md)
 ---
-- [ ] todo
-- [x] done
-- [ ] another todo
+B(☐ )todo
+B(☒ )done
+B(☐ )another todo

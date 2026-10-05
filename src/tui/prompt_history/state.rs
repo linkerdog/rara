@@ -7,7 +7,7 @@ use rara_persistence::prompt_history::{
 use tokio::sync::oneshot;
 
 use super::worker::{HistoryIo, HistoryRead};
-use crate::tui::state::{Overlay, TuiApp};
+use crate::tui::state::{NoticeLevel, Overlay, TuiApp};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum HistoryAction {
@@ -114,7 +114,10 @@ impl TuiApp {
             {
                 Ok(result) => result.is_some(),
                 Err(error) => {
-                    self.push_notice(format!("Prompt history was not saved: {error:#}"));
+                    self.push_notice(
+                        NoticeLevel::Warning,
+                        format!("Prompt history was not saved: {error:#}"),
+                    );
                     false
                 }
             }
@@ -186,7 +189,10 @@ impl TuiApp {
                 true
             }
             Err(error) => {
-                self.push_notice(format!("Could not read prompt history: {error:#}"));
+                self.push_notice(
+                    NoticeLevel::Warning,
+                    format!("Could not read prompt history: {error:#}"),
+                );
                 false
             }
         }
@@ -199,7 +205,10 @@ impl TuiApp {
             if status.revision != self.prompt_history.status_revision {
                 self.prompt_history.status_revision = status.revision;
                 if let Some(error) = status.error {
-                    self.push_notice(format!("Prompt history persistence failed: {error}"));
+                    self.push_notice(
+                        NoticeLevel::Warning,
+                        format!("Prompt history persistence failed: {error}"),
+                    );
                     changed = true;
                 }
             }
@@ -259,14 +268,20 @@ impl TuiApp {
                     })
                     .unwrap_or(0);
                 if read.loaded.skipped_lines > 0 {
-                    self.push_notice(format!(
-                        "Prompt history recovered; skipped {} invalid records.",
-                        read.loaded.skipped_lines
-                    ));
+                    self.push_notice(
+                        NoticeLevel::Warning,
+                        format!(
+                            "Prompt history recovered; skipped {} invalid records.",
+                            read.loaded.skipped_lines
+                        ),
+                    );
                 }
             }
             Err(error) => {
-                self.push_notice(format!("Could not read prompt history: {error:#}"));
+                self.push_notice(
+                    NoticeLevel::Warning,
+                    format!("Could not read prompt history: {error:#}"),
+                );
             }
         }
         if let Some(navigation) = self.prompt_history.navigation.take()
@@ -315,7 +330,10 @@ impl TuiApp {
                 if self.prompt_history_can_load()
                     && let Err(error) = self.prompt_history.request_load()
                 {
-                    self.push_notice(format!("Could not read prompt history: {error:#}"));
+                    self.push_notice(
+                        NoticeLevel::Warning,
+                        format!("Could not read prompt history: {error:#}"),
+                    );
                 }
             }
             HistoryAction::Older => {

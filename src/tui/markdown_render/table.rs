@@ -1,14 +1,21 @@
-//! Canonical table collection and width-aware rendering.
+//! Canonical styled table collection and width-aware rendering.
 
 use pulldown_cmark::Alignment;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use ratatui::text::{Line, Span};
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::tui::{
+    display_sanitize::sanitize_display_line_segments,
+    text_wrap::{display_width, grapheme_width},
+    transcript_text::wrap_line,
+};
 
 #[derive(Debug)]
 pub(super) struct TableRenderState {
     alignments: Vec<Alignment>,
-    rows: Vec<Vec<String>>,
-    current_row: Option<Vec<String>>,
-    current_cell: Option<String>,
+    rows: Vec<Vec<Line<'static>>>,
+    current_row: Option<Vec<Line<'static>>>,
+    current_cell: Option<Line<'static>>,
     header_row_count: usize,
 }
 
@@ -50,145 +57,184 @@ impl TableRenderState {
     }
 
     pub(super) fn start_cell(&mut self) {
-        self.current_cell = Some(String::new());
+        self.current_cell = Some(Line::default());
     }
 
     pub(super) fn end_cell(&mut self) {
         let cell = self.current_cell.take().unwrap_or_default();
         if let Some(row) = self.current_row.as_mut() {
-            row.push(normalize_table_cell(&cell));
+            // Measure exactly the visible content that the shared wrapper will use.
+            row.push(sanitize_display_line_segments(&cell));
         }
     }
 
-    pub(super) fn push_text(&mut self, text: &str) {
+    pub(super) fn push_span(&mut self, span: Span<'static>) {
         if let Some(cell) = self.current_cell.as_mut() {
-            cell.push_str(text);
+            cell.push_span(span);
         }
     }
 }
 
-fn normalize_table_cell(cell: &str) -> String {
-    cell.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-pub(super) fn render_table_lines(table: &TableRenderState, width: Option<usize>) -> Vec<String> {
-    if table.rows.is_empty() {
-        return Vec::new();
-    }
-
+pub(super) fn render_table_lines(
+    table: &TableRenderState,
+    width: Option<usize>,
+) -> Vec<Line<'static>> {
     let column_count = table.rows.iter().map(Vec::len).max().unwrap_or(0);
     if column_count == 0 {
         return Vec::new();
     }
 
-    let mut column_widths = vec![1usize; column_count];
+    let mut ideal = vec![1; column_count];
+    let mut minimum = vec![1; column_count];
     for row in &table.rows {
         for (idx, cell) in row.iter().enumerate() {
-            column_widths[idx] = column_widths[idx].max(UnicodeWidthStr::width(cell.as_str()));
+            let text = cell.to_string();
+            ideal[idx] = ideal[idx].max(display_width(&text));
+            minimum[idx] =
+                minimum[idx].max(text.graphemes(true).map(grapheme_width).max().unwrap_or(1));
         }
     }
-    fit_table_width(&mut column_widths, width);
+    let Some(widths) = fit_column_widths(&ideal, &minimum, width) else {
+        return render_records(table, width.unwrap_or(1).max(1));
+    };
 
     let mut lines = Vec::new();
     for (row_idx, row) in table.rows.iter().enumerate() {
-        lines.push(render_table_row(row, &column_widths, &table.alignments));
+        lines.extend(render_grid_row(row, &widths, &table.alignments));
         if row_idx + 1 == table.header_row_count {
-            lines.push(render_table_separator(&column_widths, &table.alignments));
+            lines.push(Line::from(
+                widths
+                    .iter()
+                    .map(|width| "-".repeat(*width))
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            ));
         }
     }
     lines
 }
 
-fn fit_table_width(column_widths: &mut [usize], width: Option<usize>) {
-    let Some(max_width) = width else {
-        return;
+fn fit_column_widths(
+    ideal: &[usize],
+    minimum: &[usize],
+    width: Option<usize>,
+) -> Option<Vec<usize>> {
+    let Some(width) = width else {
+        return Some(ideal.to_vec());
     };
-    if column_widths.is_empty() {
-        return;
+    let available = width
+        .max(1)
+        .checked_sub(ideal.len().saturating_sub(1) * 3)?;
+    if minimum.iter().sum::<usize>() > available {
+        return None;
+    }
+    if ideal.iter().sum::<usize>() <= available {
+        return Some(ideal.to_vec());
     }
 
-    let separator_width = column_widths.len().saturating_sub(1) * 3;
-    let total_width = column_widths.iter().sum::<usize>() + separator_width;
-    if total_width <= max_width {
-        return;
+    // Find a common cap without iterating over every byte of a long cell.
+    // Short columns retain their natural size; the remaining space goes to
+    // larger columns, never shrinking below an indivisible grapheme.
+    let mut low = 0;
+    let mut high = ideal.iter().copied().max().unwrap_or(1);
+    while low < high {
+        let cap = low + (high - low).div_ceil(2);
+        let used = ideal
+            .iter()
+            .zip(minimum)
+            .map(|(ideal, min)| (*ideal).min(cap).max(*min))
+            .sum::<usize>();
+        if used <= available {
+            low = cap;
+        } else {
+            high = cap - 1;
+        }
     }
-
-    let available_cells = max_width
-        .saturating_sub(separator_width)
-        .max(column_widths.len());
-    let max_column_width = (available_cells / column_widths.len()).max(1);
-    for width in column_widths {
-        *width = (*width).min(max_column_width).max(1);
+    let mut widths = ideal
+        .iter()
+        .zip(minimum)
+        .map(|(ideal, min)| (*ideal).min(low).max(*min))
+        .collect::<Vec<_>>();
+    let mut remainder = available - widths.iter().sum::<usize>();
+    for (width, ideal) in widths.iter_mut().zip(ideal) {
+        if remainder > 0 && *width < *ideal {
+            *width += 1;
+            remainder -= 1;
+        }
     }
+    Some(widths)
 }
 
-fn render_table_row(row: &[String], column_widths: &[usize], alignments: &[Alignment]) -> String {
-    column_widths
+fn render_grid_row(
+    row: &[Line<'static>],
+    widths: &[usize],
+    alignments: &[Alignment],
+) -> Vec<Line<'static>> {
+    let cells = widths
         .iter()
         .enumerate()
         .map(|(idx, width)| {
-            let cell = row.get(idx).map(String::as_str).unwrap_or("");
-            pad_table_cell(
-                truncate_to_width(cell, *width).as_str(),
-                *width,
-                alignment_for_column(alignments, idx),
+            let empty = Line::default();
+            wrap_line(
+                row.get(idx).unwrap_or(&empty),
+                u16::try_from(*width).unwrap_or(u16::MAX),
             )
         })
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
-fn render_table_separator(column_widths: &[usize], alignments: &[Alignment]) -> String {
-    column_widths
-        .iter()
-        .enumerate()
-        .map(|(idx, width)| {
-            let dashes = "-".repeat(*width);
-            match alignment_for_column(alignments, idx) {
-                Alignment::Left | Alignment::Center | Alignment::Right | Alignment::None => dashes,
+        .collect::<Vec<_>>();
+    let height = cells.iter().map(Vec::len).max().unwrap_or(1);
+    (0..height)
+        .map(|line_idx| {
+            let mut spans = Vec::new();
+            for (idx, (cell, width)) in cells.iter().zip(widths).enumerate() {
+                if idx > 0 {
+                    spans.push(Span::raw(" | "));
+                }
+                let line = cell.get(line_idx).cloned().unwrap_or_default();
+                let padding = width.saturating_sub(display_width(&line.to_string()));
+                let left = match alignments.get(idx).copied().unwrap_or(Alignment::None) {
+                    Alignment::Right => padding,
+                    Alignment::Center => padding / 2,
+                    Alignment::None | Alignment::Left => 0,
+                };
+                if left > 0 {
+                    spans.push(Span::raw(" ".repeat(left)));
+                }
+                spans.extend(line.spans);
+                if padding > left {
+                    spans.push(Span::raw(" ".repeat(padding - left)));
+                }
             }
+            Line::from(spans)
         })
-        .collect::<Vec<_>>()
-        .join(" | ")
+        .collect()
 }
 
-fn alignment_for_column(alignments: &[Alignment], idx: usize) -> Alignment {
-    alignments.get(idx).copied().unwrap_or(Alignment::None)
-}
-
-fn pad_table_cell(cell: &str, width: usize, alignment: Alignment) -> String {
-    let cell_width = UnicodeWidthStr::width(cell);
-    let padding = width.saturating_sub(cell_width);
-    match alignment {
-        Alignment::Right => format!("{}{cell}", " ".repeat(padding)),
-        Alignment::Center => {
-            let left = padding / 2;
-            let right = padding - left;
-            format!("{}{cell}{}", " ".repeat(left), " ".repeat(right))
+fn render_records(table: &TableRenderState, width: usize) -> Vec<Line<'static>> {
+    let width = u16::try_from(width).unwrap_or(u16::MAX);
+    let Some(header) = table.rows.first() else {
+        return Vec::new();
+    };
+    if table.rows.len() == table.header_row_count {
+        return header
+            .iter()
+            .flat_map(|cell| wrap_line(cell, width))
+            .collect();
+    }
+    let mut lines = Vec::new();
+    for row in table.rows.iter().skip(table.header_row_count) {
+        if !lines.is_empty() {
+            lines.push(Line::default());
         }
-        Alignment::Left | Alignment::None => format!("{cell}{}", " ".repeat(padding)),
-    }
-}
-
-fn truncate_to_width(value: &str, max_width: usize) -> String {
-    if UnicodeWidthStr::width(value) <= max_width {
-        return value.to_string();
-    }
-    if max_width <= 1 {
-        return "…".to_string();
-    }
-
-    let mut out = String::new();
-    let mut used = 0usize;
-    let ellipsis_width = 1usize;
-    for ch in value.chars() {
-        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + ch_width + ellipsis_width > max_width {
-            break;
+        for (idx, cell) in row.iter().enumerate() {
+            let mut field = header
+                .get(idx)
+                .cloned()
+                .filter(|cell| !cell.to_string().trim().is_empty())
+                .unwrap_or_else(|| Line::from(format!("Column {}", idx + 1)));
+            field.push_span(Span::raw(": "));
+            field.spans.extend(cell.spans.iter().cloned());
+            lines.extend(wrap_line(&field, width));
         }
-        out.push(ch);
-        used += ch_width;
     }
-    out.push('…');
-    out
+    lines
 }

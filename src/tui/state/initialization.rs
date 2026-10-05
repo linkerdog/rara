@@ -24,9 +24,10 @@ impl TuiApp {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
                 input_cursor_offset: None,
-                notice: startup_notice,
                 ..Default::default()
             },
+            notices: Default::default(),
+            diagnostics: None,
             input_history: Vec::new(),
             prompt_history: Default::default(),
             input_history_cursor: None,
@@ -96,7 +97,7 @@ impl TuiApp {
             transcript_selection: crate::tui::selection::TranscriptSelection::default(),
             clipboard: None,
             scroll_acceleration: super::ScrollAcceleration::default(),
-            context_scroll: 0,
+            overlay_scroll: Default::default(),
             terminal_width: 80,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
@@ -151,6 +152,9 @@ impl TuiApp {
         app.refresh_provider_connection_status();
         app.refresh_recent_threads();
 
+        if let Some(message) = startup_notice {
+            app.push_notice(NoticeLevel::Warning, message);
+        }
         Ok(app)
     }
 
