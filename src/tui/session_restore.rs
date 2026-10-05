@@ -16,6 +16,9 @@ use crate::tui::state::NoticeLevel;
 #[cfg(test)]
 mod recovery_tests;
 
+#[cfg(test)]
+mod approval_tests;
+
 pub(super) fn apply_startup_resume(
     target: &super::event_loop::StartupResumeTarget,
     app: &mut TuiApp,
@@ -110,9 +113,18 @@ pub(super) fn restore_thread_by_id(
     agent.session_id = metadata.session_id;
     agent.todo_state = todo_state;
     if let Some(runtime_state) = runtime_state {
-        agent.set_bash_approval_mode(parse_bash_approval_mode(
-            runtime_state.bash_approval.as_str(),
-        ));
+        let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
+            Some(mode) => mode,
+            None => {
+                let warning = "Unknown saved bash approval mode; restored suggestion mode.";
+                log::warn!("{warning}");
+                resume_notice.push(' ');
+                resume_notice.push_str(warning);
+                resume_level = NoticeLevel::Warning;
+                BashApprovalMode::Suggestion
+            }
+        };
+        agent.set_bash_approval_mode(approval_mode);
         let mut prompt_config = agent.prompt_config().clone();
         prompt_config.append_system_prompt = runtime_state.prompt_runtime.append_system_prompt;
         prompt_config.warnings = runtime_state.prompt_runtime.warnings;
@@ -326,11 +338,12 @@ fn apply_compaction_record(agent: &mut Agent, compaction: &CompactionRecord) {
     agent.compact_state.last_compaction_after_tokens = compaction.after_tokens;
 }
 
-fn parse_bash_approval_mode(mode: &str) -> BashApprovalMode {
+fn parse_bash_approval_mode(mode: &str) -> Option<BashApprovalMode> {
     match mode {
-        "once" => BashApprovalMode::Once,
-        "suggestion" => BashApprovalMode::Suggestion,
-        _ => BashApprovalMode::Always,
+        "once" => Some(BashApprovalMode::Once),
+        "always" => Some(BashApprovalMode::Always),
+        "suggestion" => Some(BashApprovalMode::Suggestion),
+        _ => None,
     }
 }
 
