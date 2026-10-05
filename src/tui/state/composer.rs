@@ -16,6 +16,9 @@ impl TuiApp {
             .then_some(TextInputTarget::GoalObjective),
             None | Some(Overlay::CommandPalette) => Some(TextInputTarget::Composer),
             Some(Overlay::ModelSearch) => Some(TextInputTarget::ModelSearch),
+            Some(Overlay::ListPicker(super::ListPickerKind::Resume)) => {
+                Some(TextInputTarget::ResumeSearch)
+            }
             Some(Overlay::BaseUrlEditor) => Some(TextInputTarget::BaseUrl),
             Some(Overlay::ApiKeyEditor(_)) => Some(TextInputTarget::ApiKey),
             Some(Overlay::ModelNameEditor) => Some(TextInputTarget::ModelName),
@@ -54,6 +57,10 @@ impl TuiApp {
         target: TextInputTarget,
     ) -> (&mut String, &mut Option<usize>) {
         match target {
+            TextInputTarget::ResumeSearch => (
+                &mut self.resume_search_query,
+                &mut self.resume_search_cursor_offset,
+            ),
             TextInputTarget::GoalObjective => (&mut self.goal_ui.input, &mut self.goal_ui.cursor),
             TextInputTarget::Composer => (
                 &mut self.bottom_pane.input,
@@ -85,6 +92,7 @@ impl TuiApp {
                 self.sync_command_palette_with_input();
             }
             TextInputTarget::ModelSearch => self.model_search_idx = 0,
+            TextInputTarget::ResumeSearch => self.resume_search_changed(),
             TextInputTarget::GoalObjective
             | TextInputTarget::BaseUrl
             | TextInputTarget::ApiKey
@@ -95,6 +103,10 @@ impl TuiApp {
 
     pub(crate) fn model_search_cursor_offset(&self) -> usize {
         effective_cursor_offset(&self.model_search_query, self.model_search_cursor_offset)
+    }
+
+    pub(crate) fn resume_search_cursor_offset(&self) -> usize {
+        effective_cursor_offset(&self.resume_search_query, self.resume_search_cursor_offset)
     }
 
     /// Returns the slash-command query string with the leading `/` stripped.

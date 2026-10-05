@@ -251,7 +251,10 @@ async fn new_preserves_config_and_old_durable_state_but_clears_thread_state() {
     assert!(new.metadata.title.is_none());
     assert_eq!(new.metadata.agent_mode, "plan");
     assert!(new.history.is_empty());
-    f.app.insert_resume_search_text("original thread");
+    f.app.open_overlay(crate::tui::state::Overlay::ListPicker(
+        crate::tui::state::ListPickerKind::Resume,
+    ));
+    f.app.insert_active_input_text("original thread");
     f.app.finish_resume_query_for_test().await;
     assert!(
         f.app

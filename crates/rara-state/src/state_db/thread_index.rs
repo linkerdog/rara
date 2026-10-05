@@ -2,8 +2,8 @@ use anyhow::Result;
 use rusqlite::params;
 
 use super::{
-    PersistedRecentThreadRecord, PersistedRecentThreadSummary, PersistedThreadLineage,
-    PersistedThreadRecord, RESUMABLE_SESSION_WHERE, StateDb, epoch_seconds,
+    PersistedRecentThreadSummary, PersistedThreadLineage, PersistedThreadRecord,
+    RESUMABLE_SESSION_WHERE, StateDb, epoch_seconds,
 };
 
 impl StateDb {
@@ -106,71 +106,5 @@ impl StateDb {
             threads.push(row?);
         }
         Ok(threads)
-    }
-
-    pub fn list_recent_thread_records(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<PersistedRecentThreadRecord>> {
-        let conn = self.conn.lock().expect("state db mutex poisoned");
-        let sql = format!(
-            "SELECT s.id, s.cwd, s.branch, s.provider, s.model, s.base_url,
-                    s.agent_mode, s.bash_approval, s.created_at, s.history_len, s.transcript_len,
-                    s.updated_at, s.origin_kind, s.forked_from_thread_id,
-                    s.compaction_count, s.last_compaction_before_tokens,
-                    s.last_compaction_after_tokens, s.last_compaction_recent_file_count,
-                    s.last_compaction_boundary_version,
-                    COALESCE((
-                        SELECT preview FROM turns
-                        WHERE session_id = s.id
-                        ORDER BY ordinal DESC
-                        LIMIT 1
-                    ), '') AS preview, s.title
-             FROM sessions s
-             WHERE {RESUMABLE_SESSION_WHERE}
-             ORDER BY s.updated_at DESC
-             LIMIT ?"
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit as i64], |row| {
-            Ok(PersistedRecentThreadRecord {
-                session_id: row.get(0)?,
-                title: row.get(20)?,
-                cwd: row.get(1)?,
-                branch: row.get(2)?,
-                provider: row.get(3)?,
-                model: row.get(4)?,
-                base_url: row.get(5)?,
-                agent_mode: row.get(6)?,
-                bash_approval: row.get(7)?,
-                created_at: row.get(8)?,
-                history_len: row.get::<_, i64>(9)? as usize,
-                transcript_len: row.get::<_, i64>(10)? as usize,
-                updated_at: row.get(11)?,
-                lineage: PersistedThreadLineage {
-                    origin_kind: row.get(12)?,
-                    forked_from_thread_id: row.get(13)?,
-                },
-                compaction_count: row.get::<_, i64>(14)? as usize,
-                last_compaction_before_tokens: row
-                    .get::<_, Option<i64>>(15)?
-                    .map(|value| value as usize),
-                last_compaction_after_tokens: row
-                    .get::<_, Option<i64>>(16)?
-                    .map(|value| value as usize),
-                last_compaction_recent_file_count: row
-                    .get::<_, Option<i64>>(17)?
-                    .map(|value| value as usize),
-                last_compaction_boundary_version: row
-                    .get::<_, Option<i64>>(18)?
-                    .map(|value| value as u32),
-                preview: row.get(19)?,
-            })
-        })?;
-        let mut sessions = Vec::new();
-        for row in rows {
-            sessions.push(row?);
-        }
-        Ok(sessions)
     }
 }

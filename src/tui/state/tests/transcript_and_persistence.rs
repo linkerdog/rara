@@ -121,7 +121,7 @@ async fn resume_picker_search_filters_and_clear_restores_threads() {
     assert_eq!(app.recent_threads.len(), 2);
 
     for c in "resume-search".chars() {
-        app.push_resume_search_char(c);
+        app.insert_active_input_char(c);
     }
     app.finish_resume_query_for_test().await;
 
