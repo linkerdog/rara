@@ -51,6 +51,20 @@ resolve prior definitions without parsing retained source. Resolution preserves
 the parser's Unicode case folding and first-definition precedence. Source
 replacement resets source, references, and row boundaries together.
 
+A growing root list may retain parser-confirmed items before its final item,
+except the writer's pending boundary row. That row and the final item remain
+mutable across incomplete markers, continuation lines, HTML, and nested blocks.
+Resume numbering and list tightness from explicit context;
+do not infer either from displayed marker strings. A tight-to-loose transition
+must invalidate retained rows before replay because earlier block spacing can
+change. New reference definitions, table holdback, and a changed root block
+also return to canonical rendering. List source and layout work are measured
+separately, including any synthetic parser context used to preserve tightness
+and bytes copied for the pending-row seed. A parser-only initial item makes
+list-wide paragraph events observable even when the suffix contains only code
+or quotes. It is removed before writing. Retained loose context adds a blank
+separator to that item; root/source changes still require canonical replay.
+
 An unindented plain paragraph may extend the rows produced by its first
 canonical parse. Eligibility examines all source in the candidate once, then
 only appended characters. Every physical line must start with an ASCII letter
@@ -243,6 +257,7 @@ boundaries for issue #921:
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
 | Plain paragraphs | Linear parse/eligibility bytes and rendered rows for word and soft-break deltas; late syntax, whitespace, Unicode splits, replacement, and theme invalidation agree with canonical rows |
 | Formatted paragraph tails | Canonical text-event seeding; definitions, incomplete links/titles, entities, whitespace, and every ASCII append agree at character and chunk boundaries |
+| Root-list items | Linear parser/seed-byte and row work across ordinary, formatted, referenced, nested, and loose items; numbering, HTML boundary rows, synthetic-prefix exclusion, incomplete markers, and tightness transitions agree with canonical output |
 | Growing physical lines | Body-copy and wrapping-input bytes for plain/rich words, unbroken words, and Unicode at narrow/wide widths; span-cursor work includes empty spans; suffix promotion, normalization fallback, late syntax, completion, resize, and old-snapshot equality |
 | Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
@@ -316,6 +331,7 @@ on a slow output device.
 - [Plain paragraph streaming](../journal/2026-10-05-long-mutable-markdown.md)
 - [Growing physical line layout](../journal/2026-10-05-growing-line-layout.md)
 - [Inline paragraph continuation](../journal/2026-10-05-inline-paragraph-continuation.md)
+- [Streaming list items](../journal/2026-10-05-streaming-list-items.md)
 - [Streaming reference context](../journal/2026-10-04-streaming-reference-context.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)

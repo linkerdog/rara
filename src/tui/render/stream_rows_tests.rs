@@ -645,3 +645,38 @@ fn rich_line_cursor_skips_empty_spans_and_preserves_retained_snapshots() {
         layout.work.get()
     );
 }
+
+#[test]
+fn completed_list_items_retain_styled_visual_rows() {
+    for width in [8, 80] {
+        let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+        let mut layout = StreamRowCache::default();
+        let mut source = String::new();
+        let mut retained = None;
+        for index in 0..200 {
+            let chunk = format!("1. **Item** {index} and [local](src/lib.rs)\n");
+            source.push_str(&chunk);
+            collector.push_delta(&chunk);
+            let rows = materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            let canonical = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            );
+            assert_rows(
+                &rows,
+                &canonical_response(&canonical.lines, width, ResponseView::Full),
+            );
+            if index == 2 {
+                retained = Some(rows);
+            } else if let Some(before) = &retained {
+                assert!(std::ptr::eq(before.get(0).unwrap(), rows.get(0).unwrap()));
+            }
+        }
+        assert!(
+            layout.work.get().wrapped_lines <= 200 * 4,
+            "{:?}",
+            layout.work.get()
+        );
+    }
+}

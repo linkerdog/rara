@@ -78,8 +78,12 @@ Active backlog only. Keep this file small and current.
       Formatted paragraphs can also reuse parser-confirmed raw-text tails and
       styled visual prefixes with a span cursor; see
       [the inline checkpoint](journal/2026-10-05-inline-paragraph-continuation.md).
+      Root lists retain completed items before their pending boundary row and
+      final mutable item; see
+      [the list checkpoint](journal/2026-10-05-streaming-list-items.md).
       Large individual grapheme tails, normalization fallback, and ineligible
-      long mutable blocks still need work bounds; see
+      long mutable blocks (including growth within one list item or its pending
+      boundary row) still need work bounds; see
       [the plain paragraph checkpoint](journal/2026-10-05-long-mutable-markdown.md).
       Definition changes and reference-expansion fallback still
       need work bounds. Ordinary blocks after reference definitions now reuse
