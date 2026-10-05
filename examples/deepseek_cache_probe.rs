@@ -48,6 +48,10 @@ struct Cli {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::print_stderr,
+    reason = "Standalone probe CLI owns its console output."
+)]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut options = DeepseekCacheProbeOptions {

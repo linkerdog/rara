@@ -1,5 +1,6 @@
 use crate::agent::Agent;
 use crate::tui::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::TuiApp;
 
 pub(super) async fn request_maintenance(
@@ -26,9 +27,10 @@ pub(super) async fn request_maintenance(
             RuntimeMaintenanceCommand::RefreshModelCatalog(provider) => {
                 crate::tui::runtime::start_model_catalog_task(app, provider)
             }
-            RuntimeMaintenanceCommand::Compact => {
-                app.push_notice("Compaction requires an active runtime client.")
-            }
+            RuntimeMaintenanceCommand::Compact => app.push_notice(
+                NoticeLevel::Warning,
+                "Compaction requires an active runtime client.",
+            ),
         }
     }
     Ok(())

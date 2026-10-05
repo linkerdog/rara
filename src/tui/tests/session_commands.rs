@@ -59,9 +59,7 @@ async fn busy_submit_queues_follow_up_message() {
         Some("continue with the follow-up")
     );
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Queued for after the next tool call boundary"))
     );
     assert_eq!(
@@ -286,7 +284,7 @@ async fn pending_plan_approval_blocks_plain_submit() {
     assert!(!should_quit);
     assert!(app.has_pending_plan_approval());
     assert!(app.bottom_pane.running_task.is_none());
-    let notice = app.bottom_pane.notice.as_deref().expect("notice");
+    let notice = app.notice_text().expect("notice");
     assert!(notice.contains("Use 1 approve"));
     assert!(notice.contains("2 keep planning"));
     assert!(notice.contains("3 reject"));
@@ -371,9 +369,7 @@ async fn submit_numeric_input_handles_pending_shell_approval() {
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.bottom_pane.input, "");
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Approval is still preparing"))
     );
 }
@@ -462,9 +458,7 @@ async fn invalid_plan_approval_selection_keeps_pending_with_notice() {
     assert!(app.has_pending_plan_approval());
     assert!(agent_slot.is_some());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Invalid plan approval option"))
     );
     assert!(
@@ -516,9 +510,7 @@ async fn empty_submit_keeps_shell_approval_on_card_surface() {
     assert!(app.overlay.is_none());
     assert_eq!(app.approval_picker_idx, 0);
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Left/Right and Enter"))
     );
 }
@@ -567,9 +559,7 @@ async fn plain_submit_queues_while_shell_approval_is_pending() {
     assert!(app.bottom_pane.running_task.is_none());
     assert_eq!(app.queued_follow_up_preview(), Some("then review the diff"));
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("pending interaction is answered"))
     );
 }
