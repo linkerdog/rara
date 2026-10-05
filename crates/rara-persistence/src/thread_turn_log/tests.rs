@@ -84,3 +84,51 @@ fn read_failure_retains_the_prefix_and_stops_retrying() {
         Some("Could not read live transcript at line 2: injected read failure")
     );
 }
+
+#[test]
+fn turn_retry_after_a_partial_line_preserves_both_complete_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let entries = vec![PersistedTurnEntry {
+        role: "You".into(),
+        message: "retained".into(),
+    }];
+    append_turn_record(dir.path(), "thread", 0, &entries).unwrap();
+    let path = turn_log_path(dir.path(), "thread");
+    OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(b"{\"summary\":")
+        .unwrap();
+    append_turn_record(dir.path(), "thread", 1, &entries).unwrap();
+    let records = load_turn_records(dir.path(), "thread").unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].summary.ordinal, 0);
+    assert_eq!(records[1].summary.ordinal, 1);
+    assert_eq!(records[1].entries[0].message, "retained");
+}
+
+#[test]
+fn live_batch_preserves_a_complete_unterminated_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("thread");
+    fs::create_dir_all(&root).unwrap();
+    let first = PersistedTurnEntry {
+        role: "You".into(),
+        message: "first".into(),
+    };
+    let second = PersistedTurnEntry {
+        role: "Agent".into(),
+        message: "second".into(),
+    };
+    fs::write(
+        root.join(LIVE_LOG_FILE),
+        serde_json::to_vec(&first).unwrap(),
+    )
+    .unwrap();
+    append_rollout_fragments(dir.path(), "thread", &[second]).unwrap();
+    let entries = load_live_entries(dir.path(), "thread");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].message, "first");
+    assert_eq!(entries[1].message, "second");
+}
