@@ -2,6 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::agent::Agent;
 use crate::tui::permission_policy::{PermissionPreset, permission_preset};
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{PermissionMode, TuiApp};
 
 #[cfg(test)]
@@ -14,24 +15,36 @@ pub(crate) fn request_permission_mode(
     mode: PermissionMode,
 ) {
     if permission_preset(mode).is_none() {
-        app.push_notice("Custom describes the effective policy. Choose a named preset.");
+        app.push_notice(
+            NoticeLevel::Info,
+            "Custom describes the effective policy. Choose a named preset.",
+        );
         return;
     }
     if app.is_busy() {
         if mode == app.effective_permission_mode() {
             app.pending_permission_mode = None;
-            app.push_notice(format!("Keeping current permissions: {}.", mode.label()));
+            app.push_notice(
+                NoticeLevel::Info,
+                format!("Keeping current permissions: {}.", mode.label()),
+            );
         } else {
             app.pending_permission_mode = Some(mode);
-            app.push_notice(format!(
-                "Permissions pending: {}. Applies after the current task finishes.",
-                mode.label()
-            ));
+            app.push_notice(
+                NoticeLevel::Info,
+                format!(
+                    "Permissions pending: {}. Applies after the current task finishes.",
+                    mode.label()
+                ),
+            );
         }
     } else {
         app.pending_permission_mode = None;
         apply_permission_mode(app, agent_slot, mode);
-        app.push_notice(format!("Permissions applied: {}.", mode.label()));
+        app.push_notice(
+            NoticeLevel::Info,
+            format!("Permissions applied: {}.", mode.label()),
+        );
     }
 }
 
@@ -48,11 +61,17 @@ pub(super) fn apply_pending_permission_mode(app: &mut TuiApp, agent: &mut Agent)
         return false;
     };
     let Some(preset) = permission_preset(mode) else {
-        app.push_notice("Cannot apply a Custom permission preset.");
+        app.push_notice(
+            NoticeLevel::Warning,
+            "Cannot apply a Custom permission preset.",
+        );
         return false;
     };
     apply_policy(app, Some(agent), preset);
-    app.push_notice(format!("Permissions applied: {}.", mode.label()));
+    app.push_notice(
+        NoticeLevel::Info,
+        format!("Permissions applied: {}.", mode.label()),
+    );
     true
 }
 

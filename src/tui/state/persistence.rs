@@ -12,6 +12,7 @@ use super::{
     TuiApp, state_db_status_error,
 };
 use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
+use crate::tui::state::NoticeLevel;
 
 const RESUME_PICKER_THREAD_LIMIT: usize = 200;
 
@@ -100,7 +101,10 @@ impl TuiApp {
                     self.goal_handle
                         .disable_after_persistence_failure(format!("{error:#}"));
                     self.goal = None;
-                    self.push_notice(format!("Goal persistence unavailable: {error:#}"));
+                    self.push_notice(
+                        NoticeLevel::Error,
+                        format!("Goal persistence unavailable: {error:#}"),
+                    );
                 }
             }
         }

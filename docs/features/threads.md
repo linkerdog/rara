@@ -105,6 +105,13 @@ Current backend slice:
   `turns.jsonl`; resume loads any remaining live entries back into the active
   turn so an interrupted process can recover partial transcript output without
   treating it as a committed turn.
+- Live-log recovery preserves valid entries around malformed records and reports
+  incomplete recovery to the caller. Missing logs are normal; open/read errors
+  and skipped records produce a visible recovery warning. Diagnostics never
+  include raw corrupt transcript contents or write directly to the terminal.
+- A failed StateDb turn index update after a successful canonical append remains
+  a recoverable indexing failure, not a failed canonical commit. Report it as a
+  warning without retrying or duplicating the committed turn.
 - Runtime compaction writes also go through `ThreadRecorder`, so manual/auto
   compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown
@@ -184,5 +191,6 @@ Runtime status:
 
 ## Source Journals
 
+- [Runtime diagnostics and recovery](../journal/2026-10-05-runtime-diagnostics.md)
 - 2026-05-03-memory-records-and-threads-spec.md
 - 2026-05-03-memory-record-persistence-and-thread-export.md

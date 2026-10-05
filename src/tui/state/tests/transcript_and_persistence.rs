@@ -680,13 +680,13 @@ fn reset_transcript_clears_live_log() {
 
     app.reset_transcript();
 
-    assert!(
-        thread_turn_log::load_live_entries(
-            &app.state_db.as_ref().unwrap().rollout_root(),
-            "live-reset-session"
-        )
-        .is_empty()
+    let entries = thread_turn_log::load_live_entries(
+        &app.state_db.as_ref().unwrap().rollout_root(),
+        "live-reset-session",
     );
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].role, "System");
+    assert_eq!(entries[0].message, "Cleared local transcript view.");
 }
 
 // ── Command palette selection persistence ──────────────────────────

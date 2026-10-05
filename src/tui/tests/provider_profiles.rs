@@ -460,9 +460,7 @@ async fn save_api_key_input_allows_clearing_openai_compatible_credentials() {
     assert!(!should_quit);
     assert_eq!(app.config.api_key(), None);
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .is_some_and(|value| value.contains("Cleared API key"))
     );
 }

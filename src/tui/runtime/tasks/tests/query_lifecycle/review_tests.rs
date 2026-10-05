@@ -32,9 +32,7 @@ async fn unrequested_cancellation_text_preserves_query_failure() {
         fixture
             .controller
             .app()
-            .bottom_pane
-            .notice
-            .as_deref()
+            .notice_text()
             .is_some_and(|notice| notice.contains("provider failure quoting cancelled by user"))
     );
 }

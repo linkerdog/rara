@@ -5,6 +5,7 @@ use super::{
 };
 use crate::agent::{AgentExecutionMode, BashApprovalMode};
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::TranscriptEntry;
 
 fn completed_interaction_role(kind: InteractionKind, source: Option<&str>) -> MessageRole {
@@ -277,7 +278,7 @@ impl TuiApp {
                 source: Some(source.into()),
                 created_at_epoch_seconds: Some(current_unix_timestamp_secs()),
             });
-        self.bottom_pane.notice = Some(title.clone());
+        self.push_notice(NoticeLevel::Info, title.clone());
         self.persist_runtime_state();
     }
 
