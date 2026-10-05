@@ -11,7 +11,11 @@
 
 use thiserror::Error;
 
-const PATCH_PREVIEW_LINE_LIMIT: usize = 120;
+mod preview;
+pub use preview::patch_preview;
+
+#[cfg(test)]
+mod preview_tests;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PatchError {
@@ -429,7 +433,7 @@ pub fn build_patch_action_from_ops(
         }
     }
 
-    let (text, truncated) = patch_preview(patch);
+    let (text, truncated) = preview::action_preview(patch, &changes);
     Ok(PatchAction {
         patch: patch.to_string(),
         changes,
@@ -512,19 +516,6 @@ pub fn join_lines(lines: &[String]) -> String {
     } else {
         format!("{}\n", lines.join("\n"))
     }
-}
-
-pub fn patch_preview(patch: &str) -> (String, bool) {
-    let lines = patch
-        .lines()
-        .take(PATCH_PREVIEW_LINE_LIMIT)
-        .collect::<Vec<_>>();
-    let truncated = patch.lines().nth(PATCH_PREVIEW_LINE_LIMIT).is_some();
-    let mut preview = lines.join("\n");
-    if truncated {
-        preview.push_str("\n... diff truncated");
-    }
-    (preview, truncated)
 }
 
 pub fn seek_sequence(

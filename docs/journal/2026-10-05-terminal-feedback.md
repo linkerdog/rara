@@ -86,3 +86,7 @@ acquisition; both idle diagnostic/notice tests and feedback tests remain present
 Rename and new-thread completion update typed notices and terminal title state.
 The latest main integration also brings the merged keyboard-enhancement and
 shared-redaction dependencies into the final validation tree.
+
+Combined TUI validation passed 1,142 tests with seven parent-driven child
+fixtures ignored. This includes the real PTY lifecycle, title/keyboard balance,
+idle diagnostic delivery, typed notice expiry, and feedback completion barriers.
