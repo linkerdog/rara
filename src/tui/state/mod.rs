@@ -1,4 +1,4 @@
-use bottom_pane_model::BottomPaneModel;
+pub(crate) use bottom_pane_model::BottomPaneModel;
 mod approval_details;
 pub(crate) use approval_details::{ApprovalDetailNavigation, ApprovalDetailScroll};
 mod bottom_pane_model;

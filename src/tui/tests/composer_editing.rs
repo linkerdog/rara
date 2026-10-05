@@ -283,8 +283,8 @@ fn multiple_large_pastes_accumulate_in_pending_vec() {
     assert!(app.bottom_pane.input.contains("Pasted Content #1"));
     // Counters should be unique
     assert_ne!(
-        app.bottom_pane.large_paste_pending[0].0,
-        app.bottom_pane.large_paste_pending[1].0
+        app.bottom_pane.large_paste_pending[0].label,
+        app.bottom_pane.large_paste_pending[1].label
     );
 }
 

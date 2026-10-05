@@ -4,6 +4,7 @@ use super::bottom_pane::{desired_bottom_pane_height, render_bottom_pane};
 use super::overlay::render_overlay;
 use super::{render_startup_header, render_transcript, sidebar};
 use crate::tui::custom_terminal::Frame;
+use crate::tui::file_mentions::render_file_mentions;
 use crate::tui::pane_geometry::PaneColumns;
 use crate::tui::state::TuiApp;
 
@@ -33,6 +34,12 @@ fn render_narrow(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16) {
     render_transcript(f, app, transcript_area);
     let mut cursor = render_bottom_pane(f, app, layout[1]);
 
+    if let Some(popup) = render_file_mentions(f, app, f.area(), layout[1].y)
+        && cursor.is_some_and(|(x, y)| popup.contains((x, y).into()))
+    {
+        cursor = None;
+    }
+
     if let Some(overlay) = app.overlay {
         cursor = render_overlay(f, app, overlay).or(cursor);
     }
@@ -59,6 +66,12 @@ fn render_wide(f: &mut Frame, app: &mut TuiApp, bottom_pane_height: u16, sidebar
     let transcript_area = render_startup_header(f, app, main[0]);
     render_transcript(f, app, transcript_area);
     let mut cursor = render_bottom_pane(f, app, main[1]);
+
+    if let Some(popup) = render_file_mentions(f, app, layout[1], main[1].y)
+        && cursor.is_some_and(|(x, y)| popup.contains((x, y).into()))
+    {
+        cursor = None;
+    }
 
     if let Some(overlay) = app.overlay {
         cursor = render_overlay(f, app, overlay).or(cursor);

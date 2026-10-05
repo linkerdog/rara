@@ -104,6 +104,7 @@ boundary below.
 | Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children, including balanced keyboard enhancement entries |
 | Enhanced key decoding and legacy fallback | `keyboard_protocol_tests`, real CSI-u and legacy bytes through the isolated terminal fixture and production input translator |
 | Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
+| Atomic file completion and mixed paste ownership | `file_mentions::state::tests`, condition-variable worker tests, `composer_atoms::tests`, and a reviewed popup snapshot |
 | Persistent prompt recall and incremental search | `prompt_history_tests`, persistence store process tests, and `event_loop_session_tests` with a held writer lock through terminal restoration |
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
@@ -192,3 +193,4 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 - [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)
 - [Production event-loop verification](../journal/2026-10-03-tui-event-loop-verification.md)
 - [Scoped TUI panic lints](../journal/2026-10-04-tui-panic-lints.md)
+- [Atomic file references and asynchronous discovery](../journal/2026-10-05-file-mentions.md)

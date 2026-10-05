@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app_event::AppEvent;
+use super::file_mentions::FileMentionAction;
 use super::prompt_history::HistoryAction;
 use super::state::{
     ApprovalDetailNavigation, HelpTab, Overlay, OverlayNavigation, QuitShortcutKey, StatusTab,
@@ -10,6 +11,20 @@ use super::state::{
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
     let modifiers = key.modifiers;
+    if app.file_mention_open() {
+        let action = match (code, modifiers) {
+            (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                Some(FileMentionAction::Dismiss)
+            }
+            (KeyCode::Tab | KeyCode::Enter, KeyModifiers::NONE) => Some(FileMentionAction::Accept),
+            (KeyCode::Up, KeyModifiers::NONE) => Some(FileMentionAction::Previous),
+            (KeyCode::Down, KeyModifiers::NONE) => Some(FileMentionAction::Next),
+            _ => None,
+        };
+        if let Some(action) = action {
+            return AppEvent::FileMention(action);
+        }
+    }
     // Control shortcuts must not fall through to an overlay's printable input.
     if modifiers == KeyModifiers::CONTROL {
         if app.overlay == Some(Overlay::ListPicker(super::state::ListPickerKind::Resume)) {

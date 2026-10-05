@@ -5,8 +5,8 @@
 
 use std::time::{Duration, Instant};
 
-use super::{ApprovalDetailScroll, char_offset_to_byte_index, effective_cursor_offset};
-use crate::tui::input_text::ceil_grapheme_offset;
+use super::{ApprovalDetailScroll, effective_cursor_offset};
+use crate::tui::composer_atoms::OwnedPaste;
 use crate::tui::presentation_revision::PresentationInput;
 use crate::tui::queued_input::PendingFollowUpMessage;
 use crate::tui::state::types::RunningTask;
@@ -31,9 +31,8 @@ pub struct BottomPaneModel {
     // avoiding O(n²) per-frame redraws for long pastes.
     pub(super) paste_burst_buffer: Option<String>,
     pub(super) paste_burst_deadline: Option<Instant>,
-    /// Large pastes pending expansion on submit. Each entry is
-    /// `(placeholder_text, full_text)` where placeholder is unique.
-    pub(crate) large_paste_pending: Vec<(String, String)>,
+    /// Owned source ranges and payloads expanded on submission.
+    pub(crate) large_paste_pending: Vec<OwnedPaste>,
     pub(crate) large_paste_counter: u32,
 }
 
@@ -56,7 +55,10 @@ impl BottomPaneModel {
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        effective_cursor_offset(&self.input, self.input_cursor_offset)
+        self.floor_atom_boundary(effective_cursor_offset(
+            &self.input,
+            self.input_cursor_offset,
+        ))
     }
 
     pub(crate) fn clear_input(&mut self) {
@@ -97,35 +99,24 @@ impl BottomPaneModel {
             let counter = self.large_paste_counter;
             self.large_paste_counter += 1;
             let placeholder = format!("[Pasted Content #{} — {} chars]", counter, char_count);
-            // Insert placeholder at cursor position instead of end
             let offset = self.composer_cursor_offset();
-            let pos = char_offset_to_byte_index(&self.input, offset);
-            self.input.insert_str(pos, &placeholder);
-            self.input_cursor_offset = Some(ceil_grapheme_offset(
-                &self.input,
-                offset + placeholder.chars().count(),
-            ));
-            self.large_paste_pending.push((placeholder, buf));
+            self.edit_composer(offset..offset, &placeholder);
+            self.large_paste_pending.push(OwnedPaste {
+                range: offset..offset + placeholder.chars().count(),
+                label: placeholder,
+                content: buf,
+            });
             return Some(format!(
                 "Large paste #{counter} ({char_count} chars) — expanded on submit"
             ));
         }
 
-        let paste_end = {
-            let old_offset = self.composer_cursor_offset();
-            if self.input_cursor_offset.is_none() {
-                self.input.push_str(&buf);
-                None
-            } else {
-                let pos = char_offset_to_byte_index(&self.input, old_offset);
-                self.input.insert_str(pos, &buf);
-                Some(ceil_grapheme_offset(
-                    &self.input,
-                    old_offset + buf.chars().count(),
-                ))
-            }
-        };
-        self.input_cursor_offset = paste_end;
+        let append = self.input_cursor_offset.is_none();
+        let offset = self.composer_cursor_offset();
+        self.edit_composer(offset..offset, &buf);
+        if append {
+            self.input_cursor_offset = None;
+        }
         Some(format!("Pasted {char_count} chars"))
     }
 
@@ -135,12 +126,7 @@ impl BottomPaneModel {
 
     /// Replace paste placeholder in input with the real text. Call before submit.
     pub(crate) fn expand_large_paste(&mut self) {
-        let pending: Vec<_> = std::mem::take(&mut self.large_paste_pending);
-        for (placeholder, full_text) in pending {
-            self.input = self.input.replace(&placeholder, &full_text);
-        }
-        // Also handle legacy single-entry format for safety
-        self.large_paste_counter = 0;
+        self.expand_owned_pastes();
     }
 }
 

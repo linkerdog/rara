@@ -120,10 +120,7 @@ impl TuiApp {
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        effective_cursor_offset(
-            self.bottom_pane.input.as_str(),
-            self.bottom_pane.input_cursor_offset,
-        )
+        self.bottom_pane.composer_cursor_offset()
     }
 
     pub fn base_url_cursor_offset(&self) -> usize {
@@ -151,6 +148,7 @@ impl TuiApp {
     /// Test helper for seeding composer input without simulating key events.
     #[allow(dead_code)] // Reserved for programmatic input control
     pub fn set_input(&mut self, input: String) {
+        self.bottom_pane.large_paste_pending.clear();
         self.bottom_pane.input = input;
         self.bottom_pane.input_cursor_offset = None;
         self.reset_input_history_navigation();
@@ -158,6 +156,7 @@ impl TuiApp {
     }
 
     fn set_input_from_history(&mut self, input: String) {
+        self.bottom_pane.large_paste_pending.clear();
         self.bottom_pane.input = input;
         self.bottom_pane.input_cursor_offset = Some(self.bottom_pane.input.chars().count());
         self.sync_command_palette_with_input();
@@ -201,7 +200,7 @@ impl TuiApp {
 
         let next = match self.input_history_cursor {
             None if delta < 0 => {
-                self.input_history_draft = Some(self.bottom_pane.input.clone());
+                self.input_history_draft = Some(self.bottom_pane.saved_draft());
                 Some(self.input_history.len().saturating_sub(1))
             }
             None => return,
@@ -220,21 +219,14 @@ impl TuiApp {
             None => {
                 let draft = self.input_history_draft.take().unwrap_or_default();
                 self.input_history_cursor = None;
-                self.set_input_from_history(draft);
+                self.bottom_pane.restore_draft(draft);
+                self.sync_command_palette_with_input();
             }
         }
     }
 
     pub fn insert_active_input_char(&mut self, ch: char) {
-        let Some(target) = self.active_text_input_target() else {
-            return;
-        };
-        let (text, cursor_offset) = self.text_and_cursor_mut(target);
-        let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
-        let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
-        text.insert(byte_idx, ch);
-        *cursor_offset = Some(ceil_grapheme_offset(text, cursor.saturating_add(1)));
-        self.update_after_active_input_edit(target);
+        self.insert_active_input_text(ch.encode_utf8(&mut [0; 4]));
     }
 
     pub fn insert_active_input_text(&mut self, inserted: &str) {
@@ -244,6 +236,12 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            self.bottom_pane.edit_composer(cursor..cursor, inserted);
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
@@ -257,13 +255,8 @@ impl TuiApp {
 
     pub fn insert_newline_in_composer(&mut self) {
         let cursor = self.composer_cursor_offset();
-        let byte_idx = char_offset_to_byte_index(self.bottom_pane.input.as_str(), cursor);
-        self.bottom_pane.input.insert(byte_idx, '\n');
-        self.bottom_pane.input_cursor_offset = Some(ceil_grapheme_offset(
-            &self.bottom_pane.input,
-            cursor.saturating_add(1),
-        ));
-        self.sync_command_palette_with_input();
+        self.bottom_pane.edit_composer(cursor..cursor, "\n");
+        self.update_after_active_input_edit(TextInputTarget::Composer);
     }
 
     /// Keep the composer cursor visible by adjusting `composer_scroll`.
@@ -294,8 +287,8 @@ impl TuiApp {
             terminal_width: self.terminal_width,
             sidebar_visible: self.sidebar_visible,
         };
-        crate::tui::composer_text::wrapped_text(
-            &self.bottom_pane.input,
+        crate::tui::composer_text::wrapped_composer(
+            &self.bottom_pane,
             crate::tui::composer_text::WrapConfig::composer(columns.main_width()),
         )
     }
@@ -304,6 +297,16 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            if cursor == 0 {
+                return;
+            }
+            let previous = previous_grapheme_offset(&self.bottom_pane.input, cursor);
+            self.bottom_pane.edit_composer(previous..cursor, "");
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor == 0 {
@@ -321,6 +324,16 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            let next = next_grapheme_offset(&self.bottom_pane.input, cursor);
+            if next == cursor {
+                return;
+            }
+            self.bottom_pane.edit_composer(cursor..next, "");
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor >= text.chars().count() {
@@ -337,6 +350,13 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let previous =
+                previous_grapheme_offset(&self.bottom_pane.input, self.composer_cursor_offset());
+            self.bottom_pane.input_cursor_offset =
+                Some(self.bottom_pane.floor_atom_boundary(previous));
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some(previous_grapheme_offset(text, cursor));
@@ -346,6 +366,11 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let next = next_grapheme_offset(&self.bottom_pane.input, self.composer_cursor_offset());
+            self.bottom_pane.input_cursor_offset = Some(self.bottom_pane.ceil_atom_boundary(next));
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some(next_grapheme_offset(text, cursor));

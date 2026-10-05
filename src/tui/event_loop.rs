@@ -272,6 +272,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
         needs_redraw |= maintainer.app_mut().poll_prompt_history();
+        needs_redraw |= maintainer.app_mut().poll_file_mentions();
         needs_redraw |= maintainer.app_mut().poll_diagnostics();
         if exit_flush.is_none() {
             if matches!(startup_maintenance, StartupMaintenance::Rebuild)
