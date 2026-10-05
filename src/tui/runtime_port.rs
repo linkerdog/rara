@@ -43,6 +43,8 @@ pub(crate) enum RuntimeCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeMaintenanceCommand {
+    ExportThread { path: Option<String> },
+    RenameThread { title: String },
     Compact,
     Review,
     Rebuild,

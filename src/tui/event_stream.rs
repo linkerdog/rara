@@ -106,6 +106,9 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
             let delta = (direction * lines.round() as i32).clamp(-15, 15);
             match &app.overlay {
                 Some(Overlay::Context) => AppEvent::ScrollContext(delta),
+                Some(Overlay::Diff) => {
+                    AppEvent::NavigateDiff(super::diff_view::DiffNavigation::Rows(delta))
+                }
                 Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
                     AppEvent::MoveCommandSelection(delta)
                 }

@@ -52,6 +52,92 @@ fn scripted_clipboard() -> (Clipboard, Output, mpsc::UnboundedReceiver<CopyCall>
     (clipboard, output, receiver)
 }
 
+#[tokio::test]
+async fn copy_commands_use_the_last_completed_answer_and_markdown_code_blocks() {
+    use crate::tui::message_role::MessageRole;
+    use crate::tui::state::{RunningTask, TaskKind};
+
+    let (clipboard, _, mut calls) = scripted_clipboard();
+    let mut tui = TuiHarness::new(Default::default()).unwrap();
+    tui.app_mut().clipboard = Some(clipboard);
+    let answer = "First:\n\n```rust\nlet first = 1;\n```\n\nLast:\n\n    print(42)\n";
+    tui.app_mut().push_entry(MessageRole::Agent, answer);
+    tui.app_mut().finalize_active_turn();
+    tui.app_mut()
+        .push_entry(MessageRole::Thinking, "hidden reasoning");
+    tui.app_mut()
+        .push_entry(MessageRole::Agent, "unfinished answer");
+    let (_sender, receiver) = mpsc::unbounded_channel();
+    tui.app_mut().bottom_pane.running_task = Some(RunningTask {
+        kind: TaskKind::Query,
+        receiver,
+        handle: tokio::spawn(std::future::pending()),
+        started_at: std::time::Instant::now(),
+        next_heartbeat_after_secs: 2,
+        cancellation_token: None,
+        query_control: None,
+    });
+    for (command, expected) in [("/copy", answer), ("/copy code", "print(42)\n")] {
+        tui.app_mut().bottom_pane.input = command.into();
+        tui.app_mut().sync_command_palette_with_input();
+        tui.press_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        let (text, complete) = calls.recv().await.unwrap();
+        assert_eq!(text, expected);
+        complete.send(Ok(())).unwrap();
+        finish_task(tui.app_mut().clipboard.as_mut().unwrap()).await;
+        assert!(tui.app().is_busy());
+    }
+    tui.app_mut()
+        .bottom_pane
+        .running_task
+        .take()
+        .unwrap()
+        .handle
+        .abort();
+}
+
+#[tokio::test]
+async fn invalid_copy_and_absent_answers_leave_the_clipboard_untouched() {
+    use crate::tui::message_role::MessageRole;
+    let (clipboard, output, mut calls) = scripted_clipboard();
+    let mut tui = TuiHarness::new(Default::default()).unwrap();
+    tui.app_mut().clipboard = Some(clipboard);
+    for (command, notice) in [("/copy", "No completed"), ("/copy all", "Usage:")] {
+        tui.app_mut().bottom_pane.input = command.into();
+        tui.app_mut().sync_command_palette_with_input();
+        tui.press_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .await
+            .unwrap();
+        assert!(
+            tui.app()
+                .bottom_pane
+                .notice
+                .as_deref()
+                .unwrap()
+                .contains(notice)
+        );
+    }
+    tui.app_mut()
+        .push_entry(MessageRole::Agent, "No code here.");
+    tui.app_mut().bottom_pane.input = "/copy code".into();
+    tui.app_mut().sync_command_palette_with_input();
+    tui.press_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert!(
+        tui.app()
+            .bottom_pane
+            .notice
+            .as_deref()
+            .unwrap()
+            .contains("no code block")
+    );
+    assert!(calls.try_recv().is_err());
+    assert!(output.0.lock().unwrap().is_empty());
+}
+
 async fn finish_task(clipboard: &mut Clipboard) -> Option<String> {
     tokio::time::timeout(Duration::from_secs(3), async {
         while clipboard
@@ -116,7 +202,7 @@ async fn stalled_clipboard_does_not_block_selection_dispatch_or_typing() {
         finish_task(tui.app_mut().clipboard.as_mut().expect("clipboard"))
             .await
             .as_deref(),
-        Some("Copied transcript selection to clipboard.")
+        Some("Copied text to clipboard.")
     );
 }
 
@@ -236,7 +322,7 @@ async fn timeout_drops_stalled_native_copy_and_reports_terminal_fallback() {
     clipboard.request("hello".into());
     let (_, mut complete) = calls.recv().await.expect("stalled copy");
     let notice = finish_task(&mut clipboard).await.expect("timeout notice");
-    assert!(notice.contains("Sent selection to terminal clipboard"));
+    assert!(notice.contains("Sent text to terminal clipboard"));
     assert!(notice.contains("timed out"));
     complete.closed().await;
 }

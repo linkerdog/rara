@@ -33,6 +33,10 @@ Each active feature spec should include:
 - `file-mentions.md`: asynchronous file completion and atomic composer references.
 - `prompt-history.md`: bounded per-user composer recall, privacy, and lazy search.
 
+## Terminal Specs
+
+- `terminal-feedback.md`: terminal title ownership and focus-gated notifications.
+
 ## Control-Plane Readiness
 
 Features that affect skills, memory, prompt sources, hooks, planning, approvals,
@@ -82,6 +86,7 @@ future appserver integrations can use.
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
   and compact TUI contracts aligned with Codex 0.154.
+- `session-commands.md`: copy, new-thread, diff, init, rename, and export contracts.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
 - `multi-agent-orchestration.md`: session-tree ownership, shared child capacity,

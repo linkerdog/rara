@@ -39,6 +39,7 @@ use crate::tui::state::{
 use crate::workspace::WorkspaceMemory;
 
 mod recovery;
+mod terminal_feedback;
 
 struct PlainAnswerBackend;
 

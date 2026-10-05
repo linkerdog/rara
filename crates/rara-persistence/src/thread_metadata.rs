@@ -1,14 +1,42 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use uuid::Uuid;
 
 use crate::atomic_file;
 use crate::thread_data::PersistedThreadRecord;
 
 const THREAD_METADATA_FILE: &str = "thread.json";
+
+/// Serialize metadata/index updates across clients. The callback must not acquire
+/// the same thread lock again; keep the stable lock inode across file replacement.
+pub fn with_thread_record_lock<T>(
+    root_dir: &Path,
+    session_id: &str,
+    update: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let directory = root_dir.join(session_id);
+    fs::create_dir_all(&directory)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join("metadata.lock"))?;
+    for _ in 0..10 {
+        match lock.try_lock_exclusive() {
+            Ok(()) => return update(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(error) => return Err(error).context("lock thread metadata"),
+        }
+    }
+    anyhow::bail!("thread metadata is busy in another process")
+}
 
 pub(crate) fn thread_metadata_path(root_dir: &Path, session_id: &str) -> PathBuf {
     root_dir.join(session_id).join(THREAD_METADATA_FILE)

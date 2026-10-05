@@ -27,6 +27,9 @@ use crate::runtime_goals::{GoalHandle, GoalStatus, GoalTurn, RalphGoal};
 use crate::tools::agent::{AgentActivitySnapshot, AgentTreeControl};
 use crate::tui::state::RuntimeExtensionSnapshot;
 
+mod thread_commands;
+pub(crate) use thread_commands::{ThreadCommandOutcome, ThreadCommandResult};
+
 /// Fully initialized replacement runtime returned by a backend rebuild.
 pub(crate) struct RebuildSuccess {
     pub(crate) agent: Agent,

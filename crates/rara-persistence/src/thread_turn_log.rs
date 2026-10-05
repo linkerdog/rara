@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -52,8 +52,10 @@ pub fn append_turn_record(
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(&path)
         .with_context(|| format!("open thread turn log {}", path.display()))?;
+    ensure_line_separator(&mut file)?;
     file.write_all(&line)?;
     file.sync_data()?;
     if let Some(parent) = path.parent() {
@@ -111,17 +113,49 @@ pub fn append_rollout_fragment(
     session_id: &str,
     entry: &PersistedTurnEntry,
 ) -> Result<()> {
+    append_rollout_fragments(root_dir, session_id, std::slice::from_ref(entry))
+}
+
+/// Append a buffered group of live entries with one open and one write.
+pub fn append_rollout_fragments(
+    root_dir: &Path,
+    session_id: &str,
+    entries: &[PersistedTurnEntry],
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
     let dir = root_dir.join(session_id);
     fs::create_dir_all(&dir)?;
     let path = dir.join(LIVE_LOG_FILE);
-    let mut line = serde_json::to_vec(entry)?;
-    line.push(b'\n');
+    let mut lines = Vec::new();
+    for entry in entries {
+        serde_json::to_writer(&mut lines, entry)?;
+        lines.push(b'\n');
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(&path)
         .with_context(|| format!("open live log {}", path.display()))?;
-    file.write_all(&line)?;
+    ensure_line_separator(&mut file)?;
+    file.write_all(&lines)?;
+    Ok(())
+}
+
+fn ensure_line_separator(file: &mut fs::File) -> std::io::Result<()> {
+    if file.metadata()?.len() == 0 {
+        return Ok(());
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut last = [0];
+    file.read_exact(&mut last)?;
+    if last[0] != b'\n' {
+        // A prior interrupted write must not swallow a successfully retried
+        // record. Preserve the fragment and start the next JSON record cleanly.
+        file.write_all(b"\n")?;
+    }
     Ok(())
 }
 
@@ -183,4 +217,57 @@ pub fn load_live_entries(root_dir: &Path, session_id: &str) -> Vec<PersistedTurn
         }
     }
     entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turn_retry_after_a_partial_line_preserves_both_complete_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let entries = vec![PersistedTurnEntry {
+            role: "You".into(),
+            message: "retained".into(),
+        }];
+        append_turn_record(dir.path(), "thread", 0, &entries).unwrap();
+        let path = turn_log_path(dir.path(), "thread");
+        OpenOptions::new()
+            .append(true)
+            .open(path)
+            .unwrap()
+            .write_all(b"{\"summary\":")
+            .unwrap();
+        append_turn_record(dir.path(), "thread", 1, &entries).unwrap();
+        let records = load_turn_records(dir.path(), "thread").unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].summary.ordinal, 0);
+        assert_eq!(records[1].summary.ordinal, 1);
+        assert_eq!(records[1].entries[0].message, "retained");
+    }
+
+    #[test]
+    fn live_batch_preserves_a_complete_unterminated_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("thread");
+        fs::create_dir_all(&root).unwrap();
+        let first = PersistedTurnEntry {
+            role: "You".into(),
+            message: "first".into(),
+        };
+        let second = PersistedTurnEntry {
+            role: "Agent".into(),
+            message: "second".into(),
+        };
+        fs::write(
+            root.join(LIVE_LOG_FILE),
+            serde_json::to_vec(&first).unwrap(),
+        )
+        .unwrap();
+        append_rollout_fragments(dir.path(), "thread", &[second]).unwrap();
+        let entries = load_live_entries(dir.path(), "thread");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].message, "first");
+        assert_eq!(entries[1].message, "second");
+    }
 }

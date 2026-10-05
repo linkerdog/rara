@@ -14,6 +14,12 @@ pub(super) async fn request_maintenance(
             .await?;
     } else {
         match command {
+            RuntimeMaintenanceCommand::ExportThread { .. } => {
+                app.push_notice("Exporting requires an active runtime client.")
+            }
+            RuntimeMaintenanceCommand::RenameThread { .. } => {
+                app.push_notice("Renaming requires an active runtime client.")
+            }
             RuntimeMaintenanceCommand::Review => {
                 crate::tui::runtime::review::start(app, agent_slot);
             }

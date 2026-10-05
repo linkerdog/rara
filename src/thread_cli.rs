@@ -91,7 +91,9 @@ fn format_recent_threads(threads: &[ThreadSummary], limit: usize) -> String {
 
 fn format_thread_summary_lines(thread: &ThreadSummary) -> Vec<String> {
     let workspace = workspace_label(&thread.metadata.cwd);
-    let preview = if thread.preview.is_empty() {
+    let preview = if let Some(title) = thread.metadata.title.as_deref() {
+        title
+    } else if thread.preview.is_empty() {
         "(no preview)"
     } else {
         thread.preview.as_str()
@@ -133,6 +135,7 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
     format!(
         concat!(
             "Thread {}\n",
+            "title={}\n",
             "provider={}\n",
             "model={}\n",
             "base_url={}\n",
@@ -174,6 +177,7 @@ fn format_thread_snapshot(thread: &ThreadSnapshot) -> String {
             "compaction_recent_files={}\n"
         ),
         thread.metadata.session_id,
+        thread.metadata.title.as_deref().unwrap_or("-"),
         thread.metadata.provider,
         thread.metadata.model,
         thread.metadata.base_url.as_deref().unwrap_or("-"),
@@ -364,6 +368,7 @@ mod tests {
     fn metadata() -> ThreadMetadata {
         ThreadMetadata {
             session_id: "thread-123".to_string(),
+            title: None,
             cwd: "/tmp/rara".to_string(),
             branch: "main".to_string(),
             provider: "codex".to_string(),

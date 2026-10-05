@@ -27,6 +27,7 @@ use crate::session::{
 };
 use crate::session_transcript;
 
+mod export;
 mod format;
 mod recorder;
 mod types;
@@ -120,12 +121,10 @@ impl<'a> ThreadStore<'a> {
         })
     }
 
-    /// Reserved portable export boundary for external thread inspection.
-    /// This is part of the thread contract documented in docs/features/threads.md.
-    #[allow(dead_code)] // Reserved for thread markdown export
+    /// Export the durable conversation, including turns hidden by the UI.
     pub fn export_thread_markdown(&self, session_id: &str) -> Result<String> {
         Ok(format::format_thread_markdown(
-            &self.load_thread(session_id)?,
+            &self.load_export_thread(session_id)?,
         ))
     }
 

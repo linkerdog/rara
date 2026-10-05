@@ -85,6 +85,7 @@ impl ApiKeyTarget {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Overlay {
     HistorySearch,
+    Diff,
     Goal,
     Help(HelpTab),
     CommandPalette,
@@ -170,10 +171,16 @@ impl PermissionMode {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LocalCommandKind {
+    Diff,
+    Copy,
+    Init,
+    Export,
+    New,
     Help,
     Status,
     Context,
     Clear,
+    Rename,
     Resume,
     Plan,
     Approval,
@@ -394,6 +401,7 @@ pub struct CompletedInteractionSnapshot {
 
 #[derive(Debug)]
 pub enum TaskKind {
+    ThreadCommand,
     Query,
     ReviewPreparation,
     Compact,
@@ -412,6 +420,9 @@ pub enum OAuthLoginMode {
 // TaskCompletion carries task-specific results across the async join boundary;
 // boxing individual variants would complicate every completion handler.
 pub enum TaskCompletion {
+    ThreadCommand {
+        result: anyhow::Result<crate::runtime_client::ThreadCommandResult>,
+    },
     ReviewPrepared {
         result: anyhow::Result<crate::tui::runtime::review::ReviewPreparation>,
     },
@@ -786,8 +797,10 @@ pub struct TuiApp {
     pub input_history_cursor: Option<usize>,
     pub(crate) input_history_draft: Option<crate::tui::composer_atoms::ComposerDraft>,
     pub committed_turns: Vec<TranscriptTurn>,
+    pub(crate) next_turn_ordinal: usize,
     pub active_turn: PresentationInput<TranscriptTurn>,
     pub overlay: Option<Overlay>,
+    pub(crate) diff_view: crate::tui::diff_view::DiffView,
     /// Dialog stack for back-navigation. The last element is always the
     /// current overlay.  When empty, no overlay is shown.
     pub overlay_stack: Vec<Overlay>,
@@ -837,6 +850,8 @@ pub struct TuiApp {
     pub kimi_model_context_windows: HashMap<String, u32>,
     pub recent_commands: Vec<String>,
     pub recent_threads: Vec<ThreadSummary>,
+    pub(crate) pending_restore: Option<crate::tui::session_restore::PendingRestore>,
+    pub(crate) resume_query: super::resume_queries::ResumeQueryState,
     pub resume_picker_idx: usize,
     pub resume_sort_by_created: bool,
     pub resume_search_query: String,
@@ -854,9 +869,14 @@ pub struct TuiApp {
     pub(crate) tool_progress: crate::tui::tool_progress::ToolProgressState,
     pub running_tool_boundary_count: u64,
     pub terminal_focused: bool,
+    pub(crate) terminal_feedback: crate::tui::terminal_feedback::TerminalFeedbackState,
     pub(crate) quit_shortcut: super::QuitShortcutState,
     pub state_db: Option<Arc<StateDb>>,
+    pub(crate) storage: Option<crate::thread_io::ThreadIo>,
+    pub(crate) storage_revision: u64,
     pub state_db_status: Option<String>,
+    pub(super) context_files: super::context_files::ContextFileCache,
+    pub(super) shared_task_scan: super::shared_tasks::SharedTaskScan,
     pub shared_task_root: Option<PathBuf>,
     pub shared_task_fingerprint: Option<String>,
     pub shared_task_last_poll: Option<Instant>,

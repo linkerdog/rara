@@ -224,6 +224,8 @@ pub struct TuiConfig {
     pub theme: TuiThemeConfig,
     #[serde(default, skip_serializing_if = "TuiHistoryConfig::is_default")]
     pub history: TuiHistoryConfig,
+    #[serde(default, skip_serializing_if = "crate::TuiTerminalConfig::is_default")]
+    pub terminal: crate::TuiTerminalConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

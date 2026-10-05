@@ -49,8 +49,9 @@ not inherit the plain-list j/k shortcuts.
 
 ### INPUT-02: Composer Submission And Editing
 
-- Enter submits unless file completion owns the key; Shift+Enter and Ctrl+J
-  insert a newline.
+- Enter submits unless file completion owns the key; Shift+Enter inserts a
+  newline when the terminal distinguishes it through enhanced key reporting.
+  Ctrl+J is the legacy-terminal fallback. Keyboard ownership follows RUN-05.
 - `@` at a token boundary opens asynchronous fuzzy file completion. Loading,
   empty, and failed completion states consume Enter/Tab without submitting.
   Acceptance replaces the current query token with a JSON-quoted inline path

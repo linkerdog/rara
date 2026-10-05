@@ -25,6 +25,7 @@ mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
+mod diff_view;
 #[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
@@ -85,7 +86,9 @@ pub(crate) mod state;
 mod status_display;
 mod sub_agent_display;
 mod submit;
+mod terminal_control;
 mod terminal_event;
+mod terminal_feedback;
 mod terminal_modes;
 mod terminal_ui;
 #[cfg(test)]

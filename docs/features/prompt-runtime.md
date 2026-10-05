@@ -259,6 +259,12 @@ Examples:
   - compacted thread-memory carry-over such as structured summaries and recent-file carry-over.
   - selected retrieval results reconstructed from retrieval-tool outputs when the current turn has
     already performed explicit recall.
+- TUI inspection loads filesystem inputs in the background and shows an explicit
+  loading state until its first matching result. It refreshes workspace inputs
+  every two seconds; changes to session, workspace, prompt config, or
+  execution mode invalidate older replies. Shared-task scans refresh separately.
+  This display cache never supplies a model request: request assembly continues
+  to load current inputs, preserving source order, budgets, and cache prefixes.
 - The same inspection surface should expose the Stage 1 context-assembly result through one shared
   runtime object so `/status`, `/context`, and restore-time runtime snapshots read the same:
   - ordered assembly entries;

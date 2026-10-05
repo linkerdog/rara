@@ -35,6 +35,14 @@ async fn handle_submit_inner(
     app.flush_composer_paste();
     let has_large_paste = !app.bottom_pane.large_paste_pending.is_empty();
     app.bottom_pane.expand_large_paste();
+    if app.pending_restore.is_some()
+        && !parse_local_command(app.bottom_pane.input.trim())
+            .is_some_and(|command| command.kind == super::state::LocalCommandKind::Quit)
+    {
+        app.bottom_pane.notice =
+            Some("Wait for the saved thread to load, or press Esc to cancel.".into());
+        return Ok(false);
+    }
     let input = std::mem::take(&mut app.bottom_pane.input);
     app.bottom_pane.clear_input();
     if input.is_empty() {

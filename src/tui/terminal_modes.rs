@@ -16,11 +16,16 @@ use crossterm::{
     terminal::{EndSynchronizedUpdate, disable_raw_mode, enable_raw_mode},
 };
 
+use super::terminal_control::TerminalTarget;
+use super::terminal_feedback::{TitleMode, restore_title, save_title};
+
 // These own the single process terminal, never session runtime handles. The
 // hook chains only the hook present at first acquisition; later replacements
 // remain the installing caller's responsibility.
 static TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PANIC_HOOK: Once = Once::new();
+#[cfg(unix)]
+static KEYBOARD_MODE_OWNED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static OWNER_STATE: Cell<OwnerState> = const { Cell::new(OwnerState::Inactive) };
@@ -57,24 +62,33 @@ impl Drop for TerminalOwnerScope {
 
 pub(super) struct TerminalModeGuard {
     active: bool,
+    pub(super) title_mode: TitleMode,
     #[cfg(unix)]
     resumed_tty: Option<std::fs::File>,
 }
 
 impl TerminalModeGuard {
-    pub(super) fn start() -> io::Result<Self> {
+    pub(super) fn start(title_mode: TitleMode) -> io::Result<Self> {
         if !io::stdout().is_terminal() {
             return Err(io::Error::other("stdout is not a terminal"));
         }
-        Self::acquire_with(|| {
+        let mut guard = Self::acquire_with(|| {
             enable_raw_mode()?;
             execute!(
                 io::stdout(),
                 EnableBracketedPaste,
                 EnableMouseCapture,
                 EnableFocusChange
-            )
-        })
+            )?;
+            #[cfg(unix)]
+            enable_keyboard_enhancement(io::stdout())?;
+            if title_mode == TitleMode::Enabled {
+                save_title(TerminalTarget::from_environment(), &mut io::stdout())?;
+            }
+            Ok(())
+        })?;
+        guard.title_mode = title_mode;
+        Ok(guard)
     }
 
     // Arm restoration before the first fallible operation, including partial setup.
@@ -104,6 +118,7 @@ impl TerminalModeGuard {
             .map_err(|_| io::Error::other("the process terminal already has an active TUI"))?;
         let guard = Self {
             active: true,
+            title_mode: TitleMode::Disabled,
             #[cfg(unix)]
             resumed_tty: None,
         };
@@ -185,6 +200,8 @@ impl Drop for TerminalModeGuard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoreAction {
     SynchronizedOutput,
+    Title,
+    Keyboard,
     Mouse,
     BracketedPaste,
     Focus,
@@ -195,12 +212,37 @@ enum RestoreAction {
 fn restore_terminal_modes() -> io::Result<()> {
     restore_all(|action| match action {
         RestoreAction::SynchronizedOutput => execute!(io::stdout(), EndSynchronizedUpdate),
+        RestoreAction::Title => restore_title(&mut io::stdout()),
+        RestoreAction::Keyboard => {
+            // The panic hook may already have popped this entry before Drop.
+            #[cfg(unix)]
+            if KEYBOARD_MODE_OWNED.swap(false, Ordering::AcqRel) {
+                return execute!(io::stdout(), crossterm::event::PopKeyboardEnhancementFlags);
+            }
+            Ok(())
+        }
         RestoreAction::Mouse => execute!(io::stdout(), DisableMouseCapture),
         RestoreAction::BracketedPaste => execute!(io::stdout(), DisableBracketedPaste),
         RestoreAction::Focus => execute!(io::stdout(), DisableFocusChange),
         RestoreAction::RawMode => disable_raw_mode(),
         RestoreAction::Cursor => execute!(io::stdout(), Show),
     })
+}
+
+#[cfg(unix)]
+fn enable_keyboard_enhancement(mut output: impl io::Write) -> io::Result<()> {
+    use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+
+    // Avoid crossterm's support query, whose DA1 drain is unbounded.
+    // Unsupported ANSI terminals ignore the progressive enable command.
+    crossterm::queue!(
+        output,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )?;
+    // An incomplete command has not pushed an entry. Once accepted, however,
+    // a failing flush may still have sent it, so cleanup must already be armed.
+    KEYBOARD_MODE_OWNED.store(true, Ordering::Release);
+    output.flush()
 }
 
 fn restore_before_panic() -> io::Result<()> {
@@ -232,6 +274,8 @@ fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Re
     let mut first_error = None;
     for action in [
         RestoreAction::SynchronizedOutput,
+        RestoreAction::Title,
+        RestoreAction::Keyboard,
         RestoreAction::Mouse,
         RestoreAction::BracketedPaste,
         RestoreAction::Focus,
@@ -252,3 +296,7 @@ fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Re
 #[cfg(test)]
 #[path = "terminal_modes_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "keyboard_protocol_tests.rs"]
+mod keyboard_tests;

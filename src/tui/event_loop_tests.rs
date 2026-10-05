@@ -161,6 +161,7 @@ impl Fixture {
             &mut self.processor,
             &self.oauth,
             &mut self.source,
+            super::StartupMaintenance::None,
         )
         .await
     }
@@ -377,6 +378,7 @@ async fn input_error_is_visible_and_eof_ends_the_loop() {
         &mut fixture.processor,
         &fixture.oauth,
         &mut fixture.source,
+        super::StartupMaintenance::None,
     );
     tokio::pin!(future);
     assert!(poll!(&mut future).is_pending());
@@ -477,6 +479,15 @@ async fn runtime_command_is_applied_and_painted_through_the_processor() {
 #[tokio::test]
 async fn joined_task_completion_is_consumed_and_painted_without_input() {
     let mut fixture = Fixture::new().await;
+    fixture
+        .controller
+        .app_mut()
+        .config
+        .tui
+        .terminal
+        .notifications = crate::config::TerminalNotificationMethod::Bell;
+    fixture.controller.app_mut().config.tui.terminal.title = false;
+    fixture.controller.app_mut().terminal_focused = false;
     let screen = fixture.screen.clone();
     let (release, released) = tokio::sync::oneshot::channel();
     let (finished, finished_rx) = tokio::sync::oneshot::channel();
@@ -507,6 +518,7 @@ async fn joined_task_completion_is_consumed_and_painted_without_input() {
         advance(Duration::from_millis(18)).await;
         assert!(poll!(&mut future).is_pending());
         assert_eq!(frame_count(&screen), 2);
+        assert!(!screen.borrow().output.contains(&7));
         assert!(
             screen
                 .borrow()
@@ -528,3 +540,6 @@ mod exit_tests;
 #[cfg(unix)]
 #[path = "event_loop_session_tests.rs"]
 mod session_tests;
+
+#[path = "event_loop_feedback_tests.rs"]
+mod feedback_tests;

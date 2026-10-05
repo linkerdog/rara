@@ -75,12 +75,26 @@ impl OutputProbe {
     }
 }
 
+enum SuspendCase {
+    Foreground,
+    Ignored,
+}
+
 #[test]
+fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
+    run_suspend_case(SuspendCase::Foreground);
+}
+
+#[test]
+fn ignored_suspend_exits_without_reacquiring_terminal_modes() {
+    run_suspend_case(SuspendCase::Ignored);
+}
+
 #[expect(
     clippy::print_stderr,
     reason = "The isolated PTY reader reports cleanup failures."
 )]
-fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
+fn run_suspend_case(case: SuspendCase) {
     let pair = native_pty_system()
         .openpty(PtySize {
             rows: 24,
@@ -97,6 +111,13 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
     command.env("PROMPT_COMMAND", "");
     command.env("HISTFILE", "/dev/null");
     command.env("INPUTRC", "/dev/null");
+    command.env(
+        "RARA_TEST_IGNORE_STOP",
+        match case {
+            SuspendCase::Foreground => "0",
+            SuspendCase::Ignored => "1",
+        },
+    );
     command.env(
         "RARA_TEST_JOB_EXE",
         std::env::current_exe().expect("test executable"),
@@ -164,7 +185,11 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
     );
     job.group = Some(Pid::from_raw(group));
 
-    for (cycle, cols, rows) in [(1, 60, 18), (2, 100, 28)] {
+    let cycles = match case {
+        SuspendCase::Foreground => &[(1, 60, 18), (2, 100, 28)][..],
+        SuspendCase::Ignored => &[],
+    };
+    for &(cycle, cols, rows) in cycles {
         probe.wait_for("SHELL_PROMPT> ", writer.as_mut());
         assert_eq!(
             pair.master.get_termios().expect("shell termios"),
@@ -177,6 +202,8 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
             .expect("frame output");
         for reset in [
             "\x1b[?2026l",
+            "\x1b[<1u",
+            "\x1b[23;2t",
             "\x1b[?1000l",
             "\x1b[?1006l",
             "\x1b[?2004l",
@@ -188,6 +215,24 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
                 "missing {reset:?}: {since_frame}"
             );
         }
+        assert_eq!(
+            probe.output.matches("\x1b[>1u").count(),
+            cycle,
+            "{}",
+            probe.output
+        );
+        assert_eq!(
+            probe.output.matches("\x1b[<1u").count(),
+            cycle,
+            "{}",
+            probe.output
+        );
+        assert_eq!(probe.output.matches("\x1b[22;2t").count(), cycle);
+        assert_eq!(probe.output.matches("\x1b[23;2t").count(), cycle);
+        if cycle == 1 {
+            // Suspension can outlast the runnable polling budget.
+            std::thread::sleep(Duration::from_millis(1200));
+        }
         pair.master
             .resize(PtySize {
                 rows,
@@ -198,6 +243,8 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
         writer.write_all(b"fg %1\n").expect("allow shell fg");
         writer.flush().expect("flush fg");
         probe.wait_for(&format!("RESUMED_{cycle}_{cols}x{rows}"), writer.as_mut());
+        assert_eq!(probe.output.matches("\x1b[>1u").count(), cycle + 1);
+        assert_eq!(probe.output.matches("\x1b[<1u").count(), cycle);
         // The resumed EventStream must still receive ordinary keys.
         writer.write_all(b"x").expect("resumed input");
         writer.flush().expect("flush resumed input");
@@ -208,6 +255,13 @@ fn foreground_suspend_restores_shell_and_resumes_input_after_resize() {
     }
     probe.wait_for("CHILD_DONE", writer.as_mut());
     probe.wait_for("SHELL_PROMPT> ", writer.as_mut());
+    assert_eq!(probe.output.matches("\x1b[>1u").count(), cycles.len() + 1);
+    assert_eq!(probe.output.matches("\x1b[<1u").count(), cycles.len() + 1);
+    assert_eq!(probe.output.matches("\x1b[22;2t").count(), cycles.len() + 1);
+    assert_eq!(probe.output.matches("\x1b[23;2t").count(), cycles.len() + 1);
+    if matches!(case, SuspendCase::Ignored) {
+        assert!(probe.output.contains("STOP_IGNORED"), "{}", probe.output);
+    }
     assert_eq!(
         pair.master.get_termios().expect("final shell termios"),
         shell_termios
@@ -254,11 +308,26 @@ fn suspend_child() {
 
         let tty = std::fs::File::open("/dev/tty").expect("controlling terminal");
         let cooked = tcgetattr(&tty).expect("cooked terminal state");
-        let mut modes = TerminalModeGuard::start().expect("start modes");
+        let mut modes = TerminalModeGuard::start(crate::tui::terminal_feedback::TitleMode::Enabled).expect("start modes");
         TerminalModeGuard::run_owner(async {
             let mut terminal =
                 Terminal::new(CrosstermBackend::new(io::stdout())).expect("terminal");
             let mut events = TerminalEventSource::new(&mut modes);
+            if std::env::var("RARA_TEST_IGNORE_STOP").as_deref() == Ok("1") {
+                // Suppress the default stop only inside this isolated child.
+                let requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let registration = signal_hook::flag::register(
+                    signal_hook::consts::SIGTSTP,
+                    std::sync::Arc::clone(&requested),
+                ).expect("intercept stop request");
+                let error = events.suspend(&mut terminal).expect_err("ignored stop must fail");
+                assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+                assert!(requested.load(std::sync::atomic::Ordering::SeqCst));
+                assert!(!is_raw_mode_enabled().expect("restored raw mode"));
+                assert!(signal_hook::low_level::unregister(registration));
+                println!("STOP_IGNORED");
+                return;
+            }
             for cycle in 1..=2 {
                 terminal
                     .draw_inline(|frame| {
