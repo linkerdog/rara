@@ -124,8 +124,8 @@ Active backlog only. Keep this file small and current.
       Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by
       [the job-control checkpoint](journal/2026-10-03-tui-interrupt-suspend.md).
 - [ ] Complete remaining keyboard contracts: resume-search cursor editing,
-      Help General/Runtime scrolling, atomic large-paste placeholder editing,
-      and an explicit opt-in Vim mode. Cache editor grapheme boundaries for
+      atomic large-paste placeholder editing, and an explicit opt-in Vim mode.
+      Cache editor grapheme boundaries for
       repeated cursor reads on long drafts. See
       [input risks](interaction/composer-and-overlays.md#open-risks).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring

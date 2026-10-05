@@ -199,6 +199,7 @@ impl ActiveTurnCell<'_> {
             .iter()
             .find(|entry| entry.role == MessageRole::User)
             .map(|entry| entry.message.as_str())
+            .or(self.app.bottom_pane.pending_planning_suggestion.as_deref())
             .unwrap_or("");
         let latest_agent = current_turn
             .iter()

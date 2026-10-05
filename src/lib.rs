@@ -1,5 +1,8 @@
 #![recursion_limit = "512"]
 #![allow(unused_imports)]
+// Library production targets retain the workspace print gates; isolated test
+// fixtures may report measurements or subprocess handshakes.
+#![cfg_attr(test, allow(clippy::print_stdout, clippy::print_stderr))]
 // Grandfathered monolith violations; shrink as src/ is split into clean crates
 // (issue #871, Phase 0).
 #![allow(
@@ -13,6 +16,11 @@
 mod acp;
 mod agent;
 mod agents_ext;
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "Explicit CLI commands print before or after terminal ownership."
+)]
 mod app_cli;
 mod app_server_stdio;
 mod auto_memory;
@@ -23,6 +31,12 @@ mod context;
 mod control_plane;
 mod control_tokens;
 pub mod deepseek_cache_probe;
+mod diagnostics;
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "Headless exec consumer owns protocol stdout and diagnostic stderr."
+)]
 mod exec_consumer;
 mod google_oauth;
 mod hook_registry;
@@ -47,8 +61,14 @@ pub use rara_observability::{
     InferenceSnapshot, InferenceStatus, InferenceTask, InferenceTokenUsage,
 };
 mod oauth;
+#[expect(clippy::print_stdout, reason = "Explicit plugin CLI output.")]
 mod plugin_cli;
 mod plugin_middleware;
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "The non-TUI terminal consumer owns console output."
+)]
 mod print_consumer;
 mod prompt;
 mod protocol_sources;
@@ -66,6 +86,10 @@ mod session_transcript;
 mod shell_env;
 mod skill;
 mod tasklist;
+#[expect(
+    clippy::print_stdout,
+    reason = "Explicit thread CLI inspection and export output."
+)]
 mod thread_cli;
 mod thread_io;
 mod thread_store;
@@ -74,6 +98,10 @@ mod tool_result;
 mod tools;
 mod tui;
 mod utils;
+#[expect(
+    clippy::print_stdout,
+    reason = "Wire consumer owns newline-delimited protocol stdout."
+)]
 mod wire_consumer;
 mod workspace;
 
@@ -117,5 +145,6 @@ pub use tools::bash::{BashCommandInput, BashSandboxPermissions};
 /// Run the standard RARA CLI using the same runtime assembly exposed to
 /// embedding applications.
 pub async fn run_cli() -> anyhow::Result<()> {
+    diagnostics::initialize_cli_logging()?;
     app_cli::run_cli().await
 }

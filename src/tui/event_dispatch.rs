@@ -25,7 +25,9 @@ use crate::agent::Agent;
 use crate::config::DEFAULT_CODEX_BASE_URL;
 use crate::oauth::{OAuthManager, SavedCodexAuthMode};
 use crate::runtime_control::SessionControlRequest;
+use crate::tui::state::NoticeLevel;
 
+mod credentials;
 mod maintenance;
 mod model_selection;
 
@@ -88,7 +90,7 @@ async fn dispatch_event_inner(
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
             if super::session_restore::cancel_restore(app, agent_slot) {
-                app.bottom_pane.notice = Some("Thread restore cancelled.".into());
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
             }
             if matches!(
                 app.overlay,
@@ -100,7 +102,7 @@ async fn dispatch_event_inner(
         }
         AppEvent::CancelRunningTask => {
             if super::session_restore::cancel_restore(app, agent_slot) {
-                app.bottom_pane.notice = Some("Thread restore cancelled.".into());
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
                 return Ok(false);
             }
             if let Some(runtime_port) = runtime_port {
@@ -117,7 +119,7 @@ async fn dispatch_event_inner(
             }
         }
         AppEvent::ClearComposer => {
-            app.bottom_pane.clear_input();
+            app.clear_composer();
             app.reset_input_history_navigation();
             app.sync_command_palette_with_input();
         }
@@ -200,10 +202,10 @@ async fn dispatch_event_inner(
                     .clipboard
                     .get_or_insert_with(super::clipboard::Clipboard::from_environment)
                     .request(text);
-                app.push_notice(notice);
+                app.push_notice(notice.level, notice.message);
             }
         }
-        AppEvent::ScrollContext(delta) => app.scroll_context(delta),
+        AppEvent::NavigateOverlay(navigation) => super::render::navigate_overlay(app, navigation),
         AppEvent::MoveCommandSelection(delta) => {
             if matches!(app.overlay, Some(Overlay::ModelSearch)) {
                 let count = matching_model_presets(app).len();
@@ -292,7 +294,7 @@ async fn dispatch_event_inner(
                                 input_control::answer_plan_approval(app, agent_slot, decision);
                             }
                         } else {
-                            app.push_notice("Invalid plan approval option.");
+                            app.push_notice(NoticeLevel::Warning, "Invalid plan approval option.");
                         }
                     }
                     ActivePendingInteractionKind::ShellApproval => {
@@ -311,7 +313,7 @@ async fn dispatch_event_inner(
                                 input_control::answer_shell_approval(app, agent_slot, selection);
                             }
                         } else {
-                            app.push_notice("Invalid shell approval option.");
+                            app.push_notice(NoticeLevel::Warning, "Invalid shell approval option.");
                         }
                     }
                     ActivePendingInteractionKind::PlanningQuestion
@@ -331,6 +333,7 @@ async fn dispatch_event_inner(
                                 input_control::answer_pending_input(app, agent_slot, agent, label);
                             } else {
                                 app.push_notice(
+                                    NoticeLevel::Info,
                                     "Request input is still preparing. Try the shortcut again.",
                                 );
                             }
@@ -344,16 +347,22 @@ async fn dispatch_event_inner(
         }
         AppEvent::SaveBaseUrlInput => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the base URL.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before saving the base URL.",
+                );
             } else {
                 let value = app.base_url_input.trim();
                 app.config
                     .set_base_url((!value.is_empty()).then(|| value.to_string()));
                 app.config_manager.save(&app.config)?;
-                app.bottom_pane.notice = Some(format!(
-                    "Saved base URL: {}",
-                    app.config.base_url.as_deref().unwrap_or("unset")
-                ));
+                app.push_notice(
+                    NoticeLevel::Info,
+                    format!(
+                        "Saved base URL: {}",
+                        app.config.base_url.as_deref().unwrap_or("unset")
+                    ),
+                );
                 if app.openai_setup_steps.is_empty() {
                     app.dismiss_overlay();
                 } else {
@@ -362,178 +371,26 @@ async fn dispatch_event_inner(
             }
         }
         AppEvent::SaveApiKeyInput => {
-            let Some(Overlay::ApiKeyEditor(target)) = app.overlay else {
-                app.push_notice("API key editor is no longer active.");
-                return Ok(false);
-            };
-            let value = app.api_key_input.trim().to_string();
-            if target == ApiKeyTarget::Registry {
-                if app.is_busy() {
-                    app.push_notice("Wait for the current task before saving the API key.");
-                    return Ok(false);
-                }
-                if value.is_empty() {
-                    app.push_notice("Enter an API key or press Esc to go back.");
-                    return Ok(false);
-                }
-                let provider = app
-                    .registry_credential_target
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("Provider credential target is missing"))?;
-                app.config_manager
-                    .save_registry_api_key(&provider, secrecy::SecretString::from(value.clone()))?;
-                let mut overridden = false;
-                if let Some(definition) = app
-                    .config
-                    .provider_registry
-                    .document
-                    .provider
-                    .get_mut(&provider)
-                {
-                    overridden = definition.credential_override;
-                    if !overridden {
-                        definition.options.api_key = Some(secrecy::SecretString::from(value));
-                    }
-                }
-                app.api_key_input.clear();
-                app.registry_credential_target = None;
-                app.dismiss_overlay();
-                app.push_notice(format!(
-                    "Saved {provider} API key. Select a model with /model."
-                ));
-                if overridden {
-                    app.push_notice("The configured or environment API key takes precedence over the saved credential.");
-                }
-                return Ok(false);
-            }
-            if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the API key.");
-            } else if value.is_empty() && target != ApiKeyTarget::OpenAiCompatible {
-                app.push_notice(format!(
-                    "Enter a {} API key or press Esc to go back.",
-                    target.label()
-                ));
-            } else if value.is_empty() && app.openai_setup_keep_empty_api_key {
-                app.bottom_pane.notice =
-                    Some("Kept existing API key for the current profile.".into());
-                app.advance_openai_profile_setup();
-            } else if value.is_empty() {
-                app.config.clear_api_key();
-                if app.config.provider == "codex" {
-                    app.codex_auth_mode = None;
-                }
-                app.config_manager.save(&app.config)?;
-                app.bottom_pane.notice = Some("Cleared API key for the current provider.".into());
-                if app.openai_setup_steps.is_empty() {
-                    app.dismiss_overlay();
-                } else {
-                    app.advance_openai_profile_setup();
-                }
-            } else {
-                let codex_is_active = app.config.provider == "codex";
-                match target {
-                    ApiKeyTarget::Registry => {
-                        anyhow::bail!("registry credential reached the legacy key editor");
-                    }
-                    ApiKeyTarget::Codex => app.config.set_provider_api_key("codex", value),
-                    ApiKeyTarget::DeepSeek => app.config.set_provider_api_key("deepseek", value),
-                    ApiKeyTarget::Kimi => app.config.set_provider_api_key("kimi", value),
-                    ApiKeyTarget::KimiCoding => {
-                        app.config.set_provider_api_key("kimi-coding", value)
-                    }
-                    ApiKeyTarget::OpenAiCompatible => app.config.set_api_key(value),
-                    ApiKeyTarget::Gemini => app.config.set_provider_api_key("gemini", value),
-                }
-                if target == ApiKeyTarget::Codex {
-                    app.codex_auth_mode = Some(SavedCodexAuthMode::ApiKey);
-                    if codex_is_active {
-                        app.config
-                            .apply_codex_defaults_for_base_url(DEFAULT_CODEX_BASE_URL);
-                    }
-                } else if target == ApiKeyTarget::KimiCoding {
-                    app.config.set_provider("kimi-coding");
-                }
-                app.config_manager.save(&app.config)?;
-                if target == ApiKeyTarget::Codex && codex_is_active {
-                    app.bottom_pane.notice =
-                        Some("Saved Codex API key. Rebuilding backend.".into());
-                    app.dismiss_overlay();
-                    request_maintenance(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                        RuntimeMaintenanceCommand::Rebuild,
-                    )
-                    .await?;
-                } else if target == ApiKeyTarget::DeepSeek {
-                    app.bottom_pane.notice = Some("Saved DeepSeek API key. Loading models.".into());
-                    app.dismiss_overlay();
-                    request_maintenance(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                        RuntimeMaintenanceCommand::RefreshModelCatalog(
-                            ModelCatalogProvider::DeepSeek,
-                        ),
-                    )
-                    .await?;
-                } else if target == ApiKeyTarget::Kimi {
-                    app.bottom_pane.notice =
-                        Some("Saved Moonshot AI API key. Loading models.".into());
-                    app.dismiss_overlay();
-                    request_maintenance(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                        RuntimeMaintenanceCommand::RefreshModelCatalog(ModelCatalogProvider::Kimi),
-                    )
-                    .await?;
-                } else if target == ApiKeyTarget::KimiCoding {
-                    app.bottom_pane.notice =
-                        Some("Saved Kimi For Coding API key. Rebuilding backend.".into());
-                    app.dismiss_overlay();
-                    request_maintenance(
-                        app,
-                        agent_slot,
-                        runtime_port,
-                        RuntimeMaintenanceCommand::Rebuild,
-                    )
-                    .await?;
-                } else {
-                    app.bottom_pane.notice = Some(
-                        match target {
-                            ApiKeyTarget::Registry => "Saved provider API key.",
-                            ApiKeyTarget::Codex => "Saved Codex API key.",
-                            ApiKeyTarget::DeepSeek => "Saved DeepSeek API key.",
-                            ApiKeyTarget::Kimi => "Saved Moonshot AI API key.",
-                            ApiKeyTarget::KimiCoding => "Saved Kimi For Coding API key.",
-                            ApiKeyTarget::OpenAiCompatible => {
-                                "Saved API key for the current endpoint profile."
-                            }
-                            ApiKeyTarget::Gemini => "Saved Gemini API key.",
-                        }
-                        .into(),
-                    );
-                    if app.openai_setup_steps.is_empty() {
-                        app.dismiss_overlay();
-                    } else {
-                        app.advance_openai_profile_setup();
-                    }
-                }
-            }
+            credentials::save_api_key(app, agent_slot, runtime_port).await?;
         }
         AppEvent::SaveModelNameInput => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before saving the model name.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before saving the model name.",
+                );
             } else {
                 let value = app.model_name_input.trim();
                 app.config
                     .set_model((!value.is_empty()).then(|| value.to_string()));
                 app.config_manager.save(&app.config)?;
-                app.bottom_pane.notice = Some(format!(
-                    "Saved model name: {}",
-                    app.config.model.as_deref().unwrap_or("unset")
-                ));
+                app.push_notice(
+                    NoticeLevel::Info,
+                    format!(
+                        "Saved model name: {}",
+                        app.config.model.as_deref().unwrap_or("unset")
+                    ),
+                );
                 if app.openai_setup_steps.is_empty() {
                     app.dismiss_overlay();
                 } else {
@@ -543,15 +400,22 @@ async fn dispatch_event_inner(
         }
         AppEvent::SaveOpenAiProfileLabelInput => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before creating a profile.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before creating a profile.",
+                );
             } else if app.selected_provider_family() != ProviderFamily::OpenAiCompatible {
                 app.push_notice(
+                    NoticeLevel::Warning,
                     "OpenAI-compatible profiles are only available in that provider family.",
                 );
             } else {
                 let label = app.openai_profile_label_input.trim();
                 if label.is_empty() {
-                    app.push_notice("Enter a profile label or press Esc to go back.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "Enter a profile label or press Esc to go back.",
+                    );
                 } else if let Some(kind) = app
                     .openai_profile_label_kind
                     .or_else(|| app.selected_openai_profile_kind())
@@ -559,7 +423,10 @@ async fn dispatch_event_inner(
                     let profile_id = app.next_openai_profile_id(kind, label);
                     app.config.select_openai_profile(profile_id, label, kind);
                     app.config_manager.save(&app.config)?;
-                    app.bottom_pane.notice = Some(format!("Created endpoint profile: {label}"));
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        format!("Created endpoint profile: {label}"),
+                    );
                     app.openai_profile_label_kind = None;
                     app.begin_created_openai_profile_setup();
                 }
@@ -567,14 +434,20 @@ async fn dispatch_event_inner(
         }
         AppEvent::CreateOpenAiProfile => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before creating a profile.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before creating a profile.",
+                );
             } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
                 app.begin_openai_profile_setup();
             }
         }
         AppEvent::EditOpenAiProfile => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before editing a profile.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before editing a profile.",
+                );
             } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible
                 && app.select_openai_model_picker_profile().is_some()
             {
@@ -584,7 +457,10 @@ async fn dispatch_event_inner(
         }
         AppEvent::DeleteOpenAiProfile => {
             if app.is_busy() {
-                app.push_notice("Wait for the current task before deleting a profile.");
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Wait for the current task before deleting a profile.",
+                );
             } else if app.selected_provider_family() == ProviderFamily::OpenAiCompatible {
                 apply_openai_model_picker_action(
                     app,
@@ -656,22 +532,31 @@ async fn dispatch_event_inner(
             }
             Some(Overlay::BaseUrlEditor) => {
                 if app.is_busy() {
-                    app.push_notice("Wait for the current task before saving the base URL.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "Wait for the current task before saving the base URL.",
+                    );
                 } else {
                     let value = app.base_url_input.trim();
                     app.config
                         .set_base_url((!value.is_empty()).then(|| value.to_string()));
                     app.config_manager.save(&app.config)?;
-                    app.bottom_pane.notice = Some(format!(
-                        "Saved base URL: {}",
-                        app.config.base_url.as_deref().unwrap_or("unset")
-                    ));
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        format!(
+                            "Saved base URL: {}",
+                            app.config.base_url.as_deref().unwrap_or("unset")
+                        ),
+                    );
                     app.dismiss_overlay();
                 }
             }
             Some(Overlay::ListPicker(kind)) => {
                 if app.is_busy() {
-                    app.push_notice("A task is already running. Wait for it to finish.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "A task is already running. Wait for it to finish.",
+                    );
                 } else {
                     match kind {
                         ListPickerKind::Provider => {
@@ -685,9 +570,10 @@ async fn dispatch_event_inner(
                                 )
                             {
                                 log::warn!("Could not load saved credential: {error:#}");
-                                app.push_notice(format!(
-                                    "Could not load saved credential: {error:#}"
-                                ));
+                                app.push_notice(
+                                    NoticeLevel::Error,
+                                    format!("Could not load saved credential: {error:#}"),
+                                );
                                 return Ok(false);
                             }
                             if should_open_codex_auth_guide(app, oauth_manager.as_ref()) {
@@ -803,7 +689,10 @@ async fn dispatch_event_inner(
                                     super::state::OAuthLoginMode::Browser,
                                 );
                             }
-                            0 => app.push_notice("Browser login unavailable in SSH/headless."),
+                            0 => app.push_notice(
+                                NoticeLevel::Warning,
+                                "Browser login unavailable in SSH/headless.",
+                            ),
                             1 => {
                                 app.dismiss_overlay();
                                 start_oauth_task(
@@ -818,13 +707,13 @@ async fn dispatch_event_inner(
                                 app.config.clear_provider_api_key("codex");
                                 app.codex_auth_mode = None;
                                 app.config_manager.save(&app.config)?;
-                                app.bottom_pane.notice = Some(
+                                app.push_notice(
+                                    NoticeLevel::Info,
                                     if removed {
                                         "Cleared saved credential."
                                     } else {
                                         "No saved credential present."
-                                    }
-                                    .into(),
+                                    },
                                 );
                                 if app.config.provider == "codex" {
                                     request_maintenance(
@@ -878,10 +767,13 @@ async fn dispatch_event_inner(
                                 }
                             };
                             app.config_manager.save(&app.config)?;
-                            app.bottom_pane.notice = Some(format!(
-                                "Saved Nowledge Mem {} configuration. Rebuilding runtime.",
-                                mode_label
-                            ));
+                            app.push_notice(
+                                NoticeLevel::Info,
+                                format!(
+                                    "Saved Nowledge Mem {} configuration. Rebuilding runtime.",
+                                    mode_label
+                                ),
+                            );
                             app.dismiss_overlay();
                             request_maintenance(
                                 app,
@@ -897,9 +789,10 @@ async fn dispatch_event_inner(
                                     request_restore_thread(thread_id.as_str(), app, agent_slot)
                             {
                                 log::warn!("Could not resume thread {thread_id}: {error:#}");
-                                app.push_notice(format!(
-                                    "Could not resume thread {thread_id}: {error:#}"
-                                ));
+                                app.push_notice(
+                                    NoticeLevel::Error,
+                                    format!("Could not resume thread {thread_id}: {error:#}"),
+                                );
                                 return Ok(false);
                             }
                         }
@@ -921,8 +814,10 @@ async fn dispatch_event_inner(
                                 app.config
                                     .select_openai_profile(profile_id, label.clone(), kind);
                                 app.config_manager.save(&app.config)?;
-                                app.bottom_pane.notice =
-                                    Some(format!("Selected endpoint profile: {label}"));
+                                app.push_notice(
+                                    NoticeLevel::Info,
+                                    format!("Selected endpoint profile: {label}"),
+                                );
                                 app.open_overlay(Overlay::ListPicker(ListPickerKind::Model));
                             }
                         }
@@ -937,10 +832,10 @@ async fn dispatch_event_inner(
                         runtime_port
                             .send(RuntimeCommand::SetPermissionMode(preset.mode))
                             .await?;
-                        app.push_notice(format!(
-                            "Permission change requested: {}.",
-                            preset.mode.label()
-                        ));
+                        app.push_notice(
+                            NoticeLevel::Info,
+                            format!("Permission change requested: {}.", preset.mode.label()),
+                        );
                     } else {
                         super::runtime::request_permission_mode(app, agent_slot, preset.mode);
                     }

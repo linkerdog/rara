@@ -11,7 +11,7 @@ use crate::thread_store::{RolloutItem, ThreadSnapshot, ThreadStore};
 use crate::todo::TodoState;
 use crate::tui::event_loop::StartupResumeTarget;
 use crate::tui::message_role::MessageRole;
-use crate::tui::state::{ListPickerKind, Overlay, PermissionMode};
+use crate::tui::state::{ListPickerKind, NoticeLevel, Overlay, PermissionMode};
 
 pub(crate) struct PendingRestore {
     source_session: String,
@@ -24,6 +24,7 @@ pub(super) struct PreparedRestore {
     pub runtime_state: Option<PersistedSessionRuntimeState>,
     pub turns: Vec<TranscriptTurn>,
     pub live_entries: Vec<TranscriptEntry>,
+    pub live_recovery_warning: Option<String>,
     pub latest_plan_lifecycle: Option<(String, Option<String>)>,
     pub goal: Result<PreparedGoalRestore, String>,
 }
@@ -87,7 +88,10 @@ fn request_restore(target: RestoreTarget, app: &mut TuiApp, agent: Option<&Agent
         source_session,
         receiver,
     });
-    app.bottom_pane.notice = Some("Loading saved thread... Press Esc to cancel.".into());
+    app.push_notice(
+        NoticeLevel::Info,
+        "Loading saved thread... Press Esc to cancel.",
+    );
     Ok(())
 }
 
@@ -109,13 +113,16 @@ fn prepare_restore(
     let mut thread = store.load_thread(&thread_id)?;
     let todo_state = sessions.load_todo_state(&thread_id)?;
     let runtime_state = db.load_session_runtime_state(&thread_id)?;
-    let live_entries =
-        rara_persistence::thread_turn_log::load_live_entries(&db.rollout_root(), &thread_id)
-            .into_iter()
-            .map(|entry| {
-                TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message)
-            })
-            .collect();
+    let live_log = rara_persistence::thread_turn_log::load_live_entries_with_recovery(
+        &db.rollout_root(),
+        &thread_id,
+    );
+    let live_recovery_warning = live_log.warning();
+    let live_entries = live_log
+        .entries
+        .into_iter()
+        .map(|entry| TranscriptEntry::new(MessageRole::from_persisted(&entry.role), entry.message))
+        .collect();
     let latest_plan_lifecycle = thread
         .rollout_items
         .iter()
@@ -157,6 +164,7 @@ fn prepare_restore(
         runtime_state,
         turns,
         live_entries,
+        live_recovery_warning,
         latest_plan_lifecycle,
         goal,
     }))
@@ -208,7 +216,7 @@ fn finish_restore(
                 app.dismiss_overlay();
             }
         } else {
-            app.bottom_pane.notice = Some("No saved thread found.".into());
+            app.push_notice(NoticeLevel::Info, "No saved thread found.");
         }
         Ok(())
     })();
@@ -230,9 +238,10 @@ pub(in crate::tui) fn cancel_restore(app: &mut TuiApp, slot: &mut Option<Agent>)
 
 fn report_restore_error(app: &mut TuiApp, error: anyhow::Error) {
     log::warn!("Could not resume thread: {error:#}");
-    app.push_notice(format!(
-        "Could not resume thread; keeping the current session: {error:#}"
-    ));
+    app.push_notice(
+        NoticeLevel::Error,
+        format!("Could not resume thread; keeping the current session: {error:#}"),
+    );
 }
 
 #[cfg(test)]
