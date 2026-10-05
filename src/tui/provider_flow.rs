@@ -4,6 +4,7 @@ use super::state::{ApiKeyTarget, ListPickerKind, Overlay, ProviderFamily, TuiApp
 use crate::agent::Agent;
 use crate::config::{OpenAiEndpointKind, ensure_rara_home_dir};
 use crate::oauth::OAuthManager;
+use crate::tui::state::NoticeLevel;
 
 pub(super) fn sync_codex_credential_from_auth_store(
     app: &mut TuiApp,
@@ -129,9 +130,10 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     {
         app.registry_credential_target = Some(provider.clone());
         app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Registry));
-        app.push_notice(format!(
-            "Enter the API key for {provider}. Model selection stays in /model."
-        ));
+        app.push_notice(
+            NoticeLevel::Info,
+            format!("Enter the API key for {provider}. Model selection stays in /model."),
+        );
         return;
     }
     let family = app.selected_provider_family();
@@ -140,36 +142,39 @@ pub(super) fn open_provider_connection(app: &mut TuiApp) {
     match family {
         ProviderFamily::DeepSeek => {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::DeepSeek));
-            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+            app.push_notice(NoticeLevel::Info, format!("Enter your {label} API key."));
         }
         ProviderFamily::Kimi => {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Kimi));
-            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+            app.push_notice(NoticeLevel::Info, format!("Enter your {label} API key."));
         }
         ProviderFamily::KimiCoding => {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::KimiCoding));
-            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+            app.push_notice(NoticeLevel::Info, format!("Enter your {label} API key."));
         }
         ProviderFamily::Gemini => {
             app.open_overlay(Overlay::ApiKeyEditor(ApiKeyTarget::Gemini));
-            app.bottom_pane.notice = Some(format!("Enter your {label} API key."));
+            app.push_notice(NoticeLevel::Info, format!("Enter your {label} API key."));
         }
         ProviderFamily::Codex => {
             app.open_overlay(Overlay::ListPicker(ListPickerKind::AuthMode));
-            app.bottom_pane.notice = Some(format!(
-                "Choose authentication mode for {label}: OAuth or API key."
-            ));
+            app.push_notice(
+                NoticeLevel::Info,
+                format!("Choose authentication mode for {label}: OAuth or API key."),
+            );
         }
         ProviderFamily::OpenAiCompatible => {
             app.open_overlay(Overlay::ListPicker(ListPickerKind::OpenAiProfile));
-            app.bottom_pane.notice =
-                Some("Set up your OpenAI-compatible endpoint: name, URL, and API key.".into());
+            app.push_notice(
+                NoticeLevel::Info,
+                "Set up your OpenAI-compatible endpoint: name, URL, and API key.",
+            );
         }
         _ => {
             let target_idx = app.first_unified_preset_idx_for_family(family);
             app.model_picker_idx = target_idx;
             app.open_overlay(Overlay::ListPicker(ListPickerKind::UnifiedModel));
-            app.bottom_pane.notice = Some(format!("Select a model for {label}."));
+            app.push_notice(NoticeLevel::Info, format!("Select a model for {label}."));
         }
     }
 }

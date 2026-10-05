@@ -1,5 +1,6 @@
 use super::*;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[test]
 fn committed_turn_does_not_truncate_agent_response() {
@@ -234,7 +235,7 @@ fn bottom_pane_background_covers_hint_and_footer_rows() {
     app.bash_approval_mode = crate::agent::BashApprovalMode::Always;
     app.sandbox_network_access
         .store(false, std::sync::atomic::Ordering::Relaxed);
-    app.bottom_pane.notice = Some("Prompt finished.".into());
+    app.push_notice(NoticeLevel::Info, "Prompt finished.");
     app.repo_slug = Some("hawkingrei/rara".into());
     app.snapshot.branch = "main".into();
 

@@ -166,7 +166,7 @@ fn paste_burst_joiner_snaps_to_unicode_boundary() {
     app.set_input("\u{1f469}\u{1f4bb}".to_string());
     app.bottom_pane.input_cursor_offset = Some(1);
     app.bottom_pane.handle_paste_burst_chunk("\u{200d}");
-    assert!(app.bottom_pane.flush_paste_burst());
+    assert!(app.flush_composer_paste());
     assert_eq!(app.composer_cursor_offset(), 3);
 }
 

@@ -155,32 +155,83 @@ pub fn clear_live_log(root_dir: &Path, session_id: &str) -> Result<()> {
     }
 }
 
-/// Read all entries from the live log, oldest first.
+/// Recovered live entries and bounded diagnostics for incomplete recovery.
+#[derive(Debug, Default)]
+pub struct LiveLogLoad {
+    pub entries: Vec<PersistedTurnEntry>,
+    pub skipped_lines: usize,
+    pub read_error: Option<String>,
+}
+
+impl LiveLogLoad {
+    pub fn warning(&self) -> Option<String> {
+        if self.skipped_lines == 0 && self.read_error.is_none() {
+            return None;
+        }
+        let mut warning = format!(
+            "Live transcript recovery incomplete: {} invalid record(s) skipped.",
+            self.skipped_lines
+        );
+        if let Some(error) = &self.read_error {
+            warning.push_str(&format!(" {error}"));
+        }
+        Some(warning)
+    }
+}
+
+/// Read all recoverable entries, logging a warning if recovery is incomplete.
 pub fn load_live_entries(root_dir: &Path, session_id: &str) -> Vec<PersistedTurnEntry> {
+    let loaded = load_live_entries_with_recovery(root_dir, session_id);
+    if let Some(warning) = loaded.warning() {
+        log::warn!("{warning}");
+    }
+    loaded.entries
+}
+
+/// Keep valid records around malformed lines; never echo corrupt contents.
+pub fn load_live_entries_with_recovery(root_dir: &Path, session_id: &str) -> LiveLogLoad {
     let path = root_dir.join(session_id).join(LIVE_LOG_FILE);
     let file = match fs::File::open(&path) {
         Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return LiveLogLoad::default(),
         Err(e) => {
-            eprintln!("failed to open live log for {session_id}: {e}");
-            return Vec::new();
+            return LiveLogLoad {
+                read_error: Some(format!("Could not open live transcript: {e}")),
+                ..LiveLogLoad::default()
+            };
         }
     };
-    let reader = BufReader::new(file);
-    let mut entries = Vec::new();
-    for (i, line_result) in reader.lines().enumerate() {
-        match line_result {
-            Ok(line) if line.trim().is_empty() => continue,
-            Ok(line) => match serde_json::from_str::<PersistedTurnEntry>(&line) {
-                Ok(entry) => entries.push(entry),
-                Err(e) => {
-                    eprintln!("parse error at live log line {i} for {session_id}: {e}");
+    recover_live_entries(BufReader::new(file))
+}
+
+fn recover_live_entries(mut reader: impl BufRead) -> LiveLogLoad {
+    let mut loaded = LiveLogLoad::default();
+    let mut line = Vec::new();
+    let mut line_number = 0;
+    loop {
+        line.clear();
+        line_number += 1;
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
                 }
-            },
+                match serde_json::from_slice::<PersistedTurnEntry>(&line) {
+                    Ok(entry) => loaded.entries.push(entry),
+                    Err(_) => loaded.skipped_lines += 1,
+                }
+            }
             Err(e) => {
-                eprintln!("i/o error at live log line {i} for {session_id}: {e}");
+                loaded.read_error = Some(format!(
+                    "Could not read live transcript at line {line_number}: {e}"
+                ));
+                break;
             }
         }
     }
-    entries
+    loaded
 }
+
+#[cfg(test)]
+mod tests;
