@@ -19,6 +19,8 @@ pub(super) struct GrowingLine {
     pub before: SharedHistory,
     pub rejected: bool,
     offset: usize,
+    span_index: usize,
+    span_start: usize,
 }
 
 pub(super) struct LineRows {
@@ -33,6 +35,8 @@ impl GrowingLine {
             before,
             rejected: false,
             offset: 0,
+            span_index: 0,
+            span_start: 0,
         }
     }
 
@@ -46,31 +50,53 @@ impl GrowingLine {
         if self.rejected {
             return None;
         }
-        let [body] = line.spans.as_slice() else {
-            return None;
-        };
         let chrome = RespondingCell::stream_prefix(self.index).concat();
         let prefix = chrome.get(self.offset.min(chrome.len())..)?;
-        let content = body
-            .content
-            .get(self.offset.saturating_sub(chrome.len())..)?;
-        let input = Line::from(vec![Span::raw(prefix), Span::styled(content, body.style)])
-            .style(line.style);
+        let body_offset = self.offset.saturating_sub(chrome.len());
+        // Earlier spans cannot change within the collector's append-only epoch.
+        // Keep the last span even at its end: later deltas can extend it.
+        while self.span_index + 1 < line.spans.len() {
+            let end = self.span_start + line.spans[self.span_index].content.len();
+            if body_offset < end {
+                break;
+            }
+            self.span_start = end;
+            self.span_index += 1;
+            #[cfg(test)]
+            work.record(WorkKind::StreamSpans, 1);
+        }
+        let mut spans = vec![Span::raw(prefix)];
+        for (index, span) in line.spans.get(self.span_index..)?.iter().enumerate() {
+            let start = if index == 0 {
+                body_offset - self.span_start
+            } else {
+                0
+            };
+            spans.push(Span::styled(span.content.get(start..)?, span.style));
+        }
+        let input = Line::from(spans).style(line.style);
+        let input_bytes = input
+            .spans
+            .iter()
+            .map(|span| span.content.len())
+            .sum::<usize>();
         #[cfg(test)]
         {
             work.record(WorkKind::Wrap, 1);
-            work.record(WorkKind::WrapBytes, prefix.len() + content.len());
+            work.record(WorkKind::WrapBytes, input_bytes);
+            work.record(WorkKind::StreamSpans, input.spans.len());
         }
         let mut wrapped = wrap_line_with_source(&input, width);
         #[cfg(test)]
         work.record(WorkKind::Text, wrapped.lines.len());
         // Ranges are in sanitized text. A changed projection requires replay
         // from the saved logical-line boundary, not offsets into raw source.
-        if wrapped.source.len() != prefix.len() + content.len()
-            || !wrapped.source.starts_with(prefix)
-            || wrapped.source.get(prefix.len()..) != Some(content)
-        {
+        if wrapped.source.len() != input_bytes {
             return None;
+        }
+        let mut remaining = wrapped.source.as_str();
+        for span in &input.spans {
+            remaining = remaining.strip_prefix(span.content.as_ref())?;
         }
         let retained = match boundary {
             // Keep the last grapheme, the preceding word fragment, and the row

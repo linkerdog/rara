@@ -11,6 +11,7 @@ pub(crate) struct TranscriptWork {
     // Byte work is currently instrumented at the streaming response boundary.
     pub cloned_bytes: usize,
     pub wrapped_bytes: usize,
+    pub stream_spans: usize,
 }
 
 pub(crate) enum WorkKind {
@@ -19,6 +20,7 @@ pub(crate) enum WorkKind {
     Text,
     CloneBytes,
     WrapBytes,
+    StreamSpans,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -33,6 +35,7 @@ impl WorkMeter {
             WorkKind::Text => work.text_rows += amount,
             WorkKind::CloneBytes => work.cloned_bytes += amount,
             WorkKind::WrapBytes => work.wrapped_bytes += amount,
+            WorkKind::StreamSpans => work.stream_spans += amount,
         }
         self.0.set(work);
     }

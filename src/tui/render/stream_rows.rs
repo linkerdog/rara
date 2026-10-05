@@ -63,7 +63,7 @@ impl StreamRowCache {
         }
         if self.revision != Some(render.revision) {
             if stable_end > self.stable_lines && self.partial.is_some() {
-                self.wrap_plain_line(
+                self.wrap_growing_line(
                     render.lines,
                     self.stable_lines,
                     width,
@@ -76,12 +76,14 @@ impl StreamRowCache {
                 let block = self.wrap(&logical, width);
                 self.stable.append(block);
             }
-            if render.plain_start.is_some_and(|start| start <= stable_end)
+            if render
+                .append_only_start
+                .is_some_and(|start| start <= stable_end)
                 && stable_end + 1 == cap
                 && cap == render.lines.len()
             {
                 self.tail =
-                    self.wrap_plain_line(render.lines, stable_end, width, LineBoundary::Preview);
+                    self.wrap_growing_line(render.lines, stable_end, width, LineBoundary::Preview);
             } else {
                 let mut logical = self.body_lines(render.lines, stable_end..cap);
                 if render.lines.is_empty() {
@@ -100,7 +102,7 @@ impl StreamRowCache {
         TranscriptRows::new(self.stable.clone(), self.tail.clone())
     }
 
-    fn wrap_plain_line(
+    fn wrap_growing_line(
         &mut self,
         lines: &[Line<'static>],
         index: usize,
@@ -153,6 +155,13 @@ impl StreamRowCache {
         #[cfg(test)]
         {
             self.work.record(WorkKind::Clone, range.len());
+            self.work.record(
+                WorkKind::StreamSpans,
+                lines[range.clone()]
+                    .iter()
+                    .map(|line| line.spans.len())
+                    .sum(),
+            );
             self.work.record(
                 WorkKind::CloneBytes,
                 lines[range.clone()]

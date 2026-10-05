@@ -65,12 +65,30 @@ canonical rendering can revise those rows. No fixed-length syntax sample is
 used. This bounds eligible paragraph source work and completed-line reuse;
 wrapping a single growing physical line remains a separate cost.
 
-For an eligible plain physical line, layout can retain wrapped rows before a
-three-row mutable window. The source collector explicitly identifies the plain
-paragraph boundary; layout must not infer append-only text from equal lengths,
+A formatted root paragraph can enter the same append-only path after the
+canonical parser emits a final, unstyled raw-text event followed only by ASCII
+spaces. Its final character must be alphanumeric, ordinary sentence punctuation
+(`.`, `,`, `:`, `;`, `!`, `?`), or non-ASCII text other than whitespace, controls,
+or a BOM. Decoded entities, closed inline tags, and code spans first wait for
+that separate text event;
+their generated spans must not be extended based on style equality. Paragraphs
+starting with `[` conservatively remain on the canonical path to exclude
+reference-definition candidates. On later physical lines, require an ordinary
+letter/text start to exclude empty list candidates that can still interrupt the
+paragraph once content arrives. The collector retains pending spaces and
+extends only the final raw span. New punctuation
+that could close an earlier inline destination/title, as well as the ordinary
+syntax and structural exclusions, triggers epoch invalidation and replay.
+Only appended source is checked while the continuation remains eligible.
+
+For an eligible append-only physical line, layout can retain wrapped rows before a
+three-row mutable window. The source collector explicitly identifies the
+append-only row boundary; layout must not infer that property from equal lengths,
 hashes, or repeated full-prefix comparisons. The shared wrapper supplies source
 ranges, including skipped soft-wrap spaces and response chrome. Rewrap only
-the remaining suffix plus appended content. Physical-line completion promotes
+the remaining suffix plus appended content, preserving styles across span
+boundaries. A saved span cursor skips retained spans without scanning the
+complete prefix again. Physical-line completion promotes
 the remaining rows once. Width/view/epoch changes discard this layout state.
 If display sanitization changes source bytes, restore the saved prefix before
 that logical line and use canonical whole-line wrapping until it completes.
@@ -200,7 +218,8 @@ boundaries for issue #921:
 | Event preservation | Apply all ordered deltas; fewer paints still show the complete final response |
 | Markdown work | Parse/source-byte counts over long multiline streams, including mutable structural tails |
 | Plain paragraphs | Linear parse/eligibility bytes and rendered rows for word and soft-break deltas; late syntax, whitespace, Unicode splits, replacement, and theme invalidation agree with canonical rows |
-| Growing physical lines | Body-copy and wrapping-input bytes for words, unbroken words, and Unicode at narrow/wide widths; suffix promotion, normalization fallback, late syntax, completion, resize, and old-snapshot equality |
+| Formatted paragraph tails | Canonical text-event seeding; definitions, incomplete links/titles, entities, whitespace, and every ASCII append agree at character and chunk boundaries |
+| Growing physical lines | Body-copy and wrapping-input bytes for plain/rich words, unbroken words, and Unicode at narrow/wide widths; span-cursor work includes empty spans; suffix promotion, normalization fallback, late syntax, completion, resize, and old-snapshot equality |
 | Ingestion and repeated reads | No parsing per delta; no parse or stable-row clone on unchanged presentation reads |
 | Row reuse | Rows wrapped, cloned, and hashed per delta/frame; unchanged history remains untouched |
 | Layout invalidation | Full middle-row text/style/alignment changes; width/cwd/visibility, theme, append, replacement, reset, and restore; mixed mutation sequences against full rendering |
@@ -243,7 +262,7 @@ on a slow output device.
   terminal key encoding, viewport lifecycle, or clipboard acceptance.
 - Arbitrary markdown may have a long mutable suffix. Work bounds must distinguish
   new source, unstable structure, and one-time full finalization/reflow.
-- Eligible plain response lines retain wrapped prefixes. Their mutable visual
+- Eligible append-only response lines retain wrapped prefixes. Their mutable visual
   window can still contain an arbitrarily large individual grapheme in bytes;
   display-normalization fallback revisits the logical line until completion.
   Streaming body-clone/wrapping-input byte counters cover those calls, not all
@@ -271,6 +290,7 @@ on a slow output device.
 - [Incremental markdown](../journal/2026-10-03-incremental-markdown.md)
 - [Plain paragraph streaming](../journal/2026-10-05-long-mutable-markdown.md)
 - [Growing physical line layout](../journal/2026-10-05-growing-line-layout.md)
+- [Inline paragraph continuation](../journal/2026-10-05-inline-paragraph-continuation.md)
 - [Streaming reference context](../journal/2026-10-04-streaming-reference-context.md)
 - [Shared transcript rows](../journal/2026-10-03-transcript-row-reuse.md)
 - [Active streaming rows](../journal/2026-10-03-active-stream-rows.md)

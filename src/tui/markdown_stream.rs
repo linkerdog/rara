@@ -1,6 +1,6 @@
 //! One append-only source and one materialized row cache per live stream.
 mod code_fence;
-mod plain_paragraph;
+mod paragraph_tail;
 
 use std::{
     ops::Range,
@@ -8,7 +8,7 @@ use std::{
 };
 
 use code_fence::OpenCodeFence;
-use plain_paragraph::PlainParagraph;
+use paragraph_tail::ParagraphTail;
 use ratatui::text::Line;
 
 #[cfg(test)]
@@ -22,8 +22,9 @@ pub(crate) struct RenderedStream<'a> {
     pub epoch: u64,
     pub revision: usize,
     pub stable_lines: usize,
-    /// Plain rows grow without restyling until the replay epoch changes.
-    pub plain_start: Option<usize>,
+    /// Rows at this boundary only extend their final raw span or add new lines
+    /// until the replay epoch changes; earlier spans remain unchanged.
+    pub append_only_start: Option<usize>,
     pub lines: &'a [Line<'static>],
 }
 
@@ -46,7 +47,7 @@ pub(crate) struct MarkdownStreamCollector {
     reference_replay: bool,
     closing_brackets: usize,
     open_fence: Option<OpenCodeFence>,
-    plain_paragraph: Option<PlainParagraph>,
+    paragraph_tail: Option<ParagraphTail>,
     plain_candidate_start: Option<usize>,
     width: Option<usize>,
     cwd: PathBuf,
@@ -84,7 +85,7 @@ impl MarkdownStreamCollector {
             reference_replay: false,
             closing_brackets: 0,
             open_fence: None,
-            plain_paragraph: None,
+            paragraph_tail: None,
             plain_candidate_start: None,
             width,
             cwd: cwd.to_path_buf(),
@@ -128,7 +129,7 @@ impl MarkdownStreamCollector {
         self.references = ReferenceContext::default();
         self.reference_replay = false;
         self.open_fence = None;
-        self.plain_paragraph = None;
+        self.paragraph_tail = None;
         self.plain_candidate_start = None;
         self.lines.clear();
     }
@@ -164,17 +165,13 @@ impl MarkdownStreamCollector {
             .open_fence
             .as_ref()
             .map_or(self.stable_line_len, |fence| fence.row_end)
-            .max(
-                self.plain_paragraph
-                    .as_ref()
-                    .map_or(0, |plain| plain.row_end),
-            )
+            .max(self.paragraph_tail.as_ref().map_or(0, |tail| tail.row_end))
             .min(self.lines.len());
         RenderedStream {
             epoch: self.row_epoch,
             revision: self.rendered_source_len,
             stable_lines,
-            plain_start: self.plain_paragraph.as_ref().map(|plain| plain.row_start),
+            append_only_start: self.paragraph_tail.as_ref().map(|tail| tail.row_start),
             lines: &self.lines,
         }
     }
@@ -196,16 +193,16 @@ impl MarkdownStreamCollector {
         {
             self.invalidate_reference_prefix();
         }
-        if let Some(mut plain) = self.plain_paragraph.take() {
+        if let Some(mut tail) = self.paragraph_tail.take() {
             #[cfg(test)]
             {
                 self.work.plain_bytes += self.buffer.len() - self.rendered_source_len;
             }
             if let Some(changed_rows) =
-                plain.append(&self.buffer[self.rendered_source_len..], &mut self.lines)
+                tail.append(&self.buffer[self.rendered_source_len..], &mut self.lines)
             {
                 self.record_rows(changed_rows);
-                self.plain_paragraph = Some(plain);
+                self.paragraph_tail = Some(tail);
                 self.rendered_complete_len = self.complete_source_len;
                 return;
             }
@@ -272,6 +269,7 @@ impl MarkdownStreamCollector {
         }
         if self.held_table_start.is_none()
             && self.open_fence.is_none()
+            && self.paragraph_tail.is_none()
             && !self.reference_replay
             && self.plain_candidate_start != Some(self.stable_source_len)
         {
@@ -281,7 +279,7 @@ impl MarkdownStreamCollector {
             {
                 self.work.plain_bytes += source.len();
             }
-            self.plain_paragraph = PlainParagraph::from_rendered(source, &self.lines);
+            self.paragraph_tail = ParagraphTail::from_rendered(source, &self.lines);
         }
     }
 
@@ -356,6 +354,10 @@ impl MarkdownStreamCollector {
         };
         self.lines.truncate(self.stable_line_len);
         self.lines.extend(pending.lines);
+        self.paragraph_tail = pending
+            .text_tail_spaces
+            .filter(|_| source_end == self.buffer.len())
+            .and_then(|spaces| ParagraphTail::from_text_tail(spaces, &self.lines));
         if let Some((source_bytes, row_count, context)) = stable_rows {
             self.stable_source_len += source_bytes;
             self.stable_line_len += row_count;
@@ -392,7 +394,7 @@ impl MarkdownStreamCollector {
         self.stable_context = RenderContext::default();
         self.references = ReferenceContext::default();
         self.open_fence = None;
-        self.plain_paragraph = None;
+        self.paragraph_tail = None;
     }
 
     #[cfg(test)]
@@ -400,7 +402,7 @@ impl MarkdownStreamCollector {
         self.row_epoch = self.row_epoch.wrapping_add(1);
         self.theme_revision = theme::revision();
         self.open_fence = None;
-        self.plain_paragraph = None;
+        self.paragraph_tail = None;
         self.record_parse(self.buffer.len());
         self.lines =
             render_markdown_text_with_width_and_cwd(&self.buffer, self.width, Some(&self.cwd))
@@ -445,3 +447,7 @@ mod tests;
 #[cfg(test)]
 #[path = "markdown_stream_render_tests.rs"]
 mod render_tests;
+
+#[cfg(test)]
+#[path = "markdown_stream/continuation_tests.rs"]
+mod continuation_tests;

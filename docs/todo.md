@@ -75,6 +75,9 @@ Active backlog only. Keep this file small and current.
       canonical parse, and reuse completed physical lines. Eligible growing
       physical lines now retain visual rows before a three-row mutable window;
       see [the line-layout checkpoint](journal/2026-10-05-growing-line-layout.md).
+      Formatted paragraphs can also reuse parser-confirmed raw-text tails and
+      styled visual prefixes with a span cursor; see
+      [the inline checkpoint](journal/2026-10-05-inline-paragraph-continuation.md).
       Large individual grapheme tails, normalization fallback, and ineligible
       long mutable blocks still need work bounds; see
       [the plain paragraph checkpoint](journal/2026-10-05-long-mutable-markdown.md).
