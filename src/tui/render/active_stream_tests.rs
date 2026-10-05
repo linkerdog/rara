@@ -150,6 +150,36 @@ fn growing_single_line_uses_bounded_layout_bytes_through_app_rendering() {
 }
 
 #[test]
+fn growing_list_uses_bounded_layout_work_through_app_rendering() {
+    let mut harness = stream_harness();
+    let chunk = "1. **Item** words 👩‍💻\n";
+    for _ in 0..200 {
+        harness.app_mut().append_agent_delta(chunk);
+        harness.screen_buffer(40, 20);
+    }
+    let measured = work(&harness);
+    let source = harness
+        .app()
+        .agent_markdown_stream
+        .as_ref()
+        .unwrap()
+        .markdown_work();
+    eprintln!("list app: {source:?}, {measured:?}");
+    assert!(source.parsed_bytes <= chunk.len() * 200 * 8, "{source:?}");
+    assert!(measured.wrapped_lines <= 200 * 4, "{measured:?}");
+    assert!(measured.wrapped_bytes <= 200 * 128, "{measured:?}");
+    let app = harness.app();
+    let width = app.transcript_scroll.layout().unwrap().width;
+    assert_eq!(
+        super::renderable_transcript_lines(app, width)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        super::transcript_cache_tests::canonical_rows(app, width)
+    );
+}
+
+#[test]
 fn growing_paragraph_stream_wraps_only_new_and_mutable_rows() {
     let mut harness = stream_harness();
     for row in 0..200 {

@@ -1,5 +1,6 @@
 //! One append-only source and one materialized row cache per live stream.
 mod code_fence;
+mod list;
 mod paragraph_tail;
 
 use std::{
@@ -14,7 +15,7 @@ use ratatui::text::Line;
 #[cfg(test)]
 use crate::tui::markdown_render::render_markdown_text_with_width_and_cwd;
 use crate::tui::markdown_render::{
-    ReferenceBudget, ReferenceContext, RenderContext, render_streaming_markdown,
+    ListTail, ReferenceBudget, ReferenceContext, RenderContext, render_streaming_markdown,
 };
 use crate::tui::theme::{self, ThemeRevision};
 
@@ -48,6 +49,7 @@ pub(crate) struct MarkdownStreamCollector {
     closing_brackets: usize,
     open_fence: Option<OpenCodeFence>,
     paragraph_tail: Option<ParagraphTail>,
+    list_tail: Option<ListTail>,
     plain_candidate_start: Option<usize>,
     width: Option<usize>,
     cwd: PathBuf,
@@ -68,6 +70,7 @@ pub(crate) struct MarkdownWork {
     pub fence_bytes: usize,
     pub reference_bytes: usize,
     pub plain_bytes: usize,
+    pub list_seed_bytes: usize,
 }
 
 impl MarkdownStreamCollector {
@@ -86,6 +89,7 @@ impl MarkdownStreamCollector {
             closing_brackets: 0,
             open_fence: None,
             paragraph_tail: None,
+            list_tail: None,
             plain_candidate_start: None,
             width,
             cwd: cwd.to_path_buf(),
@@ -130,6 +134,7 @@ impl MarkdownStreamCollector {
         self.reference_replay = false;
         self.open_fence = None;
         self.paragraph_tail = None;
+        self.list_tail = None;
         self.plain_candidate_start = None;
         self.lines.clear();
     }
@@ -166,6 +171,7 @@ impl MarkdownStreamCollector {
             .as_ref()
             .map_or(self.stable_line_len, |fence| fence.row_end)
             .max(self.paragraph_tail.as_ref().map_or(0, |tail| tail.row_end))
+            .max(self.list_tail.as_ref().map_or(0, |tail| tail.row_start))
             .min(self.lines.len());
         RenderedStream {
             epoch: self.row_epoch,
@@ -187,9 +193,13 @@ impl MarkdownStreamCollector {
             self.reference_replay = true;
         }
         if self.reference_replay
-            || self
-                .references
-                .has_mutable_definition(self.stable_source_len)
+            || self.references.has_mutable_definition(
+                self.list_tail
+                    .as_ref()
+                    .map_or(self.stable_source_len, |tail| {
+                        tail.source_start.max(self.stable_source_len)
+                    }),
+            )
         {
             self.invalidate_reference_prefix();
         }
@@ -207,6 +217,13 @@ impl MarkdownStreamCollector {
                 return;
             }
             // Later syntax can revise all tentatively retained paragraph rows.
+            self.row_epoch = self.row_epoch.wrapping_add(1);
+        }
+        if let Some(list) = self.list_tail.take() {
+            if self.refresh_list(list) {
+                self.rendered_complete_len = self.complete_source_len;
+                return;
+            }
             self.row_epoch = self.row_epoch.wrapping_add(1);
         }
         if let Some(mut fence) = self.open_fence.take() {
@@ -270,6 +287,7 @@ impl MarkdownStreamCollector {
         if self.held_table_start.is_none()
             && self.open_fence.is_none()
             && self.paragraph_tail.is_none()
+            && self.list_tail.is_none()
             && !self.reference_replay
             && self.plain_candidate_start != Some(self.stable_source_len)
         {
@@ -289,7 +307,6 @@ impl MarkdownStreamCollector {
             self.render_reference_replay(source_end, boundary);
             return;
         }
-        self.record_parse(source_end - start);
         let pending = render_streaming_markdown(
             &self.buffer[start..source_end],
             self.width,
@@ -297,6 +314,11 @@ impl MarkdownStreamCollector {
             self.stable_context,
             &self.references,
         );
+        self.record_parse(pending.parsed_bytes);
+        #[cfg(test)]
+        {
+            self.work.list_seed_bytes += pending.seed_bytes;
+        }
         self.record_rows(pending.lines.len());
         if !pending.references.is_empty() && start > 0 {
             self.invalidate_reference_prefix();
@@ -348,6 +370,10 @@ impl MarkdownStreamCollector {
                     &self.references,
                 );
                 self.record_rows(stable.lines.len());
+                #[cfg(test)]
+                {
+                    self.work.list_seed_bytes += stable.seed_bytes;
+                }
                 (block_start, stable.lines.len(), stable.end_context)
             }),
             RenderBoundary::Preview => None,
@@ -358,6 +384,17 @@ impl MarkdownStreamCollector {
             .text_tail_spaces
             .filter(|_| source_end == self.buffer.len())
             .and_then(|spaces| ParagraphTail::from_text_tail(spaces, &self.lines));
+        self.list_tail = None;
+        if pending.first_table_start.is_none()
+            && let Some(mut tail) = pending.list_tail
+        {
+            let probe_bytes = tail.detect_block_only_tightness(&self.buffer[start..source_end]);
+            if probe_bytes > 0 {
+                self.record_parse(probe_bytes);
+            }
+            tail.shift(start, self.stable_line_len);
+            self.list_tail = Some(tail);
+        }
         if let Some((source_bytes, row_count, context)) = stable_rows {
             self.stable_source_len += source_bytes;
             self.stable_line_len += row_count;
@@ -395,6 +432,7 @@ impl MarkdownStreamCollector {
         self.references = ReferenceContext::default();
         self.open_fence = None;
         self.paragraph_tail = None;
+        self.list_tail = None;
     }
 
     #[cfg(test)]
@@ -403,6 +441,7 @@ impl MarkdownStreamCollector {
         self.theme_revision = theme::revision();
         self.open_fence = None;
         self.paragraph_tail = None;
+        self.list_tail = None;
         self.record_parse(self.buffer.len());
         self.lines =
             render_markdown_text_with_width_and_cwd(&self.buffer, self.width, Some(&self.cwd))
@@ -451,3 +490,7 @@ mod render_tests;
 #[cfg(test)]
 #[path = "markdown_stream/continuation_tests.rs"]
 mod continuation_tests;
+
+#[cfg(test)]
+#[path = "markdown_stream/list_tests.rs"]
+mod list_tests;
