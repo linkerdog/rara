@@ -108,13 +108,7 @@ async fn resume_failure_keeps_picker_and_current_session() {
     assert_eq!(slot.as_ref().unwrap().session_id, "current-thread");
     assert_eq!(slot.as_ref().unwrap().history, history);
     assert_eq!(app.snapshot.session_id, "current-thread");
-    assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("Could not resume")
-    );
+    assert!(app.notice_text().unwrap().contains("Could not resume"));
     assert!(runtime.commands().is_empty());
     assert!(
         !dispatch_event_with_runtime(
@@ -143,13 +137,7 @@ fn startup_resume_failure_preserves_fresh_session() {
         assert_eq!(slot.as_ref().unwrap().session_id, "current-thread");
         assert_eq!(slot.as_ref().unwrap().history, history);
         assert_eq!(app.snapshot.session_id, "current-thread");
-        assert!(
-            app.bottom_pane
-                .notice
-                .as_deref()
-                .unwrap()
-                .contains("Could not resume")
-        );
+        assert!(app.notice_text().unwrap().contains("Could not resume"));
         assert!(!app.is_busy());
     }
 }
@@ -187,9 +175,7 @@ async fn unreadable_credential_keeps_model_picker_open() {
     assert!(slot.is_some());
     assert!(runtime.commands().is_empty());
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .unwrap()
             .contains("Could not load saved credential")
     );

@@ -1,6 +1,7 @@
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand};
 use super::state::TuiApp;
 use crate::runtime_goals::{GoalContinuationMode, GoalResumeTicket, GoalStatus};
+use crate::tui::state::NoticeLevel;
 
 #[derive(Clone)]
 pub(super) struct PendingGoalResume {
@@ -31,7 +32,7 @@ pub(super) fn arm_after_restore(app: &mut TuiApp) {
             .as_ref()
             .is_some_and(|goal| goal.status == GoalStatus::Pursuing)
         {
-            app.push_notice(
+            app.push_notice(NoticeLevel::Warning,
                 "Goal continuation was interrupted. Send a new prompt or use /goal resume to continue.",
             );
         }
@@ -109,9 +110,10 @@ pub(super) async fn queue_if_idle(
         Err(error) => {
             app.pending_goal_resume = None;
             log::warn!("Failed to queue restored goal: {error:#}");
-            app.push_notice(format!(
-                "Goal resume failed: {error:#}. Use /goal resume to retry."
-            ));
+            app.push_notice(
+                NoticeLevel::Error,
+                format!("Goal resume failed: {error:#}. Use /goal resume to retry."),
+            );
         }
     }
     true
@@ -121,7 +123,10 @@ pub(super) fn record_turn_started(app: &mut TuiApp) {
     app.pending_goal_resume = None;
     if let Err(error) = app.goal_handle.record_turn_started() {
         log::warn!("Failed to clear goal interruption deferral: {error:#}");
-        app.push_notice(format!("Goal continuation remains deferred: {error:#}"));
+        app.push_notice(
+            NoticeLevel::Warning,
+            format!("Goal continuation remains deferred: {error:#}"),
+        );
     }
 }
 
@@ -129,9 +134,12 @@ pub(super) fn defer_for_user_stop(app: &mut TuiApp) {
     app.pending_goal_resume = None;
     if let Err(error) = app.goal_handle.defer_continuation() {
         log::warn!("Failed to persist goal interruption: {error:#}");
-        app.push_notice(format!(
-            "Could not save goal interruption: {error:#}. This goal may resume after restart."
-        ));
+        app.push_notice(
+            NoticeLevel::Error,
+            format!(
+                "Could not save goal interruption: {error:#}. This goal may resume after restart."
+            ),
+        );
     }
 }
 

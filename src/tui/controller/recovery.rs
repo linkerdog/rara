@@ -3,6 +3,7 @@ use crate::runtime_control::RuntimeControlEvent;
 use crate::runtime_event_bus::RuntimeReplayGap;
 use crate::tui::runtime::RuntimeCommandProcessor;
 use crate::tui::runtime_port::RuntimeProjectionEvent;
+use crate::tui::state::NoticeLevel;
 
 impl TuiController {
     pub(super) fn drain_query_receipts(&mut self, boundary: QueryReceiptBoundary) -> bool {
@@ -62,7 +63,7 @@ impl TuiController {
             "Runtime event replay exhausted: missing {expected}..{}",
             gap.oldest_available - 1
         );
-        self.app.push_notice(format!(
+        self.app.push_notice(NoticeLevel::Warning, format!(
             "Some runtime events in {expected}..{} could not be recovered. Refreshing current state; some output may be missing.",
             gap.oldest_available - 1,
         ));

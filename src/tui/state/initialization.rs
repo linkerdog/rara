@@ -24,9 +24,9 @@ impl TuiApp {
             bottom_pane: BottomPaneModel {
                 input: String::new(),
                 input_cursor_offset: None,
-                notice: startup_notice,
                 ..Default::default()
             },
+            notices: Default::default(),
             input_history: Vec::new(),
             input_history_cursor: None,
             input_history_draft: None,
@@ -150,6 +150,9 @@ impl TuiApp {
         app.refresh_provider_connection_status();
         app.refresh_recent_threads();
 
+        if let Some(message) = startup_notice {
+            app.push_notice(NoticeLevel::Warning, message);
+        }
         Ok(app)
     }
 

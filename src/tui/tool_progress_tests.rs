@@ -127,8 +127,13 @@ fn reset_and_commit_drop_all_stream_state() {
     harness.app_mut().reset_transcript();
     assert!(harness.app().tool_progress.sources.is_empty());
     append_tool_progress(harness.app_mut(), input, "fresh");
+    assert_eq!(harness.app().active_turn.entries.len(), 2);
     assert_eq!(
         harness.app().active_turn.entries[0].message,
+        "Cleared local transcript view."
+    );
+    assert_eq!(
+        harness.app().active_turn.entries[1].message,
         "bash stdout:\nfresh\n"
     );
 }

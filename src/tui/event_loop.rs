@@ -30,6 +30,7 @@ use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[derive(Debug, Clone)]
 pub enum StartupResumeTarget {
@@ -261,10 +262,11 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 if let Some(clipboard) = &mut app.clipboard
                     && let Some(notice) = clipboard.poll().await
                 {
-                    app.push_notice(notice);
+                    app.push_notice(notice.level, notice.message);
                     changed = true;
                 }
                 changed |= app.quit_shortcut.expire(std::time::Instant::now());
+                changed |= app.expire_notice(Instant::now());
                 if let Some(delta) = app.transcript_selection.autoscroll_delta() {
                     super::render::scroll_transcript(app, delta);
                     changed = true;
@@ -337,7 +339,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                     Some(Err(err)) => {
                         maintainer
                             .app_mut()
-                            .push_notice(format!("Terminal event error: {err}"));
+                            .push_notice(NoticeLevel::Error, format!("Terminal event error: {err}"));
                         needs_redraw = true;
                     }
                     None => break,

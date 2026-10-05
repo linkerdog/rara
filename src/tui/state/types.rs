@@ -779,6 +779,7 @@ pub struct TuiApp {
     #[cfg(test)]
     pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
+    pub(super) notices: super::notices::NoticeState,
     pub input_history: Vec<String>,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,

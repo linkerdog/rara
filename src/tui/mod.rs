@@ -77,6 +77,9 @@ pub(crate) use self::runtime_port::{
 mod selection;
 mod session_restore;
 pub(crate) mod state;
+
+#[cfg(test)]
+mod notice_tests;
 mod status_display;
 mod sub_agent_display;
 mod submit;
