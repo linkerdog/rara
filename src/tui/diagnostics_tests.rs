@@ -34,9 +34,9 @@ fn library_recovery_does_not_write_over_tui_stderr() {
     );
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "isolated process captures library stderr"]
-fn recovery_diagnostics_child() {
+async fn recovery_diagnostics_child() {
     let diagnostics = TerminalDiagnostics::start().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let db = Arc::new(StateDb::new_for_root_dir(dir.path().join("state")).unwrap());
@@ -109,12 +109,17 @@ fn recovery_diagnostics_child() {
 
     // A diagnostic write failure gets one diagnostic of its own, not a new
     // record on every event-loop tick.
+    harness.app_mut().flush_storage().await.unwrap();
     std::fs::remove_file(&path).unwrap();
     std::fs::create_dir(&path).unwrap();
     log::warn!("trigger a failing diagnostic write");
     assert!(harness.app_mut().poll_diagnostics());
+    harness.app_mut().flush_storage().await.unwrap_err();
     assert!(harness.app_mut().poll_diagnostics());
+    harness.app_mut().flush_storage().await.unwrap_err();
     assert!(!harness.app_mut().poll_diagnostics());
+    std::fs::remove_dir(&path).unwrap();
+    harness.app_mut().shutdown_storage().await.unwrap();
     drop(diagnostics);
 }
 

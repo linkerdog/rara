@@ -344,6 +344,14 @@ impl ListPickerKind {
     }
 
     fn render_resume_items(app: &TuiApp, selected: usize) -> Vec<ListItem<'static>> {
+        if app.resume_query.loading {
+            return vec![ListItem::new("Loading saved threads...")];
+        }
+        if let Some(error) = &app.resume_query.error {
+            return vec![ListItem::new(
+                crate::tui::display_sanitize::sanitize_display_text(error),
+            )];
+        }
         let summaries = resumable_threads(app);
         if summaries.is_empty() {
             return vec![ListItem::new("No threads available.")];
@@ -409,6 +417,9 @@ impl ListPickerKind {
 }
 
 pub(crate) fn selected_resumable_thread_id(app: &TuiApp) -> Option<String> {
+    if app.resume_query.loading || app.resume_query.error.is_some() {
+        return None;
+    }
     resumable_threads(app)
         .get(app.resume_picker_idx)
         .map(|summary| summary.metadata.session_id.clone())

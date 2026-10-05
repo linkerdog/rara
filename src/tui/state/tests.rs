@@ -22,6 +22,8 @@ use crate::llm::MockLlm;
 use crate::session::SessionManager;
 use crate::tools::agent::{AgentDefinitionCache, AgentDefinitionLoadRecord};
 use crate::tools::bash::BashCommandInput;
+
+mod background_storage;
 use crate::tui::command::palette_commands;
 use crate::workspace::WorkspaceMemory;
 

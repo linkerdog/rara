@@ -14,7 +14,7 @@ use super::provider_flow::{
 };
 use super::runtime::start_oauth_task;
 use super::runtime_port::{RuntimeClientPort, RuntimeCommand, RuntimeMaintenanceCommand};
-use super::session_restore::restore_thread_by_id;
+use super::session_restore::request_restore_thread;
 use super::state::{
     ActivePendingInteractionKind, ApiKeyTarget, ListPickerKind, OpenAiModelPickerAction, Overlay,
     ProviderFamily, QuitShortcutAction, QuitShortcutKey, TuiApp,
@@ -89,6 +89,9 @@ async fn dispatch_event_inner(
         AppEvent::Noop => {}
         AppEvent::OpenOverlay(overlay) => app.open_overlay(overlay),
         AppEvent::CloseOverlay => {
+            if super::session_restore::cancel_restore(app, agent_slot) {
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
+            }
             if matches!(
                 app.overlay,
                 Some(Overlay::ListPicker(ListPickerKind::Resume))
@@ -98,6 +101,10 @@ async fn dispatch_event_inner(
             app.dismiss_overlay();
         }
         AppEvent::CancelRunningTask => {
+            if super::session_restore::cancel_restore(app, agent_slot) {
+                app.push_notice(NoticeLevel::Info, "Thread restore cancelled.");
+                return Ok(false);
+            }
             if let Some(runtime_port) = runtime_port {
                 runtime_port
                     .send(RuntimeCommand::Session(
@@ -779,30 +786,15 @@ async fn dispatch_event_inner(
                         }
                         ListPickerKind::Resume => {
                             if let Some(thread_id) = list_picker::selected_resumable_thread_id(app)
+                                && let Err(error) =
+                                    request_restore_thread(thread_id.as_str(), app, agent_slot)
                             {
-                                if let Err(error) =
-                                    restore_thread_by_id(thread_id.as_str(), app, agent_slot)
-                                {
-                                    log::warn!("Could not resume thread {thread_id}: {error:#}");
-                                    app.push_notice(
-                                        NoticeLevel::Error,
-                                        format!("Could not resume thread {thread_id}: {error:#}"),
-                                    );
-                                    return Ok(false);
-                                }
-                                let mode = app.permission_mode;
-                                if mode == super::state::PermissionMode::FullAccess {
-                                    if let Some(runtime_port) = runtime_port {
-                                        runtime_port
-                                            .send(RuntimeCommand::SetPermissionMode(mode))
-                                            .await?;
-                                    } else {
-                                        super::runtime::request_permission_mode(
-                                            app, agent_slot, mode,
-                                        );
-                                    }
-                                }
-                                app.dismiss_overlay();
+                                log::warn!("Could not resume thread {thread_id}: {error:#}");
+                                app.push_notice(
+                                    NoticeLevel::Error,
+                                    format!("Could not resume thread {thread_id}: {error:#}"),
+                                );
+                                return Ok(false);
                             }
                         }
                         ListPickerKind::OpenAiEndpointKind => {

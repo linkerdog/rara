@@ -15,8 +15,8 @@ use crate::todo::{TodoItem, TodoState, TodoStatus};
 use crate::tui::state::{ActivePendingInteractionKind, InteractionKind, TuiApp};
 use crate::workspace::WorkspaceMemory;
 
-#[test]
-fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
+#[tokio::test]
+async fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -101,6 +101,7 @@ fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
     original_agent.execution_mode = AgentExecutionMode::Execute;
     let expected_runtime = original_agent.shared_runtime_context();
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -122,9 +123,13 @@ fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     let restored_agent = restored_slot.expect("restored agent");
+    restored_app
+        .finish_context_files_for_test(&restored_agent)
+        .await;
     let restored_runtime = restored_agent.shared_runtime_context();
 
     assert_eq!(restored_agent.execution_mode, AgentExecutionMode::Execute);
@@ -193,8 +198,8 @@ fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
     );
 }
 
-#[test]
-fn restore_session_keeps_target_session_id_even_without_history_file() {
+#[tokio::test]
+async fn restore_session_keeps_target_session_id_even_without_history_file() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -236,6 +241,7 @@ fn restore_session_keeps_target_session_id_even_without_history_file() {
         crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
     );
 
+    original_app.flush_storage().await.unwrap();
     let rollout_dir = rara_dir
         .join("rollouts")
         .join(original_agent.session_id.as_str());
@@ -243,6 +249,7 @@ fn restore_session_keeps_target_session_id_even_without_history_file() {
         fs::remove_dir_all(&rollout_dir).expect("remove rollout history");
     }
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -267,15 +274,19 @@ fn restore_session_keeps_target_session_id_even_without_history_file() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     let restored_agent = restored_slot.expect("restored agent");
+    restored_app
+        .finish_context_files_for_test(&restored_agent)
+        .await;
     assert_eq!(restored_agent.session_id, "session-without-history");
     assert_eq!(restored_app.snapshot.session_id, "session-without-history");
 }
 
-#[test]
-fn restore_session_recovers_live_active_turn_entries() {
+#[tokio::test]
+async fn restore_session_recovers_live_active_turn_entries() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -335,6 +346,7 @@ fn restore_session_recovers_live_active_turn_entries() {
         },
     )
     .expect("write live agent entry");
+    original_app.flush_storage().await.unwrap();
     for (role, message) in [
         ("Tool Result", "bash finished with exit code 0"),
         ("legacy\x1b[31m-note\x1b[0m", "historical annotation"),
@@ -351,6 +363,7 @@ fn restore_session_recovers_live_active_turn_entries() {
         .expect("write historical transcript entry");
     }
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -372,6 +385,7 @@ fn restore_session_recovers_live_active_turn_entries() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     assert_eq!(restored_app.committed_turns.len(), 0);
@@ -417,6 +431,7 @@ fn restore_session_recovers_live_active_turn_entries() {
 
     // Commit recovered live entries, then exercise committed restoration as well.
     restored_app.finalize_active_turn();
+    restored_app.flush_storage().await.unwrap();
     let state_db = restored_app.state_db.as_ref().expect("state db");
     let stored = rara_persistence::thread_turn_log::load_turn_records(
         &state_db.rollout_root(),
@@ -444,6 +459,7 @@ fn restore_session_recovers_live_active_turn_entries() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore committed turn");
     assert_eq!(restored_app.active_turn.entries.len(), 1);
     assert_eq!(
@@ -460,8 +476,8 @@ fn restore_session_recovers_live_active_turn_entries() {
     assert_eq!(entries[4].role, MessageRole::Legacy("Agent Delta".into()));
 }
 
-#[test]
-fn restore_session_surfaces_pending_interactions_in_assembled_context() {
+#[tokio::test]
+async fn restore_session_surfaces_pending_interactions_in_assembled_context() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -532,6 +548,7 @@ fn restore_session_surfaces_pending_interactions_in_assembled_context() {
         crate::runtime_client::RuntimeClient::extension_snapshot_for_agent(&original_agent, 0),
     );
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -553,9 +570,13 @@ fn restore_session_surfaces_pending_interactions_in_assembled_context() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     let restored_agent = restored_slot.expect("restored agent");
+    restored_app
+        .finish_context_files_for_test(&restored_agent)
+        .await;
     let runtime = restored_agent.shared_runtime_context();
     assert!(
         runtime
@@ -581,8 +602,8 @@ fn restore_session_surfaces_pending_interactions_in_assembled_context() {
     );
 }
 
-#[test]
-fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
+#[tokio::test]
+async fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -634,6 +655,7 @@ fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
     );
     original_app.show_pending_plan_approval(Some("exit-plan-restore"));
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -655,9 +677,13 @@ fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     let restored_agent = restored_slot.expect("restored agent");
+    restored_app
+        .finish_context_files_for_test(&restored_agent)
+        .await;
     assert_eq!(restored_agent.execution_mode, AgentExecutionMode::Plan);
     assert!(restored_agent.has_pending_plan_exit_approval());
     assert_eq!(
@@ -679,8 +705,8 @@ fn restore_session_recovers_pending_plan_approval_from_lifecycle() {
     );
 }
 
-#[test]
-fn restore_session_does_not_reopen_completed_plan_approval() {
+#[tokio::test]
+async fn restore_session_does_not_reopen_completed_plan_approval() {
     let temp = tempdir().expect("tempdir");
     let root = temp.path().join("repo");
     let rara_dir = root.join(".rara");
@@ -739,6 +765,7 @@ fn restore_session_does_not_reopen_completed_plan_approval() {
         Some("plan_approval:approve".to_string()),
     );
 
+    original_app.shutdown_storage().await.unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -760,9 +787,13 @@ fn restore_session_does_not_reopen_completed_plan_approval() {
         &mut restored_app,
         &mut restored_slot,
     )
+    .await
     .expect("restore thread");
 
     let restored_agent = restored_slot.expect("restored agent");
+    restored_app
+        .finish_context_files_for_test(&restored_agent)
+        .await;
     assert!(!restored_agent.has_pending_plan_exit_approval());
     assert!(!restored_app.has_pending_plan_approval());
 }

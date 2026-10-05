@@ -88,6 +88,8 @@ impl TuiApp {
             .collect(),
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
+            pending_restore: None,
+            resume_query: Default::default(),
             resume_picker_idx: 0,
             resume_sort_by_created: false,
             resume_search_query: String::new(),
@@ -107,7 +109,11 @@ impl TuiApp {
             terminal_focused: true,
             quit_shortcut: super::QuitShortcutState::default(),
             state_db: None,
+            storage: None,
+            storage_revision: 0,
             state_db_status: None,
+            context_files: Default::default(),
+            shared_task_scan: Default::default(),
             shared_task_root: None,
             shared_task_fingerprint: None,
             shared_task_last_poll: None,
@@ -180,7 +186,7 @@ impl TuiApp {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.bottom_pane.running_task.is_some()
+        self.bottom_pane.running_task.is_some() || self.pending_restore.is_some()
     }
 
     pub fn running_elapsed(&self) -> Option<std::time::Duration> {

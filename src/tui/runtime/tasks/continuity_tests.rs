@@ -390,6 +390,7 @@ async fn accounting_failure_keeps_the_runtime_agent_and_stops_automatic_continua
         vec![("completed".into(), "Completed work".into())]
     );
     assert_eq!(app.bash_approval_mode, BashApprovalMode::Once);
+    app.flush_storage().await.unwrap();
     let persisted = db
         .load_session_runtime_state("failed-turn-thread")
         .expect("runtime state")

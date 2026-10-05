@@ -21,6 +21,8 @@ use crossterm::{
 // remain the installing caller's responsibility.
 static TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PANIC_HOOK: Once = Once::new();
+#[cfg(unix)]
+static KEYBOARD_MODE_OWNED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static OWNER_STATE: Cell<OwnerState> = const { Cell::new(OwnerState::Inactive) };
@@ -73,7 +75,10 @@ impl TerminalModeGuard {
                 EnableBracketedPaste,
                 EnableMouseCapture,
                 EnableFocusChange
-            )
+            )?;
+            #[cfg(unix)]
+            enable_keyboard_enhancement(io::stdout())?;
+            Ok(())
         })
     }
 
@@ -185,6 +190,7 @@ impl Drop for TerminalModeGuard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoreAction {
     SynchronizedOutput,
+    Keyboard,
     Mouse,
     BracketedPaste,
     Focus,
@@ -195,12 +201,36 @@ enum RestoreAction {
 fn restore_terminal_modes() -> io::Result<()> {
     restore_all(|action| match action {
         RestoreAction::SynchronizedOutput => execute!(io::stdout(), EndSynchronizedUpdate),
+        RestoreAction::Keyboard => {
+            // The panic hook may already have popped this entry before Drop.
+            #[cfg(unix)]
+            if KEYBOARD_MODE_OWNED.swap(false, Ordering::AcqRel) {
+                return execute!(io::stdout(), crossterm::event::PopKeyboardEnhancementFlags);
+            }
+            Ok(())
+        }
         RestoreAction::Mouse => execute!(io::stdout(), DisableMouseCapture),
         RestoreAction::BracketedPaste => execute!(io::stdout(), DisableBracketedPaste),
         RestoreAction::Focus => execute!(io::stdout(), DisableFocusChange),
         RestoreAction::RawMode => disable_raw_mode(),
         RestoreAction::Cursor => execute!(io::stdout(), Show),
     })
+}
+
+#[cfg(unix)]
+fn enable_keyboard_enhancement(mut output: impl io::Write) -> io::Result<()> {
+    use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+
+    // Avoid crossterm's support query, whose DA1 drain is unbounded.
+    // Unsupported ANSI terminals ignore the progressive enable command.
+    crossterm::queue!(
+        output,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )?;
+    // An incomplete command has not pushed an entry. Once accepted, however,
+    // a failing flush may still have sent it, so cleanup must already be armed.
+    KEYBOARD_MODE_OWNED.store(true, Ordering::Release);
+    output.flush()
 }
 
 fn restore_before_panic() -> io::Result<()> {
@@ -232,6 +262,7 @@ fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Re
     let mut first_error = None;
     for action in [
         RestoreAction::SynchronizedOutput,
+        RestoreAction::Keyboard,
         RestoreAction::Mouse,
         RestoreAction::BracketedPaste,
         RestoreAction::Focus,
@@ -252,3 +283,7 @@ fn restore_all(mut apply: impl FnMut(RestoreAction) -> io::Result<()>) -> io::Re
 #[cfg(test)]
 #[path = "terminal_modes_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "keyboard_protocol_tests.rs"]
+mod keyboard_tests;
