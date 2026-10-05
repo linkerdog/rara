@@ -30,7 +30,7 @@ pub(super) fn suspend(
         // Never emit input-mode commands until SIGCONT confirms resumption.
         resume_signal.wait()?;
     }
-    let resumed = TerminalModeGuard::start();
+    let resumed = TerminalModeGuard::start(modes.title_mode);
     match (stopped, resumed) {
         (Ok(()), Ok(guard)) => *modes = guard,
         (Err(error), Ok(guard)) => {

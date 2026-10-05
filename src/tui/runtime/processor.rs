@@ -61,25 +61,32 @@ impl RuntimeCommandProcessor {
     ) -> anyhow::Result<()> {
         // Preparation retains the agent, so its presence alone cannot admit
         // another maintenance task or an interaction continuation.
-        if app
-            .bottom_pane
-            .running_task
-            .as_ref()
-            .is_some_and(|task| matches!(task.kind, TaskKind::ReviewPreparation))
-            && matches!(
-                command,
-                RuntimeCommand::Maintenance(_)
-                    | RuntimeCommand::Input(
-                        InputControlRequest::AnswerPendingInput { .. }
-                            | InputControlRequest::AnswerPlanApproval { .. }
-                            | InputControlRequest::AnswerShellApproval { .. }
-                    )
+        if app.bottom_pane.running_task.as_ref().is_some_and(|task| {
+            matches!(
+                task.kind,
+                TaskKind::ReviewPreparation | TaskKind::ThreadCommand
             )
-        {
-            app.push_notice(
-                NoticeLevel::Info,
-                "Wait for review preparation to finish or cancel it first.",
-            );
+        }) && matches!(
+            command,
+            RuntimeCommand::Maintenance(_)
+                | RuntimeCommand::Session(SessionControlRequest::CreateSession)
+                | RuntimeCommand::Input(
+                    InputControlRequest::AnswerPendingInput { .. }
+                        | InputControlRequest::AnswerPlanApproval { .. }
+                        | InputControlRequest::AnswerShellApproval { .. }
+                )
+        ) {
+            let notice = if app
+                .bottom_pane
+                .running_task
+                .as_ref()
+                .is_some_and(|task| matches!(task.kind, TaskKind::ReviewPreparation))
+            {
+                "Wait for review preparation to finish or cancel it first."
+            } else {
+                "Wait for the current thread command to finish."
+            };
+            app.push_notice(NoticeLevel::Info, notice);
             return Ok(());
         }
         if matches!(
@@ -96,6 +103,15 @@ impl RuntimeCommandProcessor {
             );
         }
         match command {
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::ExportThread { path }) => {
+                super::thread_commands::start_export(app, &self.runtime, path);
+            }
+            RuntimeCommand::Session(SessionControlRequest::CreateSession) => {
+                super::thread_commands::start_new(app, &self.runtime);
+            }
+            RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::RenameThread { title }) => {
+                super::thread_commands::start_rename(app, &self.runtime, title);
+            }
             RuntimeCommand::SetPermissionMode(mode) => {
                 super::permissions::request_permission_mode(app, self.agent_mut(), mode);
             }
@@ -250,6 +266,7 @@ impl RuntimeCommandProcessor {
         app: &mut TuiApp,
         completion: Box<Result<TaskCompletion, tokio::task::JoinError>>,
     ) -> anyhow::Result<()> {
+        let thread_command = matches!(&*completion, Ok(TaskCompletion::ThreadCommand { .. }));
         let mut services = self.runtime.task_services();
         let agent_slot = self.runtime.agent_mut();
         super::tasks::finish_running_task_if_ready_from_runtime_port(
@@ -261,6 +278,11 @@ impl RuntimeCommandProcessor {
         .await?;
         self.runtime.update_task_services(&services);
         self.runtime.refresh_agent_tree_identity();
+        if thread_command {
+            // Bind the new root before a queued prompt takes ownership of its agent.
+            let services = self.runtime.task_services();
+            super::tasks::try_start_queued_follow_up(app, self.runtime.agent_mut(), Some(services));
+        }
         if let Some(agent) = self.runtime.agent() {
             crate::auto_memory::maybe_auto_memory(app, agent);
             self.runtime

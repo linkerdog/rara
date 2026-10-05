@@ -73,7 +73,7 @@ impl StateDb {
                        s.last_compaction_after_tokens, s.last_compaction_recent_file_count,
                        s.last_compaction_boundary_version,
                        COALESCE((SELECT preview FROM turns WHERE session_id = s.id
-                                 ORDER BY ordinal DESC LIMIT 1), '') AS preview
+                                 ORDER BY ordinal DESC LIMIT 1), '') AS preview, s.title
                 FROM sessions s
                 WHERE ({RESUMABLE_SESSION_WHERE})
                   AND (:cwd IS NULL OR s.cwd = :cwd)
@@ -81,6 +81,7 @@ impl StateDb {
             )
             SELECT * FROM candidates
             WHERE (:search = ''
+                OR instr(lower(title), lower(:search)) > 0
                 OR instr(lower(preview), lower(:search)) > 0
                 OR instr(lower(id), lower(:search)) > 0
                 OR instr(lower(cwd), lower(:search)) > 0
@@ -109,6 +110,7 @@ impl StateDb {
             |row| {
                 Ok(PersistedRecentThreadRecord {
                     session_id: row.get(0)?,
+                    title: row.get(20)?,
                     cwd: row.get(1)?,
                     branch: row.get(2)?,
                     provider: row.get(3)?,

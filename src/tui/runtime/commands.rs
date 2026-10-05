@@ -42,6 +42,12 @@ pub(super) async fn execute_local_command_with_runtime(
     app.remember_command(match command.kind {
         LocalCommandKind::Approval => "approval",
         LocalCommandKind::Clear => "clear",
+        LocalCommandKind::New => "new",
+        LocalCommandKind::Diff => "diff",
+        LocalCommandKind::Copy => "copy",
+        LocalCommandKind::Init => "init",
+        LocalCommandKind::Export => "export",
+        LocalCommandKind::Rename => "rename",
         LocalCommandKind::Compact => "compact",
         LocalCommandKind::Connect => "connect",
         LocalCommandKind::Context => "context",
@@ -60,6 +66,70 @@ pub(super) async fn execute_local_command_with_runtime(
         LocalCommandKind::Goal => "goal",
     });
     match command.kind {
+        LocalCommandKind::Diff => {
+            if command.arg.is_some() {
+                app.push_notice(NoticeLevel::Info, "Usage: /diff");
+            } else {
+                crate::tui::diff_view::open(app);
+            }
+        }
+        LocalCommandKind::Copy => super::session_commands::copy(app, command.arg.as_deref()),
+        LocalCommandKind::Init => {
+            if command.arg.is_some() {
+                app.push_notice(NoticeLevel::Info, "Usage: /init");
+            } else if let Some(runtime_port) = runtime_port {
+                runtime_port
+                    .send(RuntimeCommand::Input(
+                        crate::runtime_control::InputControlRequest::SubmitUserPrompt {
+                            prompt: super::session_commands::INIT_PROMPT.into(),
+                        },
+                    ))
+                    .await?;
+            } else {
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Initializing project instructions requires an active runtime client.",
+                );
+            }
+        }
+        LocalCommandKind::Export => {
+            request_maintenance(
+                app,
+                agent_slot,
+                runtime_port,
+                RuntimeMaintenanceCommand::ExportThread { path: command.arg },
+            )
+            .await?;
+        }
+        LocalCommandKind::New => {
+            if command.arg.is_some() {
+                app.push_notice(NoticeLevel::Info, "Usage: /new");
+            } else if let Some(runtime_port) = runtime_port {
+                runtime_port
+                    .send(RuntimeCommand::Session(
+                        crate::runtime_control::SessionControlRequest::CreateSession,
+                    ))
+                    .await?;
+            } else {
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Starting a new thread requires an active runtime client.",
+                );
+            }
+        }
+        LocalCommandKind::Rename => {
+            let Some(title) = command.arg else {
+                app.push_notice(NoticeLevel::Info, "Usage: /rename <name>");
+                return Ok(false);
+            };
+            request_maintenance(
+                app,
+                agent_slot,
+                runtime_port,
+                RuntimeMaintenanceCommand::RenameThread { title },
+            )
+            .await?;
+        }
         LocalCommandKind::Approval => {
             if app.is_busy() {
                 app.push_notice(
@@ -210,6 +280,18 @@ async fn request_maintenance(
             .await?;
     } else {
         match command {
+            RuntimeMaintenanceCommand::ExportThread { .. } => {
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Exporting requires an active runtime client.",
+                );
+            }
+            RuntimeMaintenanceCommand::RenameThread { .. } => {
+                app.push_notice(
+                    NoticeLevel::Info,
+                    "Thread renaming requires a runtime client.",
+                );
+            }
             RuntimeMaintenanceCommand::Review => super::review::start(app, agent_slot),
             RuntimeMaintenanceCommand::Compact => {
                 if let Some(agent) = agent_slot.take() {

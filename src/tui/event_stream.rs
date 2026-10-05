@@ -125,6 +125,9 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
                 Some(Overlay::Context | Overlay::Help(_) | Overlay::Status(_)) => {
                     AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta))
                 }
+                Some(Overlay::Diff) => {
+                    AppEvent::NavigateDiff(super::diff_view::DiffNavigation::Rows(delta))
+                }
                 Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
                     AppEvent::MoveCommandSelection(delta)
                 }

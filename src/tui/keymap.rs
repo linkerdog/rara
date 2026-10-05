@@ -82,6 +82,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         | Overlay::Help(_)
                         | Overlay::Status(_)
                         | Overlay::Context
+                        | Overlay::Diff
                         | Overlay::SkillsPicker
                         | Overlay::ListPicker(_)
                         | Overlay::PermissionPicker,
@@ -135,6 +136,23 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
             }
             _ => AppEvent::Noop,
         },
+        Some(Overlay::Diff) => {
+            use super::diff_view::DiffNavigation;
+            match code {
+                KeyCode::Esc => AppEvent::CloseOverlay,
+                KeyCode::Up | KeyCode::Char('k') => {
+                    AppEvent::NavigateDiff(DiffNavigation::Rows(-1))
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    AppEvent::NavigateDiff(DiffNavigation::Rows(1))
+                }
+                KeyCode::PageUp => AppEvent::NavigateDiff(DiffNavigation::Pages(-1)),
+                KeyCode::PageDown => AppEvent::NavigateDiff(DiffNavigation::Pages(1)),
+                KeyCode::Home => AppEvent::NavigateDiff(DiffNavigation::Start),
+                KeyCode::End => AppEvent::NavigateDiff(DiffNavigation::End),
+                _ => AppEvent::Noop,
+            }
+        }
         Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
         Some(Overlay::Help(_)) => match key {
             KeyEvent {

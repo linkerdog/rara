@@ -212,6 +212,8 @@ impl Default for PersistedThreadLineage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedThreadRecord {
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub cwd: String,
     pub branch: String,
     pub provider: String,
@@ -245,6 +247,7 @@ pub struct PersistedRecentThreadSummary {
 #[derive(Debug, Clone)]
 pub struct PersistedRecentThreadRecord {
     pub session_id: String,
+    pub title: Option<String>,
     pub cwd: String,
     pub branch: String,
     pub provider: String,

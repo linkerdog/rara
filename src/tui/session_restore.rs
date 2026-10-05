@@ -37,12 +37,14 @@ fn apply_prepared_restore(
         todo_state,
         runtime_state,
         turns,
+        next_turn_ordinal,
         live_entries,
         live_recovery_warning,
         latest_plan_lifecycle,
         goal,
     } = prepared;
     let thread_id = thread.metadata.session_id.clone();
+    let thread_title = thread.metadata.title.clone();
     let mut resume_notice = format!("Resumed thread {thread_id}.");
     let mut resume_level = NoticeLevel::Info;
     let restored_goal = match goal {
@@ -68,6 +70,7 @@ fn apply_prepared_restore(
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
+    app.terminal_feedback = Default::default();
     agent.todo_state = todo_state;
     if let Some(runtime_state) = runtime_state {
         let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
@@ -211,6 +214,7 @@ fn apply_prepared_restore(
     app.bottom_pane.queued_follow_up_messages.clear();
     app.running_tool_boundary_count = 0;
     app.restore_committed_turns(turns);
+    app.next_turn_ordinal = next_turn_ordinal;
     app.active_turn.entries = live_entries;
     if let Some(warning) = live_recovery_warning {
         resume_notice.push(' ');
@@ -248,6 +252,7 @@ fn apply_prepared_restore(
 
     app.push_notice(resume_level, resume_notice);
     super::goal_resume::arm_after_restore(app);
+    app.set_terminal_thread_title(thread_title);
     Ok(())
 }
 

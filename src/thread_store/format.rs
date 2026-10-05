@@ -32,8 +32,12 @@ pub(super) fn format_thread_markdown(thread: &ThreadSnapshot) -> String {
     }
 
     for message in &thread.history {
+        let content = render_message_content(&message.content);
+        if content.is_empty() {
+            continue;
+        }
         lines.push(format!("## {}", role_heading(&message.role)));
-        lines.push(render_message_content(&message.content));
+        lines.push(content);
         lines.push(String::new());
     }
 
@@ -94,6 +98,9 @@ pub(super) fn thread_distilled_memory_base(thread: &ThreadSnapshot) -> Result<Ne
 }
 
 fn thread_title(thread: &ThreadSnapshot) -> String {
+    if let Some(title) = &thread.metadata.title {
+        return title.clone();
+    }
     first_user_message(thread)
         .map(|value| truncate_chars(&collapse_whitespace(&value), 80))
         .unwrap_or_else(|| format!("Thread {}", thread.metadata.session_id))
@@ -115,11 +122,11 @@ fn role_heading(role: &str) -> &str {
         "system" => "System",
         "tool" => "Tool",
         "user" => "User",
-        _ => "Message",
+        _ => role,
     }
 }
 
-fn render_message_content(content: &serde_json::Value) -> String {
+pub(super) fn render_message_content(content: &serde_json::Value) -> String {
     if let Some(text) = content.as_str() {
         return text.to_string();
     }

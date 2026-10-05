@@ -33,6 +33,34 @@ fn query(search: &str) -> ThreadListQuery<'_> {
 }
 
 #[test]
+fn search_matches_persisted_titles_before_limiting_the_index() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = StateDb::new_for_root_dir(dir.path().into())?;
+    for i in 0..250 {
+        session(&db, &format!("thread-{i:03}"), "/workspace")?;
+    }
+    db.set_thread_title("thread-000", "Investigation 100%_DONE")?;
+    db.conn.lock().map_err(|_| anyhow!("mutex"))?.execute(
+        "UPDATE sessions SET updated_at = CASE WHEN id = 'thread-000' THEN 0 ELSE 10 END",
+        [],
+    )?;
+    assert!(
+        !db.list_recent_thread_records(200)?
+            .iter()
+            .any(|thread| thread.session_id == "thread-000")
+    );
+    let page = db.query_threads(query("investigation 100%_done"))?;
+    assert_eq!(page.threads.len(), 1);
+    assert_eq!(page.threads[0].session_id, "thread-000");
+    assert_eq!(
+        page.threads[0].title.as_deref(),
+        Some("Investigation 100%_DONE")
+    );
+    assert!(db.query_threads(query("100X_done"))?.threads.is_empty());
+    Ok(())
+}
+
+#[test]
 fn search_reaches_old_rows_and_matches_literal_preview_and_metadata() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let db = StateDb::new_for_root_dir(dir.path().into())?;

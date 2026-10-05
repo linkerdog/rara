@@ -547,6 +547,7 @@ mod tests {
         let summary = ThreadSummary {
             metadata: ThreadMetadata {
                 session_id: "thread-123".to_string(),
+                title: None,
                 cwd: "/Users/test/projects/rara".to_string(),
                 branch: "feature/resume-picker".to_string(),
                 provider: "codex".to_string(),
@@ -657,6 +658,7 @@ mod tests {
         ThreadSummary {
             metadata: ThreadMetadata {
                 session_id: session_id.to_string(),
+                title: None,
                 cwd: cwd.to_string(),
                 branch: "main".to_string(),
                 provider: "codex".to_string(),
@@ -674,5 +676,18 @@ mod tests {
             preview: format!("User: {session_id}"),
             compaction: CompactionRecord::default(),
         }
+    }
+
+    #[test]
+    fn resume_preview_prefers_the_persisted_title() {
+        let mut thread = thread_summary("named", "/workspace");
+        thread.metadata.title = Some("Investigate persistence".into());
+        let lines = render_resume_summary_lines(0, &thread, 0);
+        let title: String = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(title, "[1] Investigate persistence");
     }
 }

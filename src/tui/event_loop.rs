@@ -25,6 +25,8 @@ use super::state::ListPickerKind;
 use super::state::Overlay;
 use super::state::TuiApp;
 use super::submit::clamp_command_palette_selection;
+use super::terminal_control::TerminalTarget;
+use super::terminal_feedback::{TerminalFeedback, TitleMode};
 use super::terminal_modes::TerminalModeGuard;
 use super::terminal_ui::handle_paste;
 use crate::oauth::OAuthManager;
@@ -52,7 +54,8 @@ pub async fn run_tui(
     startup: TuiStartupOptions,
 ) -> anyhow::Result<Option<String>> {
     let diagnostics = crate::diagnostics::TerminalDiagnostics::start()?;
-    let mut terminal_modes = TerminalModeGuard::start()?;
+    let mut terminal_modes =
+        TerminalModeGuard::start(TitleMode::configured(&startup.config.tui.terminal))?;
     let result = TerminalModeGuard::run_owner(run_tui_session(
         runtime,
         oauth_manager,
@@ -89,6 +92,7 @@ async fn run_tui_session(
     let initial_size = terminal_size()?;
     let mut app = TuiApp::with_config(crate::config::ConfigManager::new()?, startup.config)?;
     app.attach_prompt_history();
+    app.terminal_capabilities = rara_terminal_detection::TerminalCapabilities::detect();
     app.diagnostics = Some(diagnostics);
     app.goal_handle = runtime.goal_handle.clone();
     app.goal = runtime.goal_handle.snapshot();
@@ -260,6 +264,10 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
     let mut frames = FrameScheduler::default();
     let mut exit_flush: Option<tokio::sync::oneshot::Receiver<anyhow::Result<()>>> = None;
     let mut input_closed = false;
+    let mut feedback = TerminalFeedback::new(
+        TitleMode::configured(&maintainer.app().config.tui.terminal),
+        TerminalTarget::from_environment(),
+    );
 
     loop {
         let mut needs_redraw = std::mem::take(&mut maintainer.needs_redraw);
@@ -286,6 +294,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
             }
             needs_redraw |= maintainer.app_mut().check_composer_paste_flush();
         }
+        feedback.update(maintainer.app_mut(), terminal.control_writer())?;
         if needs_redraw {
             frames.request(Instant::now());
         }
@@ -349,6 +358,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                 changed |= super::goal_ui::update_elapsed(app, crate::runtime_goals::current_unix_timestamp_secs());
                 changed |= app.poll_shared_task_files();
                 changed |= app.poll_storage();
+                changed |= super::diff_view::poll(app).await;
                 changed |= app.poll_resume_queries();
                 changed |= super::session_restore::poll_restore(app, processor.agent_mut());
                 if app.poll_context_files() {
@@ -435,6 +445,7 @@ async fn run_event_loop<B: Backend<Error = io::Error> + Write>(
                         #[cfg(unix)]
                         Some(UiEvent::Suspend) => {
                             events.suspend(terminal)?;
+                            feedback.resumed();
                             needs_redraw = true;
                         }
                         None => {}

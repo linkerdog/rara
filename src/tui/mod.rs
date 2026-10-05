@@ -27,6 +27,7 @@ mod controller;
 mod custom_terminal;
 #[cfg(test)]
 mod diagnostics_tests;
+mod diff_view;
 #[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
@@ -92,8 +93,12 @@ mod notice_tests;
 mod status_display;
 mod sub_agent_display;
 mod submit;
+mod terminal_control;
 mod terminal_event;
+mod terminal_feedback;
+mod terminal_glyphs;
 mod terminal_modes;
+mod terminal_presentation;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;

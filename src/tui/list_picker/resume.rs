@@ -172,7 +172,12 @@ pub(super) fn render_resume_summary_lines(
 }
 
 fn normalized_resume_preview(summary: &ThreadSummary) -> String {
-    let preview = summary.preview.replace('\n', " ");
+    let preview = summary
+        .metadata
+        .title
+        .as_deref()
+        .unwrap_or(&summary.preview)
+        .replace('\n', " ");
     let preview = preview.trim();
     if preview.is_empty() {
         "(no transcript preview)".to_string()
