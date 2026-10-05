@@ -57,6 +57,7 @@ pub(super) enum TextInputTarget {
     Composer,
     HistorySearch,
     ModelSearch,
+    ResumeSearch,
     BaseUrl,
     ApiKey,
     ModelName,

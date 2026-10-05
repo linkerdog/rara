@@ -176,7 +176,7 @@ async fn pending_capture_keeps_input_responsive_and_clean_result_does_not_query(
     fixture.finish().await;
     assert_eq!(fixture.app.runtime_phase, RuntimePhase::Idle);
     assert_eq!(
-        fixture.app.bottom_pane.notice.as_deref(),
+        fixture.app.notice_text(),
         Some("No staged or unstaged changes to review.")
     );
     assert_eq!(fixture.processor.session_id(), session);
@@ -199,9 +199,7 @@ async fn failed_capture_preserves_agent_and_a_later_review_still_runs_once() {
     assert!(
         fixture
             .app
-            .bottom_pane
-            .notice
-            .as_deref()
+            .notice_text()
             .unwrap()
             .contains("scripted invalid index")
     );
@@ -265,7 +263,7 @@ async fn cancellation_prevents_both_pending_and_already_completed_capture_from_s
         assert!(!fixture.app.is_busy());
         assert_eq!(fixture.app.runtime_phase, RuntimePhase::Idle);
         assert_eq!(
-            fixture.app.bottom_pane.notice.as_deref(),
+            fixture.app.notice_text(),
             Some("Review preparation cancelled.")
         );
         assert_eq!(fixture.processor.session_id(), session);
@@ -358,7 +356,7 @@ async fn preparation_rejects_competing_maintenance_and_applies_pending_permissio
             task_id
         );
         assert_eq!(
-            fixture.app.bottom_pane.notice.as_deref(),
+            fixture.app.notice_text(),
             Some("Wait for review preparation to finish or cancel it first.")
         );
     }

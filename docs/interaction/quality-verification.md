@@ -25,6 +25,7 @@ expected visible result, and the cheapest layer that proves it.
 | Hidden, clipped, reordered, or misleading content | Production renderer into a Ratatui buffer; focused text/style assertions or reviewed snapshot |
 | Queue/cancel/approval ordering | Scripted runtime events and typed commands, followed by visible state |
 | Terminal encoding, wide-cell diffs, scrollback, resize | Production terminal output through the vt100-backed `EmulatorBackend` |
+| Color depth and ASCII display | Injected terminal profiles; full-frame buffer checks plus production SGR/glyph output, cursor columns, and original selection text |
 | OS terminal modes, process-group suspend, error/panic restoration | Isolated PTY child; manual acceptance for terminal-specific policy |
 
 State fixtures are allowed; replacing the production renderer with a parallel
@@ -109,6 +110,7 @@ boundary below.
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
 | Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |
+| Markdown task markers, images, and complete styled table cells | `markdown_render::content_tests`, shared wrapping into Ratatui buffers, and canonical streaming comparisons |
 | Composer indentation and split terminal controls | `render::bottom_pane_tests`, `display_sanitize`, and `display_boundary_tests` |
 
 The harness injects `crossterm::Event` values directly into production routing;

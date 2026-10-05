@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::oauth::OAuthManager;
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 use crate::tui::state::{
     OAuthLoginMode, RunningTask, RuntimePhase, TaskCompletion, TaskKind, TuiApp, TuiEvent,
 };
@@ -21,7 +22,7 @@ pub(crate) fn start_oauth_task(
             RuntimePhase::Failed,
             Some("browser oauth unavailable in ssh".into()),
         );
-        app.push_notice(
+        app.push_notice(NoticeLevel::Warning,
             "Browser login is unavailable in SSH/headless sessions. Choose device code or API key instead.",
         );
         app.push_entry(
@@ -36,7 +37,7 @@ pub(crate) fn start_oauth_task(
         OAuthLoginMode::Browser => "browser login",
         OAuthLoginMode::DeviceCode => "device-code login",
     };
-    app.bottom_pane.notice = Some(format!("Starting Codex {mode_label}."));
+    app.push_notice(NoticeLevel::Info, format!("Starting Codex {mode_label}."));
     app.set_runtime_phase(
         RuntimePhase::OAuthStarting,
         Some(format!("starting {mode_label}")),

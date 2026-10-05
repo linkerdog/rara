@@ -29,6 +29,8 @@ default-members = ["."]
 resolver = "3"
 
 [workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"
 expect_used = "deny"
 unwrap_used = "deny"
 panic = "deny"

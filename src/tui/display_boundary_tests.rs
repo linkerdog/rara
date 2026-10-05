@@ -5,6 +5,7 @@ use super::state::{AgentMarkdownStreamState, RuntimeSnapshot, TuiEvent};
 use super::testing::TuiHarness;
 use crate::runtime_control::{RuntimeControlEvent, RuntimeEvent, RuntimeProvenance, ToolEvent};
 use crate::tui::message_role::MessageRole;
+use crate::tui::state::NoticeLevel;
 
 #[test]
 fn split_ansi_is_removed_before_stream_storage_and_rendering() {
@@ -106,7 +107,7 @@ fn paste_burst_and_editable_overlays_receive_only_sanitized_text() {
     let text = format!("\u{1b}]0;title\u{7}{}\r\n\tEND\u{1b}[31m", "x".repeat(1200));
     let expected = format!("{}\n\tEND", "x".repeat(1200));
     super::terminal_ui::handle_paste(text.clone(), harness.app_mut());
-    harness.app_mut().bottom_pane.flush_paste_burst();
+    harness.app_mut().flush_composer_paste();
     assert_eq!(
         harness.app().bottom_pane.large_paste_pending[0].content,
         expected
@@ -408,8 +409,10 @@ fn terminal_metadata_and_output_render_without_escape_payloads() {
 #[test]
 fn bottom_pane_status_sanitizes_tool_error_notice_text() {
     let mut harness = TuiHarness::new(RuntimeSnapshot::default()).expect("isolated harness");
-    harness.app_mut().bottom_pane.notice =
-        Some("Warning: \u{1b}]hidden\u{7}\u{1b}[31mFAIL\u{1b}[0m\u{8}".into());
+    harness.app_mut().push_notice(
+        NoticeLevel::Warning,
+        "Warning: \u{1b}]hidden\u{7}\u{1b}[31mFAIL\u{1b}[0m\u{8}",
+    );
     let screen = harness.screen_text(80, 30);
     assert!(screen.contains("Warning: FAIL"), "{screen}");
     for forbidden in ["hidden", "[31m", "[0m"] {

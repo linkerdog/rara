@@ -3,10 +3,11 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::tui::render::display_width;
+use crate::tui::text_wrap::WrapMode;
 use crate::tui::theme::{ThemeToken, theme_color, token_fg};
+use crate::tui::transcript_text::wrap_line_with_mode;
 
-const MAX_DIFF_LINES: usize = 80;
+const MAX_DIFF_LINES_PER_FILE: usize = 80;
 
 #[derive(Clone, Copy)]
 enum DiffLineType {
@@ -30,6 +31,28 @@ struct DiffFile {
     lines: Vec<DiffLine>,
     added: usize,
     removed: usize,
+    total_counts: Option<(usize, usize)>,
+    omitted: usize,
+}
+
+impl DiffFile {
+    fn operation(&self) -> &'static str {
+        match self.kind {
+            DiffFileKind::Add => "Added",
+            DiffFileKind::Delete => "Deleted",
+            DiffFileKind::Update if self.move_path.is_some() => "Moved",
+            DiffFileKind::Update => "Edited",
+        }
+    }
+
+    fn counts(&self) -> (usize, Option<usize>) {
+        if let Some((added, removed)) = self.total_counts {
+            return (added, Some(removed));
+        }
+        let removed = (!matches!(self.kind, DiffFileKind::Delete) || self.removed > 0)
+            .then_some(self.removed);
+        (self.added, removed)
+    }
 }
 
 struct DiffLine {
@@ -38,58 +61,65 @@ struct DiffLine {
 }
 
 pub(crate) fn render_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>> {
+    if width == 0 {
+        return Vec::new();
+    }
     let files = collect_patch_files(patch);
     if files.is_empty() {
         return render_raw_patch_preview(patch, width);
     }
 
-    let content_width = usize::from(width).saturating_sub(6).max(20);
-    let mut lines = Vec::new();
-    lines.push(render_summary_header(&files));
+    let mut lines = wrap_preview_line(&render_summary_header(&files), width);
 
     let file_count = files.len();
-    let mut emitted = 0usize;
+    // Inventory is independent of hunk budgets, so a large first file cannot
+    // hide a later deletion or rename even at the start of the preview.
+    if file_count > 1 {
+        for file in &files {
+            lines.extend(wrap_preview_line(&render_file_header(file), width));
+        }
+    }
     for (idx, file) in files.iter().enumerate() {
-        if idx > 0 {
+        if idx > 0 || file_count > 1 {
             lines.push(Line::from(""));
         }
 
         if file_count > 1 {
-            lines.push(render_file_header(file));
+            lines.extend(wrap_preview_line(&render_file_header(file), width));
         }
 
         if file.lines.is_empty() {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(
-                    "(no inline diff preview)",
-                    token_fg(ThemeToken::TextSecondary),
-                ),
-            ]));
-            continue;
-        }
-
-        for diff_line in &file.lines {
-            if emitted >= MAX_DIFF_LINES {
-                lines.push(Line::from(vec![
+            lines.extend(wrap_preview_line(
+                &Line::from(vec![
                     Span::raw("    "),
                     Span::styled(
-                        format!(
-                            "... {} more diff line(s)",
-                            remaining_diff_lines(&files, emitted)
-                        ),
+                        "(no inline diff preview)",
                         token_fg(ThemeToken::TextSecondary),
                     ),
-                ]));
-                return lines;
-            }
+                ]),
+                width,
+            ));
+        }
+
+        for diff_line in file.lines.iter().take(MAX_DIFF_LINES_PER_FILE) {
             lines.extend(push_wrapped_diff_line(
                 diff_line.kind,
                 &diff_line.text,
-                content_width,
+                width,
                 "    ",
             ));
-            emitted += 1;
+        }
+        let omitted = file
+            .omitted
+            .saturating_add(file.lines.len().saturating_sub(MAX_DIFF_LINES_PER_FILE));
+        if omitted > 0 {
+            lines.extend(wrap_preview_line(
+                &Line::from(Span::styled(
+                    format!("    ... {omitted} more diff line(s)"),
+                    token_fg(ThemeToken::TextSecondary),
+                )),
+                width,
+            ));
         }
     }
 
@@ -102,6 +132,9 @@ pub(crate) fn render_message_diff_preview(
     width: u16,
 ) -> Option<Vec<Line<'static>>> {
     let split = split_message_diff(message)?;
+    if width == 0 {
+        return Some(Vec::new());
+    }
     let mut lines = Vec::new();
 
     if let Some(role) = role.filter(|role| !role.is_empty()) {
@@ -128,6 +161,10 @@ pub(crate) fn render_message_diff_preview(
         ]));
     }
 
+    lines = lines
+        .iter()
+        .flat_map(|line| wrap_preview_line(line, width))
+        .collect();
     lines.extend(render_patch_preview(&split.patch, width));
     Some(lines)
 }
@@ -149,14 +186,22 @@ fn split_message_diff(message: &str) -> Option<MessageDiff> {
             continue;
         }
         if found_diff_label {
-            patch_lines.push(line.trim_start().to_string());
+            patch_lines.push(line);
         } else {
             prefix_lines.push(line.to_string());
         }
     }
 
     if found_diff_label {
-        let patch = patch_lines.join("\n");
+        let indent = patch_lines
+            .iter()
+            .find(|line| !line.trim().is_empty())
+            .map_or("", |line| &line[..line.len() - line.trim_start().len()]);
+        let patch = patch_lines
+            .iter()
+            .map(|line| line.strip_prefix(indent).unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
         if patch.trim().is_empty() {
             return None;
         }
@@ -179,28 +224,26 @@ fn split_message_diff(message: &str) -> Option<MessageDiff> {
 }
 
 fn render_raw_patch_preview(patch: &str, width: u16) -> Vec<Line<'static>> {
-    let content_width = usize::from(width).saturating_sub(2).max(20);
     let mut lines = Vec::new();
-    let mut emitted = 0usize;
-
-    for raw in patch.lines() {
-        if matches!(raw, "*** Begin Patch" | "*** End Patch") {
-            continue;
-        }
-        if emitted >= MAX_DIFF_LINES {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "  ... {} more diff line(s)",
-                    patch.lines().count().saturating_sub(emitted)
-                ),
-                token_fg(ThemeToken::TextSecondary),
-            )));
-            break;
-        }
-
+    let source = patch
+        .lines()
+        .filter(|raw| !matches!(*raw, "*** Begin Patch" | "*** End Patch"));
+    let omitted = source
+        .clone()
+        .count()
+        .saturating_sub(MAX_DIFF_LINES_PER_FILE);
+    for raw in source.take(MAX_DIFF_LINES_PER_FILE) {
         let (kind, text) = classify_patch_line(raw);
-        lines.extend(push_wrapped_diff_line(kind, text, content_width, "  "));
-        emitted += 1;
+        lines.extend(push_wrapped_diff_line(kind, text, width, "  "));
+    }
+    if omitted > 0 {
+        lines.extend(wrap_preview_line(
+            &Line::from(Span::styled(
+                format!("  ... {omitted} more diff line(s)"),
+                token_fg(ThemeToken::TextSecondary),
+            )),
+            width,
+        ));
     }
 
     lines
@@ -242,6 +285,25 @@ fn collect_patch_files(patch: &str) -> Vec<DiffFile> {
             continue;
         }
 
+        if let Some(counts) = raw
+            .strip_prefix("*** Preview Stats: +")
+            .and_then(|value| value.split_once(" -"))
+            .and_then(|(added, removed)| Some((added.parse().ok()?, removed.parse().ok()?)))
+        {
+            file.total_counts = Some(counts);
+            continue;
+        }
+        if let Some(omitted) = raw
+            .strip_prefix("*** Preview Omitted: ")
+            .and_then(|value| value.parse::<usize>().ok())
+        {
+            file.omitted = file.omitted.saturating_add(omitted);
+            continue;
+        }
+        if raw == "*** End of File" {
+            continue;
+        }
+
         let (kind, text) = classify_patch_line(raw);
         match kind {
             DiffLineType::Insert => file.added += 1,
@@ -266,6 +328,8 @@ fn new_diff_file(path: &str, kind: DiffFileKind) -> DiffFile {
         lines: Vec::new(),
         added: 0,
         removed: 0,
+        total_counts: None,
+        omitted: 0,
     }
 }
 
@@ -275,18 +339,24 @@ fn push_current_file(files: &mut Vec<DiffFile>, current: &mut Option<DiffFile>) 
     }
 }
 
+// File paths can contain spaces; word wrapping would discard those spaces
+// at a row boundary and change the path shown or copied by the user.
+fn wrap_preview_line(line: &Line<'_>, width: u16) -> Vec<Line<'static>> {
+    wrap_line_with_mode(line, width, WrapMode::Grapheme)
+}
+
 fn render_summary_header(files: &[DiffFile]) -> Line<'static> {
-    let added: usize = files.iter().map(|file| file.added).sum();
-    let removed: usize = files.iter().map(|file| file.removed).sum();
+    let added = files
+        .iter()
+        .fold(0usize, |total, file| total.saturating_add(file.counts().0));
+    let removed = files.iter().try_fold(0usize, |total, file| {
+        file.counts().1.map(|count| total.saturating_add(count))
+    });
     let mut spans = vec![Span::styled("* ", token_fg(ThemeToken::TextSecondary))];
 
     if let [file] = files {
         spans.push(Span::styled(
-            match file.kind {
-                DiffFileKind::Add => "Added",
-                DiffFileKind::Delete => "Deleted",
-                DiffFileKind::Update => "Edited",
-            },
+            file.operation(),
             Style::default().add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::raw(" "));
@@ -294,7 +364,7 @@ fn render_summary_header(files: &[DiffFile]) -> Line<'static> {
         spans.push(Span::raw(" "));
     } else {
         spans.push(Span::styled(
-            "Edited",
+            "Changed",
             Style::default().add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::raw(format!(
@@ -310,9 +380,15 @@ fn render_summary_header(files: &[DiffFile]) -> Line<'static> {
 
 fn render_file_header(file: &DiffFile) -> Line<'static> {
     let mut spans = vec![Span::styled("  - ", token_fg(ThemeToken::TextSecondary))];
+    spans.push(Span::styled(
+        file.operation(),
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+    spans.push(Span::raw(" "));
     spans.extend(path_spans(file));
     spans.push(Span::raw(" "));
-    spans.extend(line_count_spans(file.added, file.removed));
+    let (added, removed) = file.counts();
+    spans.extend(line_count_spans(added, removed));
     Line::from(spans)
 }
 
@@ -324,22 +400,20 @@ fn path_spans(file: &DiffFile) -> Vec<Span<'static>> {
     spans
 }
 
-fn line_count_spans(added: usize, removed: usize) -> Vec<Span<'static>> {
+fn line_count_spans(added: usize, removed: Option<usize>) -> Vec<Span<'static>> {
     vec![
         Span::raw("("),
         Span::styled(format!("+{added}"), token_fg(ThemeToken::StatusSuccess)),
         Span::raw(" "),
-        Span::styled(format!("-{removed}"), token_fg(ThemeToken::StatusError)),
+        Span::styled(
+            format!(
+                "-{}",
+                removed.map_or_else(|| "?".to_string(), |count| count.to_string())
+            ),
+            token_fg(ThemeToken::StatusError),
+        ),
         Span::raw(")"),
     ]
-}
-
-fn remaining_diff_lines(files: &[DiffFile], emitted: usize) -> usize {
-    files
-        .iter()
-        .map(|file| file.lines.len())
-        .sum::<usize>()
-        .saturating_sub(emitted)
 }
 
 fn classify_patch_line(line: &str) -> (DiffLineType, &str) {
@@ -361,7 +435,7 @@ fn classify_patch_line(line: &str) -> (DiffLineType, &str) {
 fn push_wrapped_diff_line(
     kind: DiffLineType,
     text: &str,
-    width: usize,
+    width: u16,
     indent: &'static str,
 ) -> Vec<Line<'static>> {
     let (sign, sign_style, line_bg, content_style) = match kind {
@@ -391,89 +465,36 @@ fn push_wrapped_diff_line(
         ),
     };
 
-    let content_width = width.saturating_sub(3).max(1);
-    let chunks = wrap_plain_text(text, content_width);
-    chunks
-        .into_iter()
-        .enumerate()
-        .map(|(idx, chunk)| {
+    let indent = &indent[..indent.len().min(usize::from(width.saturating_sub(4)))];
+    let show_sign = width >= 2;
+    let separator = if width >= 3 { " " } else { "" };
+    let prefix_width = indent.len() + usize::from(show_sign) + separator.len();
+    let content_width = width.saturating_sub(prefix_width as u16).max(1);
+    wrap_line_with_mode(
+        &Line::from(Span::styled(text.to_string(), content_style)),
+        content_width,
+        WrapMode::Grapheme,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(idx, chunk)| {
+        let mut spans = vec![Span::raw(indent.to_string())];
+        if show_sign {
             let prefix = if idx == 0 { sign } else { " " };
-            let mut spans = vec![
-                Span::raw(indent),
-                Span::styled(prefix.to_string(), sign_style),
-                Span::raw(" "),
-                Span::styled(chunk, content_style),
-            ];
-            if let Some(bg) = line_bg {
-                spans = spans
-                    .into_iter()
-                    .map(|s| Span::styled(s.content.to_string(), s.style.bg(bg)))
-                    .collect();
-            }
-            Line::from(spans)
-        })
-        .collect()
-}
-
-fn wrap_plain_text(text: &str, width: usize) -> Vec<String> {
-    if text.is_empty() {
-        return vec![String::new()];
-    }
-
-    let mut rows = Vec::new();
-    let mut current = String::new();
-    let mut current_width = 0usize;
-    let mut ch_buf = [0u8; 4];
-    for ch in text.chars() {
-        let ch_width = display_width(ch.encode_utf8(&mut ch_buf)).max(1);
-        if current_width > 0 && current_width + ch_width > width {
-            rows.push(current);
-            current = String::new();
-            current_width = 0;
+            spans.push(Span::styled(prefix, sign_style));
         }
-        current.push(ch);
-        current_width += ch_width;
-    }
-    if !current.is_empty() {
-        rows.push(current);
-    }
-    rows
+        spans.push(Span::raw(separator));
+        spans.extend(chunk.spans);
+        if let Some(bg) = line_bg {
+            for span in &mut spans {
+                span.style = span.style.bg(bg);
+            }
+        }
+        Line::from(spans)
+    })
+    .collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::render_patch_preview;
-
-    #[test]
-    fn renders_patch_preview_with_diff_signs() {
-        let lines = render_patch_preview(
-            "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n-old\n+new\n context\n*** End Patch",
-            80,
-        )
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-        assert!(lines.contains("* Edited src/lib.rs (+1 -1)"));
-        assert!(lines.contains("- old"));
-        assert!(lines.contains("+ new"));
-        assert!(lines.contains("  context"));
-    }
-
-    #[test]
-    fn renders_patch_preview_grouped_by_file() {
-        let lines = render_patch_preview(
-            "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n-old\n+new\n*** Add File: src/new.rs\n+hello\n*** End Patch",
-            80,
-        )
-        .into_iter()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-        assert!(lines.contains("* Edited 2 files (+2 -1)"));
-        assert!(lines.contains("src/lib.rs (+1 -1)"));
-        assert!(lines.contains("src/new.rs (+1 -0)"));
-    }
-}
+#[path = "diff_tests.rs"]
+mod tests;

@@ -55,6 +55,8 @@ helpers remain asynchronous. No command may block the input loop on disk or Git.
 - The canonical metadata file carries the optional title; the SQLite session
   index stores it for listing. Failure never reports a successful rename.
 - A named empty thread is eligible for the resume picker.
+- Title search uses the full index within the selected scope before page limits;
+  a title on an older thread remains searchable beyond the initial result page.
 
 ### Copy
 

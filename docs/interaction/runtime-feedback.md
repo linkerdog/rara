@@ -303,6 +303,69 @@ reacquisition error exits through the ordinary restoration boundary.
 See [External Editor](../features/external-editor.md) for configuration, draft,
 cleanup, and recovery contracts.
 
+### RUN-08: Typed, Redacted, Transient Notices
+
+All TUI notices enter through one application-owned publishing path with an
+explicit information, warning, or error level. Redaction occurs before both
+the current notice and its system transcript entry are created. Callers cannot
+assign arbitrary notice text to the bottom pane or construct mutable notice
+contents directly. Startup, setup, paste, restore, and runtime task feedback
+follow the same rule. A notice is recorded once; callers must not separately
+append an identical transcript entry. Storage failure and flush-progress notices
+use the same redaction, severity, and expiry owner, but record only in memory
+until normal transcript persistence resumes; publishing them must not enqueue
+a write behind the failed operation or an acknowledged exit barrier.
+
+Recording retains the existing transcript presentation contract: routine system
+records do not create conversation cards, while classified diagnostic, bootstrap,
+OAuth, and compaction feedback remains renderable. Routine records alone must
+not hide the startup introduction or the pending planning prompt. Expiration
+does not remove records from either live or committed persistence.
+
+The current notice lasts eight seconds from publication, measured by a
+monotonic clock. Replacement starts a new deadline. Expiration removes only
+the transient notice, retains its transcript entry, and requests a repaint
+through the existing event loop, including while idle. No delayed callback may
+clear a newer notice. Clearing a composer removes its paste-owned notice while
+preserving a later unrelated notice, even if their text happens to match.
+
+Idle warnings and errors use the corresponding status label and semantic color;
+severity is never inferred from a message prefix. Information notices use the
+normal idle status with their text until expiry. Completion text follows this
+same lifetime instead of special-case string matching. Running work, backend
+rebuilds, and pending decisions retain their existing status priority; notices
+remain in the transcript when those surfaces take precedence. Warning/error
+notices take precedence over the idle planning-mode hint.
+
+This contract does not add a notification queue, persistent status overrides,
+new runtime events, or serialized notice state. Pending decisions remain in
+their owned interaction state and do not expire with their transient notice.
+
+### RUN-09: Runtime Diagnostics Respect Terminal Ownership
+
+Library and background runtime diagnostics use the logging facade, never direct
+stdout/stderr prints. The CLI installs a warning/error receiver before runtime
+assembly. While the terminal belongs to the TUI, an application-owned bounded
+queue captures diagnostics from all process threads; the UI drains it into
+classified transcript records and typed notices through its normal event loop.
+The process logger holds only a weak reference to that queue, not runtime handles.
+
+Redact messages before queueing. Bound message size and pending record count,
+coalesce consecutive duplicate diagnostics, and report queue overflow visibly.
+Do not replace a current recovery notice with a same-severity diagnostic already
+contained in that notice; retain the complete summary and its single record.
+Recording a persistence diagnostic must not create an endless logging loop when
+the diagnostic's own transcript write fails. The capture lifetime encloses raw
+mode and terminal restoration, including errors and panic unwinding. Remaining
+messages may reach stderr only after terminal restoration. Outside TUI ownership,
+the CLI's receiver writes redacted diagnostics to stderr; protocol stdout stays
+reserved for protocol output. Embedders retain their own logging initialization.
+
+An incomplete live-log restore retains valid entries and a warning in the resume
+notice and history. An index failure must distinguish a saved canonical turn
+from its unavailable index. Workspace Clippy rejects library print macros;
+exceptions are limited to explicit CLI/protocol consumers and test fixtures.
+
 ## Validation Matrix
 
 | Contract | Existing proving surface |
@@ -314,6 +377,8 @@ cleanup, and recovery contracts.
 | RUN-05 | Cleanup failure injection; Unix PTY subprocess tests for normal, error, partial-startup, and panic exits; balanced keyboard stack entries and enhanced/legacy input bytes through crossterm |
 | RUN-06 | Production terminal bytes parsed by a terminal emulator: preserved shell history, resize, blank-cell repaint, synchronized frames, and exit cursor; focus event projection |
 | RUN-07 | Isolated PTY with a job-control shell: actual stop/foreground resume, shell termios, input-stream restart, repaint after resize, and repeated cycles |
+| RUN-08 | Real settings dispatch redaction/recording regressions; injected-time expiry and replacement; typed buffer colors; paste ownership; paused-time production event-loop repaint |
+| RUN-09 | Isolated TUI harness stderr capture, bounded diagnostic queue tests, logger handoff, partial live-log recovery, and terminal-owner lifecycle tests |
 
 ## Open Risks
 
@@ -326,6 +391,8 @@ cleanup, and recovery contracts.
 
 ## Source Journals
 
+- [Runtime diagnostics](../journal/2026-10-05-runtime-diagnostics.md)
+- [Transient notice lifecycle](../journal/2026-10-05-transient-notice-lifecycle.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [TUI test harness](../journal/2026-08-02-tui-test-harness.md)
 - [Goal resume and permissions](../journal/2026-09-16-goal-resume-permission-tui.md)

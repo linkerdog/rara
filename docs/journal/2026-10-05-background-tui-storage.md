@@ -112,3 +112,29 @@ Local validation:
 Remote CI remains the merge acceptance gate.
 Default local Bazel analysis remains unavailable because the existing external
 cache lacks `rules_rust//rust`; its configuration and cache were not changed.
+
+
+## Integration With Current Main
+
+Conflict resolution retains asynchronous restore/flush ownership while adopting
+the typed notice and runtime diagnostic paths. Live-log recovery warnings are
+loaded by the storage worker and carried through `PreparedRestore`; applying a
+restore still combines them with goal and unknown-approval warnings without
+performing new file IO on the event loop. Approval recovery tests await the
+asynchronous restore and persistence barrier before inspecting state.
+
+Storage failure and exit-flush notices use the shared notice owner with an
+in-memory record, preserving redaction and expiry without recursively queuing
+another write. A regression checks that those notices remain visible while the
+live log only receives an ordinary persisted notice. Both partial JSON-line
+append tests and main's corruption/read-failure tests remain in the split test
+module. Diagnostic polling stays active while exit waits for its flush.
+
+Integration validation: 23 restore tests, the nonrecursive notice regression,
+2 diagnostic parent tests (2 isolated children), 3 actual-loop exit tests,
+6 notice tests, the full TUI suite (1,097 passed; 7 parent-driven child fixtures),
+and all 13 persistence crate tests pass. The synchronous notice/diagnostic tests
+now await write acknowledgements before inspecting storage; the exit test checks
+the exact non-System conversation while retaining typed status records. Strict
+workspace/all-target Clippy, formatting, diff checks, and touched-source size
+checks also pass. Remote CI remains the acceptance gate.

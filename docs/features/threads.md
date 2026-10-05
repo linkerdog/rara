@@ -109,6 +109,13 @@ Current backend slice:
   `turns.jsonl`; resume loads any remaining live entries back into the active
   turn so an interrupted process can recover partial transcript output without
   treating it as a committed turn.
+- Live-log recovery preserves valid entries around malformed records and reports
+  incomplete recovery to the caller. Missing logs are normal; open/read errors
+  and skipped records produce a visible recovery warning. Diagnostics never
+  include raw corrupt transcript contents or write directly to the terminal.
+- A failed StateDb turn index update after a successful canonical append remains
+  a recoverable indexing failure, not a failed canonical commit. Report it as a
+  warning without retrying or duplicating the committed turn.
 - Runtime compaction writes also go through `ThreadRecorder`, so manual/auto
   compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown
@@ -125,6 +132,32 @@ The current implementation still keeps `history.json` as a compatibility
 snapshot beside the canonical transcript and keeps `StateDb` as the listing and
 legacy side-table fallback. The structured thread source lives under the
 per-session rollout directory rather than a dedicated LanceDB thread table.
+
+## Indexed Thread Listing
+
+The SQLite thread index filters resumable sessions before applying a page limit.
+Search is a literal substring over the latest turn preview, session ID, full
+cwd, branch, provider, model, execution mode, and approval mode. ASCII case is
+ignored; Unicode text is matched literally. This is metadata/preview search,
+not full-history search. Percent signs and underscores are ordinary characters.
+
+Queries accept an exact stored cwd, an excluded current session, and updated or
+created ordering. Descending `(timestamp, session_id)` cursors provide stable
+pagination when timestamps tie. Pages preserve the existing resumability
+predicate and return errors rather than an empty success. The existing recent
+thread APIs retain their behavior. No schema or persistent format changes are
+required.
+
+The TUI executes indexed queries through its ordered storage owner. New search,
+scope, sort, or source-session inputs invalidate pending results; appended pages
+are deduplicated by session ID. This is a live listing, so updates can move
+sessions across a page boundary until refresh restarts the query.
+
+Verification covers old matches outside the newest 200 records, literal search
+characters, exact cwd/current-session exclusion, tied timestamps in both sort
+orders, and asynchronous scope/search/source changes. See the
+[implementation checkpoint](../journal/2026-10-05-resume-indexed-search.md) and
+[resume interaction contract](../interaction/composer-and-overlays.md#resume-search-and-scope).
 
 ## Conversation Markdown Format
 
@@ -193,5 +226,6 @@ Runtime status:
 
 ## Source Journals
 
+- [Runtime diagnostics and recovery](../journal/2026-10-05-runtime-diagnostics.md)
 - 2026-05-03-memory-records-and-threads-spec.md
 - 2026-05-03-memory-record-persistence-and-thread-export.md
