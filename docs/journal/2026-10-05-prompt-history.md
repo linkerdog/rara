@@ -65,8 +65,8 @@ draft/cursor/overlay owners; failed reads still allow local recall.
 
 Shutdown restores terminal ownership before joining the writer, including error
 paths. A flush failure carries history-specific context and does not skip the
-normal memory-sync drain. History storage remains independent of StateDb;
-the integrated session preserves both ordered drains and both event-loop poll sites.
+normal memory-sync drain. The feature remains independent of #1029; integration
+must preserve both ordered storage drains and both event-loop poll sites.
 
 ## Validation
 
@@ -103,42 +103,10 @@ additional work for this issue. No open implementation follow-up was added.
 
 The main merge preserves both prompt-history and diagnostic initialization and
 polling. History failures and recovery notices use the shared typed warning
-path, preserving redaction, expiry, and the single transcript record. History
-reads and writes remain off the input loop. The shared redaction fix in PR #1048
-landed on main at `44d8c9f0`; the prerequisite is satisfied.
+path, preserving redaction, expiry, and the single transcript record. History reads and writes remain off the input loop. The separate shared
+redaction fix in PR #1048 remains a merge prerequisite for this feature; this
+conflict resolution does not duplicate that implementation.
 
 Integrated validation: 1,118 TUI tests passed with seven parent-driven child
 fixtures ignored. Eight focused history persistence tests passed with one
 parent-driven writer fixture ignored.
-
-The subsequent merge of main `54ce33e6` incorporates #1029's acknowledged storage
-barrier and cleanup on initialization errors. There remains exactly one event
-loop invocation. Session storage shuts down first; shell cursor handoff and
-terminal restoration then precede the history writer join. Preserve both cleanup
-results, background polling, and the guard against new storage work while an exit
-flush is pending. The successful session path still drains memory before surfacing
-a history flush error.
-
-Validation against `54ce33e6`: 1,131 TUI tests and eight focused history
-persistence tests passed. Seven TUI child fixtures and one persistence writer
-fixture remain invoked by their parent tests.
-
-Main `50a6d864` adds indexed resume-query editing. The shared editor retains
-separate exhaustive cases for `HistorySearch` and `ResumeSearch`; each query
-keeps its own text and cursor, while composer input and search lifecycle hooks
-remain unchanged. All other indexed-search integration merged additively.
-The integrated TUI suite passed 1,139 tests, with seven child fixtures driven
-by parent tests.
-
-Main `a7fe5c6d` adds terminal color/glyph capability detection at production
-startup. Keep that initialization alongside prompt-history attachment and the
-diagnostic reader; neither concern replaces the other.
-Integrated validation passed 1,149 TUI tests, with seven parent-driven child
-fixtures.
-
-Main `f110ec2d` adds session commands. Keep both `HistorySearch` and `Diff`
-variants with their own key dispatch and render branches. Both remain excluded
-from the generic read-only overlay body; opening or scrolling a diff does not
-replace the history query editor.
-Integrated TUI validation passed 1,162 tests, with seven parent-driven child
-fixtures.

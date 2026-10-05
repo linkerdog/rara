@@ -24,7 +24,7 @@ pub(crate) struct ComposerAtom {
     pub kind: ComposerAtomKind,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ComposerDraft {
     pub input: String,
     pub cursor: Option<usize>,

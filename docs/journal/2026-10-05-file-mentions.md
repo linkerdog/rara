@@ -105,15 +105,3 @@ Search failures now use typed warnings.
 Integrated validation: all 1,140 TUI tests passed (seven parent-driven child
 fixtures ignored), including atomic paste ownership, notice expiry, display
 sanitization, and history recall. All nine file-search tests passed.
-
-The next history-base update (`aa135ea9`, including main `50a6d864`) retains
-independent resume/history query editors, atomic composer ranges, storage exit
-barriers, and file/history/diagnostic polling. Resolve the interaction-spec
-overlap by retaining file completion's ownership of Enter alongside enhanced
-Shift+Enter and the legacy Ctrl+J fallback. Remove the superseded risk statement
-that paste placeholders are not atomic; that boundary is already covered by
-the file-mention implementation and tests.
-
-Integrated TUI validation passed 1,161 tests, with seven parent-driven child
-fixtures. The file-search crate implementation is unchanged from its earlier
-nine-test validation.

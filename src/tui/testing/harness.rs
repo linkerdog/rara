@@ -125,7 +125,9 @@ impl TuiHarness {
                 crate::tui::terminal_ui::handle_paste(text, &mut self.app);
                 return Ok(false);
             }
-            Some(UiEvent::Draw | UiEvent::FocusChanged(_)) | None => return Ok(false),
+            Some(UiEvent::Draw | UiEvent::FocusChanged(_) | UiEvent::ExternalEditor) | None => {
+                return Ok(false);
+            }
             #[cfg(unix)]
             Some(UiEvent::Suspend) => return Ok(false),
         };

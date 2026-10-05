@@ -16,6 +16,7 @@ pub enum UiEvent {
     Draw,
     Paste(String),
     FocusChanged(bool),
+    ExternalEditor,
     #[cfg(unix)]
     Suspend,
 }
@@ -40,6 +41,18 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                     }
                     #[cfg(not(unix))]
                     return Some(UiEvent::App(AppEvent::Noop));
+                }
+                if control && key_event.code == KeyCode::Char('g') {
+                    app.quit_shortcut.clear();
+                    return if key_event.kind == KeyEventKind::Press
+                        && app.composer_input_is_active()
+                        && app.active_pending_interaction().is_none()
+                    {
+                        app.flush_composer_paste();
+                        Some(UiEvent::ExternalEditor)
+                    } else {
+                        Some(UiEvent::App(AppEvent::Noop))
+                    };
                 }
                 // Flushing can hide the palette before dismissal intent is routed.
                 let discarding_palette = matches!(app.overlay, Some(Overlay::CommandPalette))

@@ -66,6 +66,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+shlex = "2.0.1"
 tempfile = { workspace = true }
 rara-runtime = { path = "crates/rara-runtime" }
 rara-persistence = { path = "crates/rara-persistence" }

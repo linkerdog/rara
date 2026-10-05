@@ -52,10 +52,9 @@ not inherit the plain-list j/k shortcuts.
 
 ### INPUT-02: Composer Submission And Editing
 
-- Enter submits unless file completion owns the key. Shift+Enter inserts a
-  newline when the terminal distinguishes it through enhanced key reporting;
-  Ctrl+J is the legacy-terminal fallback. Keyboard enhancement ownership and
-  restoration follow RUN-05.
+- Enter submits unless file completion owns the key; Shift+Enter inserts a
+  newline when the terminal distinguishes it through enhanced key reporting.
+  Ctrl+J is the legacy-terminal fallback. Keyboard ownership follows RUN-05.
 - `@` at a token boundary opens asynchronous fuzzy file completion. Loading,
   empty, and failed completion states consume Enter/Tab without submitting.
   Acceptance replaces the current query token with a JSON-quoted inline path
@@ -98,6 +97,12 @@ not inherit the plain-list j/k shortcuts.
   traversed results while loading. Draft/cursor/overlay changes invalidate
   delayed Up recall. Persistence, privacy filters, bounds, disabled behavior,
   and shutdown ordering are defined in [Prompt History](../features/prompt-history.md).
+- Ctrl+G opens the expanded draft in a nonempty VISUAL, falling back to EDITOR.
+  The shortcut applies to the composer and its completion surfaces; other
+  overlays and pending decisions retain ownership. It does not submit. Failure
+  or an unchanged result preserves cursor and owned paste ranges. Successful
+  edits return through paste sanitization; stale results receive a recovery file
+  without replacing the current draft. See [External Editor](../features/external-editor.md).
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
@@ -274,6 +279,9 @@ for the search fields and live-pagination contract.
 ## Open Risks
 
 - A configurable Vim mode remains outside the current editor contract.
+- Large-paste placeholders are not atomic editing elements yet; editing their
+  label can prevent expansion on submit. Grapheme-safe editing does not imply
+  placeholder-safe editing.
 - Snapping a stale explicit cursor offset scans grapheme boundaries up to that
   offset. Repeated reads can be linear in draft length; a shared editor index
   remains separate performance work.
