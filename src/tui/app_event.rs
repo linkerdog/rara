@@ -29,7 +29,7 @@ pub enum AppEvent {
     StartTranscriptSelection(ScreenPosition),
     DragTranscriptSelection(ScreenPosition),
     FinishTranscriptSelection(ScreenPosition),
-    ScrollContext(i32),
+    NavigateOverlay(super::state::OverlayNavigation),
     MoveCommandSelection(i32),
     MoveApprovalSelection(i32),
     ScrollApprovalDetails(ApprovalDetailNavigation),

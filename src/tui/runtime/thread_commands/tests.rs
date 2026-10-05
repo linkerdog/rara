@@ -296,14 +296,7 @@ async fn failed_old_thread_flush_does_not_switch_identity_or_erase_history() {
     f.enter("/new").await;
     f.finish().await;
     assert_eq!(f.processor.session_id().as_deref(), Some(old_id.as_str()));
-    assert!(
-        f.app
-            .bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("failed")
-    );
+    assert!(f.app.notice_text().unwrap().contains("failed"));
     assert!(
         f.app
             .committed_turns
@@ -379,14 +372,7 @@ async fn export_preserves_cleared_turns_and_refuses_overwrite() {
     );
     f.enter("/export conversation.md").await;
     f.finish().await;
-    assert!(
-        f.app
-            .bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("without overwriting")
-    );
+    assert!(f.app.notice_text().unwrap().contains("without overwriting"));
     assert_eq!(
         std::fs::read_to_string(f.dir.path().join("conversation.md")).unwrap(),
         md
@@ -395,9 +381,7 @@ async fn export_preserves_cleared_turns_and_refuses_overwrite() {
     f.finish().await;
     assert!(
         f.app
-            .bottom_pane
-            .notice
-            .as_deref()
+            .notice_text()
             .unwrap()
             .contains("directory does not exist")
     );
@@ -431,37 +415,17 @@ async fn usage_errors_and_busy_thread_commands_do_not_start_competing_tasks() {
     for command in ["/new extra", "/init extra", "/diff extra", "/rename"] {
         f.enter(command).await;
         assert!(!f.app.is_busy(), "{command}");
-        assert!(
-            f.app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .unwrap()
-                .contains("Usage:"),
-            "{command}"
-        );
+        assert!(f.app.notice_text().unwrap().contains("Usage:"), "{command}");
     }
     f.enter("/export wrong.txt").await;
     f.finish().await;
-    assert!(
-        f.app
-            .bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("Usage:")
-    );
+    assert!(f.app.notice_text().unwrap().contains("Usage:"));
     assert!(!f.dir.path().join("wrong.txt").exists());
     f.enter("/new").await;
     for command in ["/new", "/rename blocked", "/init", "/export blocked.md"] {
         f.enter(command).await;
         assert!(
-            f.app
-                .bottom_pane
-                .notice
-                .as_deref()
-                .unwrap()
-                .contains("Unavailable"),
+            f.app.notice_text().unwrap().contains("Unavailable"),
             "{command}"
         );
         assert!(matches!(

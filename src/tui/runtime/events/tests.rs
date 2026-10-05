@@ -24,3 +24,5 @@ use crate::tui::tool_progress::format_tool_progress;
 mod cases_1;
 #[path = "tests/cases_2.rs"]
 mod cases_2;
+#[path = "tests/patch_preview.rs"]
+mod patch_preview;

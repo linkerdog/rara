@@ -122,6 +122,6 @@ async fn terminal_goal_deferral_does_not_offer_an_invalid_resume_command() {
         tui.queue_restored_goal(AgentReadiness::Ready).await;
         tui.expect_no_commands();
         assert!(tui.app().overlay.is_none());
-        assert!(tui.app().bottom_pane.notice.is_none());
+        assert!(tui.app().notice_text().is_none());
     }
 }

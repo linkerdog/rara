@@ -67,7 +67,7 @@ async fn stale_session_workspace_or_draft_saves_recovery_without_overwriting_cur
             .finish(tui.app_mut(), Ok("edited content".into()))
             .await;
         assert_eq!(tui.app().bottom_pane.saved_draft(), before);
-        let notice = tui.app().bottom_pane.notice.as_ref().unwrap();
+        let notice = tui.app().notice_text().unwrap();
         let path = notice.split("edited text saved to ").nth(1).unwrap();
         assert_eq!(std::fs::read_to_string(path).unwrap(), "edited content");
         std::fs::remove_file(path).unwrap();

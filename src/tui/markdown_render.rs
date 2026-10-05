@@ -109,6 +109,8 @@ struct LinkState {
     destination: String,
     show_destination: bool,
     local_target_display: Option<String>,
+    contains_image: bool,
+    image_depth: usize,
 }
 
 #[cfg(test)]
@@ -133,7 +135,7 @@ pub(crate) fn render_markdown_text_with_width_and_cwd(
 }
 
 fn markdown_options() -> Options {
-    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS
 }
 
 struct Writer<'a, I>
@@ -147,6 +149,7 @@ where
     indent_stack: Vec<IndentContext>,
     list_indices: Vec<Option<u64>>,
     link: Option<LinkState>,
+    images: Vec<String>,
     needs_newline: bool,
     has_prior_output: bool,
     pending_marker_line: bool,
@@ -179,6 +182,7 @@ where
             indent_stack: Vec::new(),
             list_indices: Vec::new(),
             link: None,
+            images: Vec::new(),
             needs_newline: false,
             has_prior_output: false,
             pending_marker_line: false,
@@ -271,6 +275,16 @@ where
             Tag::Strong => self.push_inline_style(self.styles.strong),
             Tag::Strikethrough => self.push_inline_style(self.styles.strikethrough),
             Tag::Link { dest_url, .. } => self.push_link(dest_url.to_string()),
+            Tag::Image { dest_url, .. } => {
+                if self.table.is_none() && self.pending_marker_line {
+                    self.push_line(Line::default());
+                }
+                self.images.push(dest_url.into_string());
+                if let Some(link) = self.link.as_mut() {
+                    link.contains_image = true;
+                }
+                self.line_ends_with_local_link_target = false;
+            }
             Tag::HtmlBlock
             | Tag::DefinitionList
             | Tag::DefinitionListTitle
@@ -278,7 +292,6 @@ where
             | Tag::Superscript
             | Tag::Subscript
             | Tag::FootnoteDefinition(_)
-            | Tag::Image { .. }
             | Tag::MetadataBlock(_) => {}
         }
     }
@@ -300,6 +313,13 @@ where
             TagEnd::TableCell => self.end_table_cell(),
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => self.pop_inline_style(),
             TagEnd::Link => self.pop_link(),
+            TagEnd::Image => {
+                if let Some(destination) = self.images.pop() {
+                    self.push_span(" (".into());
+                    self.push_span(Span::styled(destination, self.styles.link));
+                    self.push_span(")".into());
+                }
+            }
             TagEnd::HtmlBlock
             | TagEnd::DefinitionList
             | TagEnd::DefinitionListTitle
@@ -307,7 +327,6 @@ where
             | TagEnd::Superscript
             | TagEnd::Subscript
             | TagEnd::FootnoteDefinition
-            | TagEnd::Image
             | TagEnd::MetadataBlock(_) => {}
         }
     }
@@ -366,11 +385,11 @@ where
     }
 
     fn text(&mut self, text: CowStr<'a>) {
-        if self.table.is_some() {
-            self.push_table_text(&text);
+        if self.suppressing_local_link_label() {
             return;
         }
-        if self.suppressing_local_link_label() {
+        if self.table.is_some() {
+            self.push_table_text(&text);
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -413,28 +432,30 @@ where
     }
 
     fn code(&mut self, code: CowStr<'a>) {
-        if self.table.is_some() {
-            self.push_table_text(&code);
-            return;
-        }
         if self.suppressing_local_link_label() {
             return;
         }
         self.line_ends_with_local_link_target = false;
-        if self.pending_marker_line {
+        if self.table.is_none() && self.pending_marker_line {
             self.push_line(Line::default());
             self.pending_marker_line = false;
         }
-        let span = Span::styled(code.into_string(), self.styles.code);
+        let style = self
+            .inline_styles
+            .last()
+            .copied()
+            .unwrap_or_default()
+            .patch(self.styles.code);
+        let span = Span::styled(code.into_string(), style);
         self.push_span(span);
     }
 
     fn html(&mut self, html: CowStr<'a>, inline: bool) {
-        if self.table.is_some() {
-            self.push_table_text(&html);
+        if self.suppressing_local_link_label() {
             return;
         }
-        if self.suppressing_local_link_label() {
+        if self.table.is_some() {
+            self.push_table_text(&html);
             return;
         }
         self.line_ends_with_local_link_target = false;
@@ -554,10 +575,22 @@ where
     fn task_list_marker(&mut self, checked: bool) {
         let symbol = if checked { "☒ " } else { "☐ " };
         if let Some(ctx) = self.indent_stack.last_mut() {
+            let indent = ctx
+                .prefix
+                .iter()
+                .map(Span::width)
+                .sum::<usize>()
+                .saturating_sub(2);
             ctx.marker = Some(vec![Span::styled(
-                symbol.to_string(),
+                " ".repeat(indent) + symbol,
                 self.styles.task_list_marker,
             )]);
+        }
+        if self.pending_marker_line {
+            self.push_line(Line::default());
+        } else if self.in_paragraph {
+            // Loose items open their paragraph before the parser emits the marker.
+            self.current_initial_indent = self.prefix_spans(true);
         }
     }
 
@@ -604,8 +637,19 @@ where
         let Some(table) = self.table.take() else {
             return;
         };
-        for line in render_table_lines(&table, self.width) {
-            self.push_line(Line::from(line));
+        let indent = [true, false]
+            .into_iter()
+            .map(|marker| {
+                self.prefix_spans(marker)
+                    .iter()
+                    .map(Span::width)
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0);
+        let width = self.width.map(|width| width.saturating_sub(indent).max(1));
+        for line in render_table_lines(&table, width) {
+            self.push_line(line);
             self.flush_current_line();
         }
         self.needs_newline = true;
@@ -648,8 +692,9 @@ where
     }
 
     fn push_table_text(&mut self, text: &str) {
+        let style = self.inline_styles.last().copied().unwrap_or_default();
         if let Some(table) = self.table.as_mut() {
-            table.push_text(text);
+            table.push_span(Span::styled(text.to_string(), style));
         }
     }
 
@@ -672,6 +717,8 @@ where
                 None
             },
             destination: dest_url,
+            contains_image: false,
+            image_depth: self.images.len(),
         });
     }
 
@@ -682,8 +729,11 @@ where
                 self.push_span(Span::styled(link.destination, self.styles.link));
                 self.push_span(")".into());
             } else if let Some(local_target_display) = link.local_target_display {
-                if self.pending_marker_line {
+                if self.table.is_none() && self.pending_marker_line {
                     self.push_line(Line::default());
+                }
+                if link.contains_image {
+                    self.push_span(" (".into());
                 }
                 let style = self
                     .inline_styles
@@ -692,16 +742,21 @@ where
                     .unwrap_or_default()
                     .patch(self.styles.code);
                 self.push_span(Span::styled(local_target_display, style));
-                self.line_ends_with_local_link_target = true;
+                if link.contains_image {
+                    self.push_span(")".into());
+                }
+                self.line_ends_with_local_link_target =
+                    self.table.is_none() && !link.contains_image;
             }
         }
     }
 
     fn suppressing_local_link_label(&self) -> bool {
-        self.link
-            .as_ref()
-            .and_then(|link| link.local_target_display.as_ref())
-            .is_some()
+        // A local link hides its label, but an image nested inside it still
+        // shows its own alt text. Links inside that alt retain normal behavior.
+        self.link.as_ref().is_some_and(|link| {
+            link.local_target_display.is_some() && link.image_depth == self.images.len()
+        })
     }
 
     fn flush_current_line(&mut self) {
@@ -739,7 +794,9 @@ where
     }
 
     fn push_span(&mut self, span: Span<'static>) {
-        if let Some(line) = self.current_line_content.as_mut() {
+        if let Some(table) = self.table.as_mut() {
+            table.push_span(span);
+        } else if let Some(line) = self.current_line_content.as_mut() {
             line.push_span(span);
         } else {
             self.push_line(Line::from(vec![span]));
@@ -793,3 +850,7 @@ where
 #[cfg(test)]
 #[path = "markdown_render_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "markdown_content_tests.rs"]
+mod content_tests;

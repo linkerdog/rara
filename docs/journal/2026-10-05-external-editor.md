@@ -66,3 +66,13 @@ The targeted Nowledge lookup returned `space_client_upgrade_required`
 
 No implementation follow-up remains for #993. Remote CI is the acceptance gate
 for the published branch, including the default Bazel build and tests.
+
+## Dependency Integration
+
+Updated terminal feedback, history, and file-mention integration without changing
+editor handoff ownership. Retained diagnostics/history/file polling and both
+editor-handoff and idle-diagnostic event-loop regressions. Atomic owned pastes
+now publish notices through the shared owner. Editor and stale-result warnings
+use typed notices; failure to preserve a recovery file is an error. Existing
+cleanup order remains storage shutdown, terminal restoration, history shutdown,
+and memory drain.

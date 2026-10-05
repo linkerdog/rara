@@ -2,15 +2,16 @@
 use ratatui::style::Color;
 
 use super::super::super::state::{
-    ActivePendingInteractionKind, GoalStatus, PendingInteractionSnapshot, RalphGoal, RuntimePhase,
-    TaskKind, TuiApp,
+    ActivePendingInteractionKind, GoalStatus, NoticeLevel, PendingInteractionSnapshot, RalphGoal,
+    RuntimePhase, TaskKind, TuiApp,
 };
 use super::view::{
     ActivityView, BottomPaneView, FooterView, InteractionAction, InteractionPanelView,
     ShellApprovalView,
 };
 use crate::tui::theme::{
-    INTERACTION_SUB_AGENT, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING, TEXT_ACCENT,
+    INTERACTION_SUB_AGENT, STATUS_ERROR, STATUS_INFO, STATUS_READY, STATUS_SUCCESS, STATUS_WARNING,
+    TEXT_ACCENT,
 };
 
 const PERMISSION_BADGE_BREAKPOINT: u16 = 80;
@@ -168,6 +169,16 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         );
     }
 
+    if let Some(notice) = app.notice() {
+        match notice.level() {
+            NoticeLevel::Warning => {
+                return ("Warning", STATUS_WARNING, notice.message().to_string());
+            }
+            NoticeLevel::Error => return ("Error", STATUS_ERROR, notice.message().to_string()),
+            NoticeLevel::Info => {}
+        }
+    }
+
     if app.agent_execution_mode_label() == "plan" {
         return (
             "Planning",
@@ -176,24 +187,10 @@ pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String
         );
     }
 
-    if let Some(warning) = app
-        .bottom_pane
-        .notice
-        .as_deref()
-        .filter(|value| value.starts_with("Warning:"))
-    {
-        return ("Warning", STATUS_WARNING, warning.to_string());
-    }
-
     (
         "Ready",
         STATUS_READY,
-        app.bottom_pane
-            .notice
-            .as_deref()
-            .filter(|notice| !matches!(*notice, "Prompt finished." | "Planning finished."))
-            .unwrap_or("waiting for input")
-            .to_string(),
+        app.notice_text().unwrap_or("waiting for input").to_string(),
     )
 }
 

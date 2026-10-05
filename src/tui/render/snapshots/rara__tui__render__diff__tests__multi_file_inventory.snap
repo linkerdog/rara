@@ -1,0 +1,20 @@
+---
+source: src/tui/render/diff_tests.rs
+assertion_line: 192
+expression: rendered
+---
+* Changed 3 files (+1 -4)
+  - Moved src/old.rs -> src/new.rs (+1 -1)
+  - Deleted obsolete.rs (+0 -3)
+  - Added empty.rs (+0 -0)
+
+  - Moved src/old.rs -> src/new.rs (+1 -1)
+      @@
+    - before
+    + after
+
+  - Deleted obsolete.rs (+0 -3)
+    (no inline diff preview)
+
+  - Added empty.rs (+0 -0)
+    (no inline diff preview)
