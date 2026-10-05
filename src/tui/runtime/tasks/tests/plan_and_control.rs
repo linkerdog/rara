@@ -133,6 +133,8 @@ async fn exit_plan_mode_stops_for_plan_approval() {
     );
     agent.set_execution_mode(AgentExecutionMode::Plan);
 
+    app.config.tui.terminal.notifications = crate::config::TerminalNotificationMethod::Osc9;
+    app.terminal_focused = false;
     start_query_task(&mut app, "prepare a plan".to_string(), agent);
     let mut agent_slot = None;
     finish_plan_tasks(&mut app, &mut agent_slot).await;
@@ -142,7 +144,18 @@ async fn exit_plan_mode_stops_for_plan_approval() {
     assert!(app.has_pending_plan_approval());
     let agent = agent_slot.as_ref().expect("agent should return");
     assert!(agent.has_pending_plan_exit_approval());
-    assert_eq!(agent.execution_mode, AgentExecutionMode::Plan);
+    let mut feedback = crate::tui::terminal_feedback::TerminalFeedback::new(
+        crate::tui::terminal_feedback::TitleMode::Disabled,
+        crate::tui::terminal_control::TerminalTarget::Direct,
+    );
+    let mut output = Vec::new();
+    feedback.update(&mut app, &mut output).unwrap();
+    assert_eq!(output, b"\x1b]9;RARA: approval required\x07");
+
+    assert_eq!(
+        agent_slot.as_ref().unwrap().execution_mode,
+        AgentExecutionMode::Plan
+    );
 }
 
 #[tokio::test]

@@ -166,6 +166,11 @@ where
     B: Backend<Error = io::Error>,
     B: Write,
 {
+    /// Out-of-band controls must not move the cursor or modify buffered cells.
+    pub(super) fn control_writer(&mut self) -> &mut dyn Write {
+        &mut self.backend
+    }
+
     /// Creates an unreserved terminal without querying the cursor position.
     pub fn new(backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;

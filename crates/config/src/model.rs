@@ -222,6 +222,8 @@ impl SandboxWorkspaceWriteConfig {
 pub struct TuiConfig {
     #[serde(default, skip_serializing_if = "TuiThemeConfig::is_default")]
     pub theme: TuiThemeConfig,
+    #[serde(default, skip_serializing_if = "crate::TuiTerminalConfig::is_default")]
+    pub terminal: crate::TuiTerminalConfig,
 }
 
 impl TuiConfig {

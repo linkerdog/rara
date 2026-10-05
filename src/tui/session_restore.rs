@@ -44,6 +44,7 @@ fn apply_prepared_restore(
         goal,
     } = prepared;
     let thread_id = thread.metadata.session_id.clone();
+    let thread_title = thread.metadata.title.clone();
     let mut resume_notice = format!("Resumed thread {thread_id}.");
     let mut resume_level = NoticeLevel::Info;
     let restored_goal = match goal {
@@ -69,6 +70,7 @@ fn apply_prepared_restore(
     } = thread;
     agent.history = history;
     agent.session_id = metadata.session_id;
+    app.terminal_feedback = Default::default();
     agent.todo_state = todo_state;
     if let Some(runtime_state) = runtime_state {
         let approval_mode = match parse_bash_approval_mode(&runtime_state.bash_approval) {
@@ -250,6 +252,7 @@ fn apply_prepared_restore(
 
     app.push_notice(resume_level, resume_notice);
     super::goal_resume::arm_after_restore(app);
+    app.set_terminal_thread_title(thread_title);
     Ok(())
 }
 

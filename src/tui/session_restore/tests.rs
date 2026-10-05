@@ -102,6 +102,9 @@ async fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
     let expected_runtime = original_agent.shared_runtime_context();
 
     original_app.shutdown_storage().await.unwrap();
+    crate::thread_store::ThreadRecorder::new(&state_db)
+        .rename_thread(&original_agent.session_id, "Restored parser")
+        .unwrap();
     let restored_agent = Agent::new(
         ToolManager::new(),
         backend,
@@ -117,6 +120,10 @@ async fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
     })
     .expect("restored app");
     restored_app.attach_state_db(state_db);
+    restored_app.config.tui.terminal.notifications =
+        crate::config::TerminalNotificationMethod::Osc9;
+    restored_app.terminal_focused = false;
+    restored_app.notify_terminal(crate::tui::terminal_feedback::TerminalNotification::Complete);
 
     restore_thread_by_id(
         expected_runtime.session_id.as_str(),
@@ -131,6 +138,15 @@ async fn restore_session_keeps_runtime_context_and_snapshot_aligned() {
         .finish_context_files_for_test(&restored_agent)
         .await;
     let restored_runtime = restored_agent.shared_runtime_context();
+    let mut feedback = crate::tui::terminal_feedback::TerminalFeedback::new(
+        crate::tui::terminal_feedback::TitleMode::Enabled,
+        crate::tui::terminal_control::TerminalTarget::Direct,
+    );
+    let mut output = Vec::new();
+    feedback.update(&mut restored_app, &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Restored parser"));
+    assert!(!output.contains("\x1b]9;"));
 
     assert_eq!(restored_agent.execution_mode, AgentExecutionMode::Execute);
     assert_eq!(restored_runtime.cwd, expected_runtime.cwd);

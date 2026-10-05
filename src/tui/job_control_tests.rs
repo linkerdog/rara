@@ -203,6 +203,7 @@ fn run_suspend_case(case: SuspendCase) {
         for reset in [
             "\x1b[?2026l",
             "\x1b[<1u",
+            "\x1b[23;2t",
             "\x1b[?1000l",
             "\x1b[?1006l",
             "\x1b[?2004l",
@@ -226,6 +227,8 @@ fn run_suspend_case(case: SuspendCase) {
             "{}",
             probe.output
         );
+        assert_eq!(probe.output.matches("\x1b[22;2t").count(), cycle);
+        assert_eq!(probe.output.matches("\x1b[23;2t").count(), cycle);
         if cycle == 1 {
             // Suspension can outlast the runnable polling budget.
             std::thread::sleep(Duration::from_millis(1200));
@@ -254,6 +257,8 @@ fn run_suspend_case(case: SuspendCase) {
     probe.wait_for("SHELL_PROMPT> ", writer.as_mut());
     assert_eq!(probe.output.matches("\x1b[>1u").count(), cycles.len() + 1);
     assert_eq!(probe.output.matches("\x1b[<1u").count(), cycles.len() + 1);
+    assert_eq!(probe.output.matches("\x1b[22;2t").count(), cycles.len() + 1);
+    assert_eq!(probe.output.matches("\x1b[23;2t").count(), cycles.len() + 1);
     if matches!(case, SuspendCase::Ignored) {
         assert!(probe.output.contains("STOP_IGNORED"), "{}", probe.output);
     }
@@ -303,7 +308,7 @@ fn suspend_child() {
 
         let tty = std::fs::File::open("/dev/tty").expect("controlling terminal");
         let cooked = tcgetattr(&tty).expect("cooked terminal state");
-        let mut modes = TerminalModeGuard::start().expect("start modes");
+        let mut modes = TerminalModeGuard::start(crate::tui::terminal_feedback::TitleMode::Enabled).expect("start modes");
         TerminalModeGuard::run_owner(async {
             let mut terminal =
                 Terminal::new(CrosstermBackend::new(io::stdout())).expect("terminal");
