@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 
 use super::super::markdown_stream::MarkdownStreamCollector;
 use super::super::queued_input::PendingFollowUpMessage;
+use super::OverlayScroll;
 use super::bottom_pane_model::BottomPaneModel;
 use super::planning_lifecycle::PlanningLifecycleSnapshot;
 use super::transcript_scroll::TranscriptScroll;
@@ -779,6 +780,8 @@ pub struct TuiApp {
     #[cfg(test)]
     pub(crate) active_assembly_count: std::cell::Cell<usize>,
     pub bottom_pane: BottomPaneModel,
+    pub(super) notices: super::notices::NoticeState,
+    pub(crate) diagnostics: Option<crate::diagnostics::DiagnosticReader>,
     pub input_history: Vec<String>,
     pub input_history_cursor: Option<usize>,
     pub input_history_draft: Option<String>,
@@ -846,7 +849,7 @@ pub struct TuiApp {
     pub(crate) transcript_selection: TranscriptSelection,
     pub(crate) clipboard: Option<crate::tui::clipboard::Clipboard>,
     pub(crate) scroll_acceleration: super::ScrollAcceleration,
-    pub context_scroll: u16,
+    pub(crate) overlay_scroll: OverlayScroll,
     pub terminal_width: u16,
     pub agent_markdown_stream: Option<AgentMarkdownStreamState>,
     pub agent_thinking_stream: Option<AgentMarkdownStreamState>,

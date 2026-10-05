@@ -148,9 +148,7 @@ async fn query_failure_is_visible_and_refresh_recovers() {
     );
     assert!(!app.resume_query.loading);
     assert!(
-        app.bottom_pane
-            .notice
-            .as_deref()
+        app.notice_text()
             .unwrap()
             .contains("scripted query failure")
     );

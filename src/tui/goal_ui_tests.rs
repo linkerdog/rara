@@ -127,14 +127,7 @@ async fn goal_replacement_requires_acceptance_and_rejects_stale_confirmation() {
         tui.app().goal_handle.snapshot().unwrap().objective,
         "a different thread goal"
     );
-    assert!(
-        tui.app()
-            .bottom_pane
-            .notice
-            .as_deref()
-            .unwrap()
-            .contains("goal changed")
-    );
+    assert!(tui.app().notice_text().unwrap().contains("goal changed"));
     command(&mut tui, "/goal --tokens 20 replacement objective").await;
     tui.press_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
         .await

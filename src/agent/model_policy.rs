@@ -88,6 +88,10 @@ impl<F: FnMut(AgentEvent) + Send> ModelTurnPolicy for NativeModelPolicy<'_, '_, 
         }
     }
 
+    #[expect(
+        clippy::print_stdout,
+        reason = "Explicit Terminal output mode; TUI and protocol callers use Silent."
+    )]
     fn prepare_text(&mut self, text: &str, stream: StreamEvidence) -> Result<String> {
         let (clean_text, block_requests_continue) =
             planning::strip_continue_inspection_control(text);

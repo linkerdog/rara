@@ -5,7 +5,7 @@ use anyhow::Result;
 use rara_state::state_db::{StateDb, ThreadListCursor, ThreadListQuery, ThreadListSort};
 use tokio::sync::oneshot;
 
-use super::TuiApp;
+use super::{NoticeLevel, TuiApp};
 use crate::thread_store::ThreadSummary;
 
 const RESUME_PAGE_SIZE: usize = 50;
@@ -297,7 +297,7 @@ impl TuiApp {
                 log::warn!("{message}");
                 self.resume_query.error = Some(message.clone());
                 self.resume_query.pending_selection = None;
-                self.push_notice(message);
+                self.push_notice(NoticeLevel::Warning, message);
             }
         }
     }

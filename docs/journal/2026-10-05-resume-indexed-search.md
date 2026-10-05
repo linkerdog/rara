@@ -84,3 +84,13 @@ must target `main` after that dependency lands. Local default Bazel has the
 previously recorded external `rules_rust` cache failure; its configuration and
 cache are unchanged, and the default remote Bazel job remains authoritative.
 Physical terminal interaction has not been asserted by these harness tests.
+
+## Base Integration
+
+Merged the updated background-storage base, retaining indexed resume editing
+and pagination alongside bounded Help/Status/Context scrolling. Reconciled the
+interaction matrix and removed both completed items from the remaining keyboard
+TODO. Resume-query failures now use the shared typed warning path.
+
+Integration validation: all 46 resume-filtered application tests passed, covering
+query errors, scope, pagination, restore, and input ownership.

@@ -11,6 +11,7 @@ use crate::oauth::OAuthManager;
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_client::RuntimeTaskServices;
 use crate::runtime_control::{InputControlRequest, SessionControlRequest};
+use crate::tui::state::NoticeLevel;
 
 /// Owns session runtime execution and applies typed commands to the runtime.
 ///
@@ -75,7 +76,10 @@ impl RuntimeCommandProcessor {
                     )
             )
         {
-            app.push_notice("Wait for review preparation to finish or cancel it first.");
+            app.push_notice(
+                NoticeLevel::Info,
+                "Wait for review preparation to finish or cancel it first.",
+            );
             return Ok(());
         }
         if matches!(
@@ -86,8 +90,10 @@ impl RuntimeCommandProcessor {
                 )
         ) && crate::tui::session_restore::cancel_restore(app, self.agent_mut())
         {
-            app.bottom_pane.notice =
-                Some("Thread restore cancelled for the new runtime request.".into());
+            app.push_notice(
+                NoticeLevel::Info,
+                "Thread restore cancelled for the new runtime request.",
+            );
         }
         match command {
             RuntimeCommand::SetPermissionMode(mode) => {
@@ -125,7 +131,10 @@ impl RuntimeCommandProcessor {
                     Ok(goal) => goal,
                     Err(error) => {
                         log::warn!("Goal admission failed: {error:#}");
-                        app.push_notice(format!("Goal resume failed: {error:#}"));
+                        app.push_notice(
+                            NoticeLevel::Error,
+                            format!("Goal resume failed: {error:#}"),
+                        );
                         None
                     }
                 };
@@ -148,7 +157,7 @@ impl RuntimeCommandProcessor {
                 super::tasks::start_goal_continuation_task_with_services(
                     app, prompt, agent, services,
                 );
-                app.push_notice(notice);
+                app.push_notice(NoticeLevel::Info, notice);
             }
             RuntimeCommand::Input(InputControlRequest::SubmitFollowUp { prompt }) => {
                 input_control::submit_follow_up(app, prompt, false);
@@ -165,7 +174,10 @@ impl RuntimeCommandProcessor {
                         Some(services),
                     );
                 } else {
-                    app.push_notice("Request input is still preparing. Try again.");
+                    app.push_notice(
+                        NoticeLevel::Info,
+                        "Request input is still preparing. Try again.",
+                    );
                 }
             }
             RuntimeCommand::Input(InputControlRequest::AnswerPlanApproval {
@@ -210,7 +222,10 @@ impl RuntimeCommandProcessor {
                 if let Some(agent) = self.agent_mut().take() {
                     super::start_compact_task(app, agent);
                 } else {
-                    app.push_notice("No active agent available for compaction.");
+                    app.push_notice(
+                        NoticeLevel::Warning,
+                        "No active agent available for compaction.",
+                    );
                 }
             }
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::Rebuild) => {
@@ -222,9 +237,10 @@ impl RuntimeCommandProcessor {
             RuntimeCommand::Maintenance(RuntimeMaintenanceCommand::RefreshModelCatalog(
                 provider,
             )) => super::start_model_catalog_task(app, provider),
-            command => app.push_notice(format!(
-                "Runtime command is not handled by the in-process processor: {command:?}"
-            )),
+            command => app.push_notice(
+                NoticeLevel::Error,
+                format!("Runtime command is not handled by the in-process processor: {command:?}"),
+            ),
         }
         Ok(())
     }

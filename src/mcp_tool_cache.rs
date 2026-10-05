@@ -119,7 +119,7 @@ impl McpToolCache {
                     self.insert_server_tools(name.clone(), tools);
                 }
                 Err(e) => {
-                    eprintln!("[mcp-tool-cache] Failed to list tools from {name}: {e}");
+                    log::warn!("[mcp-tool-cache] Failed to list tools from {name}: {e}");
                 }
             }
         }
