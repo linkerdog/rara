@@ -275,9 +275,7 @@ async fn busy_argument_mutations_and_aliases_share_availability() {
         press(&mut tui, KeyCode::Enter).await;
         assert!(
             tui.app()
-                .bottom_pane
-                .notice
-                .as_deref()
+                .notice_text()
                 .unwrap()
                 .contains("Unavailable while a task is running"),
             "{command}"

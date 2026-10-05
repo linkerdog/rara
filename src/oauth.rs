@@ -172,6 +172,10 @@ impl OAuthManager {
         Ok(false)
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "The CLI-only stdin credential prompt owns stderr."
+    )]
     pub fn read_api_key_from_stdin(&self) -> Result<SecretString> {
         eprintln!("Paste the Codex API key, then press Ctrl-D:");
         let mut input = String::new();

@@ -205,7 +205,7 @@ fn canonical_existing_path(path: &str) -> Result<PathBuf, ToolError> {
 
 fn record_write_best_effort(read_state: &FileReadState, path: &str, content: &str) {
     if let Err(err) = read_state.record_write(path, content) {
-        eprintln!("Failed to record file read state after write: {err}");
+        log::warn!("Failed to record file read state after write: {err}");
     }
 }
 

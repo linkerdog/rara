@@ -226,7 +226,7 @@ impl Tool for ApplyPatchTool {
 
 fn record_patch_write_best_effort(read_state: &FileReadState, path: &str, content: &str) {
     if let Err(err) = read_state.record_write(path, content) {
-        eprintln!("Failed to record file read state after patch write: {err}");
+        log::warn!("Failed to record file read state after patch write: {err}");
     }
 }
 
