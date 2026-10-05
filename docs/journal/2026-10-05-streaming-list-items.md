@@ -48,11 +48,12 @@ input bytes. These instrumented source/layout counters exclude terminal IO and
 unrelated app work; they are not wall-clock latency claims.
 
 Focused checks pass: 53 source tests, 18 row tests, and the production app guard.
-The final full TUI run passes 1,151 tests with six subprocess entries exercised
+The final full TUI run passes 1,231 tests with nine subprocess entries exercised
 through parent tests. Character and two-chunk comparisons cover numbering,
 indentation, Unicode, references, late syntax, source replacement, and table
-holdback. An 81-case block-combination matrix covers quotes, code, HTML,
-comments, definitions, and empty items. Retained visual-row allocation agrees
+holdback. A 121-case block-combination matrix covers quotes, code, HTML,
+comments, definitions, empty items, task markers, and images. Retained visual-row
+allocation agrees
 with independent canonical styling/wrapping. Strict workspace/all-target Clippy,
 formatting, and diff checks pass. No snapshots were regenerated.
 
@@ -60,6 +61,13 @@ The block matrix exposed both hidden tight-to-loose transitions and HTML writes
 to a prior pending row. Broad tests then caught incomplete markers being
 absorbed by the synthetic item; the explicit separator/spill guard fixes that
 boundary. All corresponding regressions remain in the suite.
+
+The original parent-based checkpoint passed 1,151 TUI tests. After #1050 was
+merged, the isolated implementation commit was applied to main at
+`fd283824ade75c51dd303b45016cb406a16d31c5`; no historical branch changes were
+reintroduced. Current task-list markers also establish tight-paragraph evidence.
+The expanded source tests, full TUI suite, and strict Clippy pass against that
+integrated tree. Remote CI remains a separate gate.
 
 Commands:
 

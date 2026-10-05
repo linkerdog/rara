@@ -266,6 +266,7 @@ impl<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> Iterator for BlockTracke
                     Event::Text(_)
                         | Event::Code(_)
                         | Event::InlineHtml(_)
+                        | Event::TaskListMarker(_)
                         | Event::Start(
                             Tag::Emphasis
                                 | Tag::Strong

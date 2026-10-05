@@ -19,6 +19,8 @@ fn completed_list_items_have_linear_source_and_row_work() {
         ("", "- ", "First\n\n  Second paragraph"),
         ("", "- ", "```rust\n  let n = 1;\n  ```"),
         ("", "- ", "```\n  code\n  ```\n"),
+        ("", "- ", "[ ]"),
+        ("", "- ", "![alt](image.png) and more"),
     ] {
         let mut stream = MarkdownStreamCollector::new(None, &cwd);
         let mut source = prefix.to_string();
@@ -84,6 +86,9 @@ fn list_continuations_match_canonical_at_every_character_and_split() {
         "- \n\n- > Quote\n\n  > Next\n- Words\n  > Quote\n",
         "1. First\n2. Next\n3. Third\n   continued\n",
         "999999999. First\n1. Second\n1. Third\n",
+        "- [ ] First\n- [x] Second\n- [ ]\n- [X] Last\n",
+        "- [ ] First\n\n- [x] Second\n\n  paragraph\n- Last\n",
+        "- ![alt](image.png)\n- [![alt](image.png)](src/lib.rs)\n- ![](image.png)\n",
     ] {
         let mut stream = MarkdownStreamCollector::new(None, &std::env::temp_dir());
         for (offset, ch) in source.char_indices() {
@@ -149,6 +154,8 @@ fn list_item_block_combinations_keep_canonical_spacing() {
         "    Indented code",
         "- Nested\n\n  - Next",
         "[id]: path",
+        "[ ]",
+        "![alt](image.png)",
         "",
     ];
     for first in bodies {
