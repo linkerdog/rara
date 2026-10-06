@@ -28,6 +28,23 @@ struct CheckpointObserverBackend {
     session_id: String,
 }
 
+#[tokio::test]
+async fn controlled_mcp_tools_require_execute_mode() {
+    let (_temp, session_manager, workspace, rara_dir) = test_runtime_storage();
+    let mut agent = Agent::new(
+        ToolManager::new(), Arc::new(SequencedBackend::new(vec![])),
+        Arc::new(MemoryHandle::new(&rara_dir.join("memory").to_string_lossy())),
+        session_manager, workspace,
+    );
+    let controlled = format!("mcp_{}", "a".repeat(60));
+    assert!(agent.is_tool_allowed_in_current_mode(&controlled));
+    for mode in [AgentExecutionMode::Plan, AgentExecutionMode::Review] {
+        agent.set_execution_mode(mode);
+        assert!(!agent.is_tool_allowed_in_current_mode(&controlled));
+        assert!(agent.is_tool_allowed_in_current_mode("read_file"));
+    }
+}
+
 #[async_trait]
 impl LlmBackend for CheckpointObserverBackend {
     async fn ask(

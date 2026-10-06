@@ -8,6 +8,7 @@ use tokio::sync::{broadcast, watch};
 use super::command::NativeControl;
 use super::driver::{NativeInput, NativeSessionDriver};
 use super::input::TurnInput;
+use super::mcp_sources::McpSourcePolicy;
 use super::subscription::replay_gap_error;
 use super::{
     RuntimeEventStream, RuntimeInput, RuntimeSessionBuilder, RuntimeSessionError, RuntimeSessionId,
@@ -20,7 +21,8 @@ use crate::model_observation::QueryReport;
 use crate::runtime_client::RuntimeClient;
 use crate::runtime_context::RuntimeBootstrap;
 use crate::runtime_control::{
-    PromptSourceControlRequest, RuntimeControlEvent, RuntimeProvenance, SkillSourceControlRequest,
+    McpSourceControlRequest, PromptSourceControlRequest, RuntimeControlEvent, RuntimeProvenance,
+    SkillSourceControlRequest,
 };
 use crate::runtime_event_bus::RuntimeEventBus;
 use crate::tools::agent::{AgentTreeConfig, AgentTreeControl};
@@ -51,6 +53,14 @@ impl RuntimeSession {
     }
 
     pub(crate) fn start(client: RuntimeClient, command_capacity: usize) -> Result<Self> {
+        Self::start_with_sources(client, command_capacity, McpSourcePolicy::Disabled)
+    }
+
+    pub(super) fn start_with_sources(
+        client: RuntimeClient,
+        command_capacity: usize,
+        policy: McpSourcePolicy,
+    ) -> Result<Self> {
         let agent = client
             .agent()
             .ok_or_else(|| anyhow::anyhow!("runtime bootstrap did not produce an agent"))?;
@@ -60,7 +70,13 @@ impl RuntimeSession {
             .agent_tree_control()
             .unwrap_or_else(|| Arc::new(AgentTreeControl::new(AgentTreeConfig::default())));
         let event_bus = client.event_bus.clone();
-        let driver = NativeSessionDriver::new(id.clone(), client, agent_tree_control.clone());
+        let driver = NativeSessionDriver::new(
+            id.clone(),
+            client,
+            agent_tree_control.clone(),
+            policy,
+            workspace_root.clone(),
+        );
         let inner = SessionHandle::start(id.clone(), driver, command_capacity);
         let snapshot = inner.subscribe_snapshots();
         Ok(Self {
@@ -398,7 +414,29 @@ impl RuntimeSession {
             .await
     }
 
-    /// Drain the session-owned memory lifecycle and stop the actor.
+    /// Mutate controlled MCP sources through the idle session actor.
+    pub async fn apply_mcp_source(
+        &self,
+        request: McpSourceControlRequest,
+        mut provenance: RuntimeProvenance,
+    ) -> Result<(), RuntimeSessionError> {
+        if provenance
+            .session_id
+            .as_deref()
+            .is_some_and(|id| id != self.id.as_str())
+        {
+            return Err(RuntimeSessionError::InvalidSource);
+        }
+        provenance.session_id = Some(self.id.to_string());
+        self.inner
+            .control(NativeControl::McpSource {
+                request,
+                provenance,
+            })
+            .await
+    }
+
+    /// Drain session-owned source children and memory, then stop the actor.
     pub async fn shutdown(&self) -> Result<(), RuntimeSessionError> {
         self.inner.shutdown().await
     }

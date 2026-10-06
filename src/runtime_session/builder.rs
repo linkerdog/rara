@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use rara_tools::tool::ToolManager;
 
+use super::mcp_sources::McpSourcePolicy;
 use super::{RuntimeSession, RuntimeSessionProfile};
 use crate::config::RaraConfig;
 use crate::llm::{LlmBackend, Message};
@@ -33,6 +34,7 @@ pub struct RuntimeSessionBuilder {
     enable_extension_discovery: bool,
     require_state_root: bool,
     profile: RuntimeSessionProfile,
+    mcp_source_policy: McpSourcePolicy,
     cache_experiment: crate::agent::CacheExperimentOptions,
 }
 
@@ -56,6 +58,7 @@ impl RuntimeSessionBuilder {
             enable_extension_discovery: true,
             require_state_root: false,
             profile: RuntimeSessionProfile::Default,
+            mcp_source_policy: McpSourcePolicy::Disabled,
             cache_experiment: crate::agent::CacheExperimentOptions::default(),
         }
     }
@@ -131,6 +134,13 @@ impl RuntimeSessionBuilder {
         self
     }
 
+    /// Allow explicit session controls to launch and retire MCP sources.
+    /// Frozen tool profiles reject this opt-in at build time.
+    pub fn with_controlled_mcp_sources(mut self) -> Self {
+        self.mcp_source_policy = McpSourcePolicy::Enabled;
+        self
+    }
+
     /// Hydrate the model-visible transcript before the first submitted turn.
     pub fn with_transcript(mut self, transcript: Vec<Message>) -> Self {
         self.initial_transcript = transcript;
@@ -187,6 +197,13 @@ impl RuntimeSessionBuilder {
 
     /// Assemble and start the session actor.
     pub async fn build(mut self) -> Result<RuntimeSession> {
+        if self.mcp_source_policy == McpSourcePolicy::Enabled
+            && (self.profile.tool_names().is_some()
+                || self.cache_experiment.tool_schemas
+                    == crate::agent::ToolSchemaPolicy::SessionStable)
+        {
+            anyhow::bail!("controlled MCP sources cannot widen a frozen runtime profile");
+        }
         if self
             .session_id
             .as_deref()
@@ -228,6 +245,6 @@ impl RuntimeSessionBuilder {
         if let Some(agent) = client.agent_mut() {
             agent.configure_cache_experiment(self.cache_experiment);
         }
-        RuntimeSession::start(client, self.command_capacity)
+        RuntimeSession::start_with_sources(client, self.command_capacity, self.mcp_source_policy)
     }
 }

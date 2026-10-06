@@ -1,11 +1,11 @@
 pub use rara_app_server::runtime_control::{
     ApprovalControlRequest, HookControlRequest, HookLifecycle, InputControlRequest,
-    McpControlRequest, MemoryControlRequest, MemoryRecordControlPatch, MemoryScope,
-    OutputSubscriptionRequest, PlanApprovalDecision, PromptSourceControlRequest,
-    PromptSourceLifetime, PromptSourceRegistration, RuntimeControlEnvelope, RuntimeControlRequest,
-    RuntimeControllerKind, RuntimeProvenance, RuntimeSourceAuthorship, RuntimeSourceTrust,
-    SessionControlRequest, ShellApprovalDecision, SkillSourceControlRequest, SourceLayer,
-    SourceScope,
+    McpControlRequest, McpSourceControlRequest, McpSourceRegistration, MemoryControlRequest,
+    MemoryRecordControlPatch, MemoryScope, OutputSubscriptionRequest, PlanApprovalDecision,
+    PromptSourceControlRequest, PromptSourceLifetime, PromptSourceRegistration,
+    RuntimeControlEnvelope, RuntimeControlRequest, RuntimeControllerKind, RuntimeProvenance,
+    RuntimeSourceAuthorship, RuntimeSourceTrust, SessionControlRequest, ShellApprovalDecision,
+    SkillSourceControlRequest, SourceLayer, SourceScope,
 };
 use rara_tools::tool::ToolOutputStream;
 use serde::{Deserialize, Serialize};
@@ -308,6 +308,16 @@ pub enum SkillEvent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum McpEvent {
+    SourceRegistered {
+        source_id: String,
+        tool_names: Vec<String>,
+    },
+    SourceUnregistered {
+        source_id: String,
+    },
+    SourcesListed {
+        sources: Vec<McpSourceSnapshot>,
+    },
     StatusUpdated {
         snapshot: McpStatusSnapshot,
     },
@@ -324,6 +334,12 @@ pub enum McpEvent {
         backoff_ms: u64,
     },
     ConfigurationRefreshed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpSourceSnapshot {
+    pub source_id: String,
+    pub tool_names: Vec<String>,
 }
 
 #[allow(dead_code)] // ACP protocol type — reserved for future lifecycle events

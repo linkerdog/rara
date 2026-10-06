@@ -339,6 +339,7 @@ fn request_requires_turn(request: &RuntimeControlRequest) -> bool {
         | RuntimeControlRequest::PromptSource(_)
         | RuntimeControlRequest::SkillSource(_)
         | RuntimeControlRequest::Mcp(_)
+        | RuntimeControlRequest::McpSource(_)
         | RuntimeControlRequest::Memory(_)
         | RuntimeControlRequest::Hook(_) => false,
     }

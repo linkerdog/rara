@@ -213,10 +213,11 @@ ambient configuration nor grants session authority.
   containment remains the outer process supervisor's responsibility.
 
 Existing `list_stdio_tools` uses the same complete discovery and explicit cleanup.
-This library does not yet provide session source registration, tool namespace
-admission, refresh, or authorization. Those remain
-separate gates before the [app-server source methods](app-server-stdio.md) can be
-advertised.
+Session source registration and tool namespace admission are implemented by the
+canonical session actor above this connection library. See the explicit opt-in,
+ownership, bounds and retirement contracts for the
+[app-server source methods](app-server-stdio.md). Ambient refresh and connection
+authorization remain outside this component.
 
 ### Configuration And Runtime Status
 
@@ -287,6 +288,7 @@ advertised.
 ## Source Journals
 
 - [Owned MCP connections](../journal/2026-10-05-owned-mcp-connections.md)
+- [Controlled session sources](../journal/2026-10-06-controlled-mcp-sources.md)
 - `docs/journal/2026-05-05-mcp-config-registry.md`
 - `docs/journal/2026-05-05-mcp-status-surface.md`
 - `docs/journal/2026-05-05-mcp-runtime-events.md`

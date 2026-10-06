@@ -34,6 +34,7 @@ pub(crate) async fn run(options: LaunchOptions) -> anyhow::Result<()> {
                 config.sandbox_workspace_write.network_access = true;
             }
             let mut builder = RuntimeSessionBuilder::new(config, &workspace)
+                .with_controlled_mcp_sources()
                 .with_plugin_dirs(options.plugin_dirs.clone())
                 .with_state_root(state_root.clone())
                 .with_event_capacity(EVENT_CAPACITY);
