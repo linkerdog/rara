@@ -344,6 +344,12 @@ Active backlog only. Keep this file small and current.
 
 ## App Server Stdio
 
+- [ ] Complete controlled MCP source registration through the idle session actor:
+      explicit opt-in, namespace collisions, exact
+      session ownership, atomic catalogue admission and source retirement.
+      The callable connection foundation is implemented, but no new stdio
+      method is advertised. See
+      [the connection checkpoint](journal/2026-10-05-owned-mcp-connections.md).
 - [ ] Add durable resume, root discovery or additional control families only with
       independent ownership, bounds and recovery evidence. The version1 CLI now
       explicitly rejects these unsupported methods. See
