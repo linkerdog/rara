@@ -94,6 +94,10 @@ Current backend slice:
 - Runtime metadata is written to per-session `thread.json` before updating the
   `StateDb` listing/index row. `ThreadStore` prefers `thread.json` and only
   falls back to `StateDb` metadata for older sessions.
+- An optional explicit `title` is stored in canonical metadata and the SQLite
+  index. Metadata/index mutations share a per-thread advisory lock; ordinary
+  checkpoints preserve the stored title. Named empty threads are resumable.
+  Older records and databases gain the optional title without rewriting history.
 - `ThreadStore` treats `runtime_state` entries as snapshots and materializes
   only the latest snapshot into current plan/interactions, avoiding duplicate
   rollout items from stale snapshots.
@@ -116,6 +120,11 @@ Current backend slice:
   compaction and fork replay share the same structured rollout event boundary.
 - `export_thread_markdown(session_id) -> String` renders a portable markdown
   transcript with frontmatter, summary, and message sections.
+- Export prefers committed display turns, which retain pre-compaction content
+  and turns hidden by `/clear`; legacy threads fall back to message history.
+  Display clearing never resets the durable turn ordinal. Source corruption
+  fails export explicitly. The TUI also supports versioned JSON and atomic,
+  no-overwrite file creation as specified in [session commands](session-commands.md).
 - `distill_thread_summary(memory_store, session_id) -> Option<MemoryRecord>`
   persists one summary-style `MemoryRecord` linked to the source session/thread.
 
@@ -123,6 +132,32 @@ The current implementation still keeps `history.json` as a compatibility
 snapshot beside the canonical transcript and keeps `StateDb` as the listing and
 legacy side-table fallback. The structured thread source lives under the
 per-session rollout directory rather than a dedicated LanceDB thread table.
+
+## Indexed Thread Listing
+
+The SQLite thread index filters resumable sessions before applying a page limit.
+Search is a literal substring over the latest turn preview, session ID, full
+cwd, branch, provider, model, execution mode, and approval mode. ASCII case is
+ignored; Unicode text is matched literally. This is metadata/preview search,
+not full-history search. Percent signs and underscores are ordinary characters.
+
+Queries accept an exact stored cwd, an excluded current session, and updated or
+created ordering. Descending `(timestamp, session_id)` cursors provide stable
+pagination when timestamps tie. Pages preserve the existing resumability
+predicate and return errors rather than an empty success. The existing recent
+thread APIs retain their behavior. No schema or persistent format changes are
+required.
+
+The TUI executes indexed queries through its ordered storage owner. New search,
+scope, sort, or source-session inputs invalidate pending results; appended pages
+are deduplicated by session ID. This is a live listing, so updates can move
+sessions across a page boundary until refresh restarts the query.
+
+Verification covers old matches outside the newest 200 records, literal search
+characters, exact cwd/current-session exclusion, tied timestamps in both sort
+orders, and asynchronous scope/search/source changes. See the
+[implementation checkpoint](../journal/2026-10-05-resume-indexed-search.md) and
+[resume interaction contract](../interaction/composer-and-overlays.md#resume-search-and-scope).
 
 ## Conversation Markdown Format
 

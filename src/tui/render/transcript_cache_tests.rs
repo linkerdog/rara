@@ -78,6 +78,9 @@ fn work(harness: &TuiHarness) -> TranscriptWork {
         wrapped_lines: render.wrapped_lines + selection.wrapped_lines,
         text_rows: render.text_rows + selection.text_rows,
         hashed_rows: render.hashed_rows + selection.hashed_rows,
+        cloned_bytes: render.cloned_bytes + selection.cloned_bytes,
+        wrapped_bytes: render.wrapped_bytes + selection.wrapped_bytes,
+        stream_spans: render.stream_spans + selection.stream_spans,
     }
 }
 

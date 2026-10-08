@@ -20,7 +20,7 @@ This spec covers:
 
 ## Non-Goals
 
-- Starting MCP server processes in the first slice.
+- Automatically admitting configured servers into the model tool catalogue.
 - OAuth login for MCP servers.
 - Enterprise-managed MCP policies.
 - Project approval UI for newly discovered `.mcp.json` servers.
@@ -197,9 +197,10 @@ large dynamic surfaces should be searched or referenced, not eagerly appended.
 
 Implementation checkpoint:
 
-- `rara-mcp-client` connects over both transports. `list_stdio_tools` spawns a
-  child process; `list_http_tools` uses the `rmcp` streamable-HTTP client with
-  the `reqwest` transport and rustls TLS.
+- `rara-mcp-client` connects over both transports. `list_stdio_tools` uses an
+  owned `StdioConnection` and waits for child cleanup before returning the full
+  catalogue; `list_http_tools` uses the `rmcp` streamable-HTTP client with the
+  `reqwest` transport and rustls TLS. Both produce the same cache record fields.
 - `McpToolCache::populate_from_registry_owned` indexes tools for stdio and
   streamable-HTTP servers. A server that fails to connect or to list tools is
   reported through `log::warn!`, and the remaining servers are still indexed.
@@ -207,6 +208,42 @@ Implementation checkpoint:
   from the index only.
 
 ## Contracts
+
+### Owned Stdio Connections
+
+`rara-mcp-client::StdioConnection` owns one explicitly configured child and an
+immutable, fully discovered tool catalogue. Callers supply the executable,
+arguments, environment and working directory; this component neither discovers
+ambient configuration nor grants session authority.
+
+- Initialization and catalogue discovery each have a ten-second deadline.
+- Incoming JSONL frames are capped at 2 MiB before SDK accumulation and decoding,
+  including unterminated frames. Oversized input closes the transport.
+- Discovery follows all pages before returning: at most 16 pages, 512 tools and
+  1 MiB of serialized descriptors. Names must be unique, nonblank, no more than
+  128 bytes and free of control characters. Cursors are bounded and cannot repeat.
+- Calls must name an admitted tool and carry at most 1 MiB of JSON arguments.
+  Each call sends exactly one request, with a 60-second deadline. Typed
+  `input_required` and task responses are returned to the owner, without SDK
+  continuation or automatic retry. A missing response leaves execution uncertain.
+- Explicit shutdown first closes the service, then waits for the direct child.
+  A child that ignores EOF is killed and reaped. Completed shutdown is
+  idempotent; interrupted or failed cleanup remains uncertain on subsequent
+  shutdown attempts and cannot authorize replacement execution.
+- Initialization and catalogue errors also retire the child. Error messages
+  expose categories, and child stderr is discarded to avoid leaking source
+  credentials into controller diagnostics.
+- Dropping a connection is best-effort cleanup, not a retirement receipt. The
+  caller must await shutdown before acknowledging source removal. Descendant
+  containment remains the outer process supervisor's responsibility.
+
+Existing `list_stdio_tools` uses the same complete discovery and explicit cleanup.
+This library does not yet provide session source registration, tool namespace
+admission, refresh, or authorization. Those remain
+separate gates before the [app-server source methods](app-server-stdio.md) can be
+advertised.
+
+### Configuration And Runtime Status
 
 - Loading user `config.toml` and project `.mcp.json` is deterministic.
 - Missing config files produce an empty registry.
@@ -284,6 +321,15 @@ Implementation checkpoint:
 | tool listing returns a continuation cursor | all pages are included within one deadline |
 | HTTP probe fails with URL credentials | warning and its error causes do not expose URL secrets |
 | configured cloud URL ends in `/mcp/` | REST endpoint removes the normalized MCP suffix before adding `/remote-api` |
+| stdio server has several tool pages | complete catalogue returned before invocation |
+| repeated cursor, duplicate name or capacity overflow | no partial catalogue admitted |
+| call names an unadmitted tool | rejected before dispatch |
+| server requests more input | typed response returned; no automatic resubmission |
+| server exits before replying | uncertain result; exactly one call dispatched |
+| server ignores EOF | shutdown kills and reaps the direct child |
+| cleanup future is interrupted | later shutdown remains uncertain; calls are refused |
+| oversized unterminated frame | connection fails without waiting for a delimiter |
+| valid frame arrives in fragments | catalogue and call response remain intact |
 
 ## Open Risks
 
@@ -298,6 +344,7 @@ Implementation checkpoint:
 
 ## Source Journals
 
+- [Owned MCP connections](../journal/2026-10-05-owned-mcp-connections.md)
 - `docs/journal/2026-05-05-mcp-config-registry.md`
 - `docs/journal/2026-05-05-mcp-status-surface.md`
 - `docs/journal/2026-05-05-mcp-runtime-events.md`

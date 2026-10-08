@@ -744,6 +744,7 @@ async fn tasks_command_switches_agent_and_tool_default_list() {
     let agent = agent_slot.as_ref().expect("agent");
     assert_eq!(agent.task_list_id, "team-alpha");
     assert_eq!(app.snapshot.shared_tasks.task_list_id, "team-alpha");
+    app.finish_shared_task_scan().await;
     assert_eq!(app.snapshot.shared_tasks.total, 1);
     let output = agent
         .tool_manager

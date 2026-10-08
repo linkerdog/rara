@@ -25,6 +25,7 @@ expected visible result, and the cheapest layer that proves it.
 | Hidden, clipped, reordered, or misleading content | Production renderer into a Ratatui buffer; focused text/style assertions or reviewed snapshot |
 | Queue/cancel/approval ordering | Scripted runtime events and typed commands, followed by visible state |
 | Terminal encoding, wide-cell diffs, scrollback, resize | Production terminal output through the vt100-backed `EmulatorBackend` |
+| Color depth and ASCII display | Injected terminal profiles; full-frame buffer checks plus production SGR/glyph output, cursor columns, and original selection text |
 | OS terminal modes, process-group suspend, error/panic restoration | Isolated PTY child; manual acceptance for terminal-specific policy |
 
 State fixtures are allowed; replacing the production renderer with a parallel
@@ -103,6 +104,9 @@ boundary below.
 | Error/panic cleanup and Unix suspend/resume | `terminal_modes_tests` and `job_control_tests`, isolated PTY children, including balanced keyboard enhancement entries |
 | Enhanced key decoding and legacy fallback | `keyboard_protocol_tests`, real CSI-u and legacy bytes through the isolated terminal fixture and production input translator |
 | Input ordering, paste/submit, key release/repeat, focus, selection | `TuiHarness::send_terminal_event`, production translation/dispatch, `paste_input_tests`, `key_control_tests`, `event_stream`, and `clipboard::tests` |
+| External editor ownership and recovery | `external_editor` unit/PTY tests and the production event loop with a gated editor future |
+| Atomic file completion and mixed paste ownership | `file_mentions::state::tests`, condition-variable worker tests, `composer_atoms::tests`, and a reviewed popup snapshot |
+| Persistent prompt recall and incremental search | `prompt_history_tests`, persistence store process tests, and `event_loop_session_tests` with a held writer lock through terminal restoration |
 | Frame deadlines and ordered runtime/input projection | `FrameScheduler` unit guards and `event_loop::loop_tests` with paused time and vt100 frame output |
 | Cancel/completion admission and final projection | `controller::cancellation_tests` and `runtime::tasks::tests` |
 | Wrapped selection and scroll bounds | `render::viewport_tests` and `selection` tests |
@@ -190,3 +194,4 @@ evidence before becoming required jobs. Track the open work in [TODO](../todo.md
 - [Terminal oracles and lint gates](../journal/2026-10-03-tui-quality-gates.md)
 - [Production event-loop verification](../journal/2026-10-03-tui-event-loop-verification.md)
 - [Scoped TUI panic lints](../journal/2026-10-04-tui-panic-lints.md)
+- [Atomic file references and asynchronous discovery](../journal/2026-10-05-file-mentions.md)

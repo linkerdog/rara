@@ -70,8 +70,22 @@ Active backlog only. Keep this file small and current.
       logarithmically. Unchanged active-prefix assembly and comparison are now
       bypassed using mutation identities. Live thinking content and clock updates
       replace only their visible row block, preserving both surrounding sections.
-      Other changed-input assembly/comparison and rewrapping remain explicit costs. Long
-      mutable blocks, definition changes, and reference-expansion fallback still
+      Other changed-input assembly/comparison and rewrapping remain explicit costs.
+      Eligible plain paragraphs now examine only appended source after their first
+      canonical parse, and reuse completed physical lines. Eligible growing
+      physical lines now retain visual rows before a three-row mutable window;
+      see [the line-layout checkpoint](journal/2026-10-05-growing-line-layout.md).
+      Formatted paragraphs can also reuse parser-confirmed raw-text tails and
+      styled visual prefixes with a span cursor; see
+      [the inline checkpoint](journal/2026-10-05-inline-paragraph-continuation.md).
+      Root lists retain completed items before their pending boundary row and
+      final mutable item; see
+      [the list checkpoint](journal/2026-10-05-streaming-list-items.md).
+      Large individual grapheme tails, normalization fallback, and ineligible
+      long mutable blocks (including growth within one list item or its pending
+      boundary row) still need work bounds; see
+      [the plain paragraph checkpoint](journal/2026-10-05-long-mutable-markdown.md).
+      Definition changes and reference-expansion fallback still
       need work bounds. Ordinary blocks after reference definitions now reuse
       their context; see [the reference checkpoint](journal/2026-10-04-streaming-reference-context.md).
       ordinary angle brackets now avoid control-cleanup replay, while completed
@@ -123,11 +137,12 @@ Active backlog only. Keep this file small and current.
       [the viewport checkpoint](journal/2026-10-03-inline-terminal-viewport.md).
       Ctrl-C/Ctrl-D quit ordering and Unix suspend/resume are covered by
       [the job-control checkpoint](journal/2026-10-03-tui-interrupt-suspend.md).
-- [ ] Complete remaining keyboard contracts: resume-search cursor editing,
-      atomic large-paste placeholder editing, and an explicit opt-in Vim mode.
-      Cache editor grapheme boundaries for
+- [ ] Complete remaining keyboard contracts: atomic large-paste placeholder
+      editing and an explicit opt-in Vim mode. Cache editor grapheme boundaries for
       repeated cursor reads on long drafts. See
-      [input risks](interaction/composer-and-overlays.md#open-risks).
+      [input risks](interaction/composer-and-overlays.md#open-risks). Resume
+      search editing and indexed pagination are covered by
+      [the resume checkpoint](journal/2026-10-05-resume-indexed-search.md).
 - [ ] Add a runtime-owned skill enablement update and readback before restoring
       editing controls to the read-only `/skills` inspector. See
       [CMD-05](interaction/commands.md#cmd-05-skill-inspection-does-not-pretend-to-change-runtime-policy).
@@ -335,6 +350,12 @@ Active backlog only. Keep this file small and current.
 
 ## App Server Stdio
 
+- [ ] Complete controlled MCP source registration through the idle session actor:
+      explicit opt-in, namespace collisions, exact
+      session ownership, atomic catalogue admission and source retirement.
+      The callable connection foundation is implemented, but no new stdio
+      method is advertised. See
+      [the connection checkpoint](journal/2026-10-05-owned-mcp-connections.md).
 - [ ] Add durable resume, root discovery or additional control families only with
       independent ownership, bounds and recovery evidence. The version1 CLI now
       explicitly rejects these unsupported methods. See

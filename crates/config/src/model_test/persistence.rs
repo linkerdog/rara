@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn prompt_history_defaults_on_and_disable_round_trips() {
+    let legacy = serde_json::to_value(RaraConfig::default()).unwrap();
+    assert!(legacy["tui"]["history"].is_null());
+    let mut config: RaraConfig = serde_json::from_value(legacy).expect("legacy config");
+    assert!(config.tui.history.enabled);
+    assert!(serde_json::to_value(&config).unwrap()["tui"]["history"].is_null());
+    config.tui.history.enabled = false;
+    let encoded = serde_json::to_string(&config).unwrap();
+    let restored: RaraConfig = serde_json::from_str(&encoded).unwrap();
+    assert!(!restored.tui.history.enabled);
+}
+
+#[test]
 fn saves_and_loads_allowed_command_prefix_rules() {
     let dir = tempdir().expect("tempdir");
     let manager =

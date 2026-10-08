@@ -13,7 +13,7 @@ use super::super::super::state::{ActivePendingInteractionKind, GoalStatus, TaskK
 use super::bottom_pane_style;
 use crate::tui::composer_text::{
     COMPOSER_INITIAL_INDENT, COMPOSER_SUBSEQUENT_INDENT, WrapConfig, clipped_cursor_column,
-    expand_tabs, wrapped_text,
+    expand_tabs, wrapped_composer, wrapped_text,
 };
 use crate::tui::theme::{TEXT_ACCENT, TEXT_MUTED, TEXT_SECONDARY};
 
@@ -48,7 +48,11 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
         } else {
             app.bottom_pane.input.as_str()
         };
-        let layout = wrapped_text(content, WrapConfig::composer(chunks[0].width));
+        let layout = if is_placeholder {
+            wrapped_text(content, WrapConfig::composer(chunks[0].width))
+        } else {
+            wrapped_composer(&app.bottom_pane, WrapConfig::composer(chunks[0].width))
+        };
         let cursor_row = layout.cursor_position(app.composer_cursor_offset()).row;
         if is_placeholder {
             app.bottom_pane.composer_scroll = 0;
@@ -116,12 +120,11 @@ pub(super) fn render_composer(f: &mut Frame, app: &mut TuiApp, area: Rect) -> Op
             .alignment(Alignment::Left),
         chunks[1],
     );
-    if hide_input_for_approval {
+    if hide_input_for_approval || chunks[0].is_empty() {
         None
     } else {
         Some(composer_cursor_position(
-            app.bottom_pane.input.as_str(),
-            app.composer_cursor_offset(),
+            app,
             chunks[0],
             app.bottom_pane.composer_scroll,
         ))
@@ -196,21 +199,18 @@ pub(super) fn composer_hint_line(app: &TuiApp) -> Line<'static> {
     composer_hint(app)
 }
 
-pub(super) fn composer_cursor_position(
-    input: &str,
-    cursor_offset: usize,
-    area: Rect,
-    scroll: usize,
-) -> (u16, u16) {
-    let (x, y) = wrapped_text_cursor_position(
-        input,
-        cursor_offset,
-        area,
-        Some(COMPOSER_INITIAL_INDENT),
-        Some(COMPOSER_SUBSEQUENT_INDENT),
-    );
-    let adjusted_y = y.saturating_sub(scroll as u16);
-    (x, adjusted_y)
+pub(super) fn composer_cursor_position(app: &TuiApp, area: Rect, scroll: usize) -> (u16, u16) {
+    let layout = wrapped_composer(&app.bottom_pane, WrapConfig::composer(area.width));
+    let position = layout.cursor_position(app.composer_cursor_offset());
+    (
+        area.x.saturating_add(position.column as u16),
+        area.y.saturating_add(
+            position
+                .row
+                .saturating_sub(scroll)
+                .min(area.height.saturating_sub(1) as usize) as u16,
+        ),
+    )
 }
 
 pub(crate) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u16 {
@@ -224,18 +224,12 @@ pub(crate) fn desired_composer_height(app: &TuiApp, width: u16, rows: u16) -> u1
 }
 
 pub(super) fn composer_content_line_count(app: &TuiApp, width: u16) -> u16 {
-    let content = if app.bottom_pane.input.is_empty() {
-        COMPOSER_PLACEHOLDER.to_string()
+    let layout = if app.bottom_pane.input.is_empty() {
+        wrapped_text(COMPOSER_PLACEHOLDER, WrapConfig::composer(width))
     } else {
-        app.bottom_pane.input.clone()
+        wrapped_composer(&app.bottom_pane, WrapConfig::composer(width))
     };
-
-    u16::try_from(
-        wrapped_text(&content, WrapConfig::composer(width))
-            .rows()
-            .len(),
-    )
-    .unwrap_or(u16::MAX)
+    u16::try_from(layout.rows().len()).unwrap_or(u16::MAX)
 }
 
 pub(crate) fn editor_cursor_position(input: &str, cursor_offset: usize, area: Rect) -> (u16, u16) {
@@ -253,6 +247,7 @@ fn inner_rect(area: Rect) -> Rect {
     }
 }
 
+#[cfg(test)]
 pub(super) fn wrapped_text_cursor_position(
     input: &str,
     cursor_offset: usize,

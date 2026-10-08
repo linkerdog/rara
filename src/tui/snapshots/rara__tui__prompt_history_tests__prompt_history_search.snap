@@ -1,0 +1,33 @@
+---
+source: src/tui/prompt_history_tests.rs
+assertion_line: 352
+expression: "tui.screen_text(90, 28)"
+---
+── RARA ──────────────────────────────────────────────────
+
+model · -                               /model to change
+dir   · <CWD>
+Ready.
+──
+Ty Search prompts | 2 matches
+   >
+St
+   > inspect the query plan
+     older prompt
+
+
+
+Pr
+
+
+
+   inspect the query plan
+   Keep the index lookup and compare row counts.
+
+
+
+
+›
+
+
+   Ctrl+R/Up older  Down newer  Enter use  Esc back                                     on

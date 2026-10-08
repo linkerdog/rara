@@ -1,4 +1,4 @@
-use bottom_pane_model::BottomPaneModel;
+pub(crate) use bottom_pane_model::BottomPaneModel;
 mod approval_details;
 pub(crate) use approval_details::{ApprovalDetailNavigation, ApprovalDetailScroll};
 mod bottom_pane_model;
@@ -12,6 +12,7 @@ mod pending_interaction;
 mod persistence;
 mod planning_lifecycle;
 mod quit_shortcut;
+mod resume_queries;
 pub(crate) use quit_shortcut::{QuitShortcutAction, QuitShortcutKey, QuitShortcutState};
 mod runtime_snapshot;
 mod scroll_acceleration;
@@ -63,13 +64,13 @@ use crate::oauth::OAuthManager;
 pub(crate) use crate::runtime_client::RebuildSuccess;
 
 mod composer;
+mod context_files;
 mod initialization;
 mod model_catalog;
 mod model_selection;
 mod provider_setup;
 mod support;
 
-pub(super) use support::INPUT_HISTORY_LIMIT;
 use support::{
     TextInputTarget, effective_cursor_offset, startup_warning_for_config, state_db_status_error,
     terminal_multiplexer_label, terminal_remote_label,

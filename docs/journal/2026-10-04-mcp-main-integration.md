@@ -67,3 +67,32 @@ Validation on the combined tree: nine HTTP client tests, 64 configuration tests,
 and 37 application MCP tests passed. All five original review threads were
 confirmed resolved. Current-head remote Bazel and downstream checks remain the
 merge gate; the earlier revision's green CI is historical evidence only.
+
+## 2026-10-08 Owned Connection Integration
+
+Integrate main `7019383d` with a normal merge. Main replaces one-shot stdio
+discovery with an owned connection, which conflicts with this branch's shared
+listing entry point. Keep `StdioConnection` catalogue validation and awaited
+child retirement, retain the HTTP client, proxy policy and aggregate listing
+deadline, and share only the conversion of admitted tool definitions to cache
+records. Preserve both transport verification matrices. Combine the automatically
+merged duplicate development-dependency tables and their Tokio features.
+
+Reference inspection confirms the separation: Codex constructs streamable HTTP
+with an explicit client in `codex-rs/rmcp-client/src/rmcp_client.rs`; Claude Code
+keeps HTTP transport options and explicit stdio child cleanup in
+`src/services/mcp/client.ts`. Adapt that ownership boundary by preserving main's
+stdio lifecycle instead of routing it back through the HTTP discovery helper.
+
+Validation on the combined tree:
+
+- `cargo test --locked -p rara-mcp-client -p rara-config --lib`: 21 client
+  tests and 66 configuration tests passed, including HTTP/proxy fixtures and
+  stdio catalogue/cleanup.
+- `cargo test --locked -p rara --lib -- mcp plugin_middleware::builtin
+  tui::status_display:: --test-threads=4`: 45 application integration tests passed.
+- `cargo clippy --locked --workspace --all-targets --no-deps -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check` passed.
+
+Bazel configuration remains unchanged; exact-head remote checks remain the
+merge gate. The five original review threads remain resolved.

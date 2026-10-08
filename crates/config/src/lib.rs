@@ -29,6 +29,8 @@ pub use provider_registry::{
 };
 mod secrets;
 mod serde_helpers;
+mod terminal;
+pub use terminal::{TerminalNotificationMethod, TuiTerminalConfig};
 
 pub use self::defaults::{
     DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_CHATGPT_BASE_URL, DEFAULT_CODEX_MODEL,
@@ -48,8 +50,9 @@ pub use self::migration::migrate_reasoning_summary;
 pub use self::model::{
     BuiltinPluginConfig, ConfigManager, ContextFileSearchPolicy, DEFAULT_NOWLEDGE_MEM_CLOUD_URL,
     NowledgeMemMode, NowledgeMemPluginConfig, OpenAiEndpointKind, OpenAiEndpointProfile,
-    ProviderConfigState, RaraConfig, SandboxWorkspaceWriteConfig, TuiConfig, TuiThemeConfig,
-    ensure_rara_home_dir, rara_home_dir, workspace_data_dir_for, workspace_data_dir_for_home,
+    ProviderConfigState, RaraConfig, SandboxWorkspaceWriteConfig, TuiConfig, TuiHistoryConfig,
+    TuiThemeConfig, ensure_rara_home_dir, rara_home_dir, workspace_data_dir_for,
+    workspace_data_dir_for_home,
 };
 pub use self::multi_agent::MultiAgentPolicy;
 pub use self::provider_surface::{

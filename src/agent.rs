@@ -13,6 +13,7 @@ mod prompting;
 mod runtime;
 #[cfg(test)]
 mod tests;
+mod thread_reset;
 mod tool_effects;
 
 use std::sync::{Arc, atomic::AtomicBool};

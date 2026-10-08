@@ -1,0 +1,820 @@
+use serde_json::Value;
+
+use crate::agent::{CompactState, Message, PlanStepStatus};
+use crate::context::assembly_view::assemble_context_view;
+use crate::context::compaction_view::compaction_source_entries;
+use crate::context::memory_selection::memory_selection;
+use crate::context::retrieval_view::{retrieval_orchestration_view, retrieval_source_entries};
+use crate::context::{
+    AgentTurnTraceView, CompactionContextView, ContextBudgetView, ContextCacheObservationView,
+    ContextCompactionObservationView, ContextObservabilityView, MicrocompactProjectionContextView,
+    PlanContextView, PromptContextView, RetrievalCandidate, RetrievalContextView,
+    RetrievalObservationView, RetrievalRequest, RetrievedMemoryCandidate, SharedRuntimeContext,
+    SharedTaskContextView, TodoContextView, retrieval_candidates,
+};
+use crate::context::{RuntimeContextFiles, WorkspaceMemoryAvailability};
+use crate::llm::{ContextBudget, LlmBackend};
+use crate::prompt::{self, EffectivePrompt, HookLifecycle, PromptMode, PromptRuntimeConfig};
+use crate::todo::TodoState;
+use crate::tool_result::{ToolResultProjectionPolicy, ToolResultProjectionReport};
+use crate::workspace::WorkspaceMemory;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssembledContext {
+    pub effective_prompt: EffectivePrompt,
+    pub compact_instruction: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssembledTurnContext {
+    pub prompt: AssembledContext,
+    pub runtime: SharedRuntimeContext,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeContextInputs<'a> {
+    pub cwd: String,
+    pub branch: String,
+    pub session_id: String,
+    pub history_len: usize,
+    pub total_input_tokens: u32,
+    pub total_output_tokens: u32,
+    pub total_cache_hit_tokens: u32,
+    pub total_cache_miss_tokens: u32,
+    pub execution_mode: String,
+    pub plan_steps: Vec<(PlanStepStatus, String)>,
+    pub plan_explanation: Option<String>,
+    pub todo_state: Option<TodoState>,
+    pub shared_tasks: SharedTaskContextView,
+    pub compact_state: CompactState,
+    pub history: &'a [Message],
+    pub memory_uri: &'a str,
+    pub pending_interactions: Vec<RuntimeInteractionInput>,
+    pub skill_listing: Option<String>,
+    pub retrieved_memory_candidates: &'a [RetrievedMemoryCandidate],
+    pub file_search_candidates: &'a [RetrievalCandidate],
+    pub mcp_resource_candidates: &'a [RetrievalCandidate],
+    pub hook_output_candidates: &'a [RetrievalCandidate],
+    pub graph_context_candidates: &'a [RetrievalCandidate],
+    pub tool_result_projection_policy: ToolResultProjectionPolicy,
+    pub tool_result_projection_report: ToolResultProjectionReport,
+    pub agent_turn_trace: AgentTurnTraceView,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeInteractionInput {
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    pub source: Option<String>,
+}
+
+impl AssembledContext {
+    #[cfg(test)]
+    pub fn system_prompt(&self) -> &str {
+        &self.effective_prompt.text
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ContextAssembler<'a> {
+    workspace: &'a WorkspaceMemory,
+    runtime: &'a PromptRuntimeConfig,
+    hook_phase: Option<HookLifecycle>,
+}
+
+impl<'a> ContextAssembler<'a> {
+    pub fn new(workspace: &'a WorkspaceMemory, runtime: &'a PromptRuntimeConfig) -> Self {
+        Self {
+            workspace,
+            runtime,
+            hook_phase: None,
+        }
+    }
+
+    /// Reserved for per-phase file-hook injection; docs/features/file-hooks.md
+    /// tracks the follow-up beyond the current all-hooks-every-turn behavior.
+    #[allow(dead_code)] // Reserved until hook-phase assembly is wired into /context
+    pub fn with_hook_phase(mut self, phase: HookLifecycle) -> Self {
+        self.hook_phase = Some(phase);
+        self
+    }
+
+    pub fn assemble(&self, mode: PromptMode) -> AssembledContext {
+        let mut prompt = prompt::build_effective_prompt(self.workspace, self.runtime, mode);
+        let mut appended_sections: Vec<(&str, String)> = Vec::new();
+        // Inject memory section (read-path instructions + summary)
+        let memory_section = crate::memory_files::read_memory_section(&self.workspace.rara_dir);
+        if !memory_section.is_empty() {
+            appended_sections.push(("Memory", memory_section));
+        }
+        let hooks_text = self.runtime.hooks_prompt(self.hook_phase);
+        if !hooks_text.is_empty() {
+            appended_sections.push(("Hooks", format!("## Hooks\n\n{}", hooks_text)));
+        }
+        if !appended_sections.is_empty() {
+            let joined: Vec<String> = appended_sections
+                .iter()
+                .map(|(_, content)| content.clone())
+                .collect();
+            prompt.text.push_str("\n\n");
+            prompt.text.push_str(&joined.join("\n\n"));
+            for (label, content) in appended_sections {
+                prompt.sources.push(prompt::PromptSource {
+                    kind: prompt::PromptSourceKind::AppendSystemPrompt,
+                    label: format!("{} (injected)", label),
+                    display_path: "memory/hooks".to_string(),
+                    content,
+                });
+            }
+        }
+        AssembledContext {
+            effective_prompt: prompt,
+            compact_instruction: prompt::build_compact_instruction(self.runtime),
+        }
+    }
+
+    pub fn effective_prompt(&self, mode: PromptMode) -> EffectivePrompt {
+        self.assemble(mode).effective_prompt
+    }
+
+    pub fn compact_instruction(&self) -> String {
+        prompt::build_compact_instruction(self.runtime)
+    }
+
+    pub fn assemble_turn(
+        &self,
+        mode: PromptMode,
+        inputs: RuntimeContextInputs<'_>,
+    ) -> AssembledTurnContext {
+        let prompt = self.assemble(mode);
+        let runtime = self.assemble_runtime_from_effective_prompt(
+            prompt.effective_prompt.clone(),
+            inputs,
+            WorkspaceMemoryAvailability::read(self.workspace),
+        );
+        AssembledTurnContext { prompt, runtime }
+    }
+
+    pub fn assemble_runtime(
+        &self,
+        mode: PromptMode,
+        inputs: RuntimeContextInputs<'_>,
+    ) -> SharedRuntimeContext {
+        let effective_prompt = self.effective_prompt(mode);
+        self.assemble_runtime_from_effective_prompt(
+            effective_prompt,
+            inputs,
+            WorkspaceMemoryAvailability::read(self.workspace),
+        )
+    }
+
+    pub(crate) fn assemble_display(
+        &self,
+        files: &RuntimeContextFiles,
+        inputs: RuntimeContextInputs<'_>,
+    ) -> SharedRuntimeContext {
+        self.assemble_runtime_from_effective_prompt(
+            files.effective_prompt.clone(),
+            inputs,
+            files.memory,
+        )
+    }
+
+    fn assemble_runtime_from_effective_prompt(
+        &self,
+        effective_prompt: EffectivePrompt,
+        inputs: RuntimeContextInputs<'_>,
+        memory: WorkspaceMemoryAvailability,
+    ) -> SharedRuntimeContext {
+        let system_prompt_budget = estimate_text_tokens(effective_prompt.text.as_str());
+        let stable_instructions_budget = system_prompt_budget;
+        let workspace_prompt_budget = effective_prompt
+            .sources
+            .iter()
+            .filter(|source| matches!(source.kind_label(), "project_instruction" | "local_memory"))
+            .map(|source| estimate_text_tokens(source.content.as_str()))
+            .sum();
+        let retrieval_entries = retrieval_source_entries(
+            self.workspace,
+            memory,
+            effective_prompt.sources.as_slice(),
+            inputs.history,
+            inputs.session_id.as_str(),
+            inputs.memory_uri,
+            inputs.mcp_resource_candidates,
+            inputs.hook_output_candidates,
+            inputs.graph_context_candidates,
+        );
+        let mut compaction = CompactionContextView::from_compact_state(&inputs.compact_state);
+        compaction.source_entries = compaction_source_entries(inputs.history);
+        let compacted_history_budget = compaction
+            .source_entries
+            .iter()
+            .map(|entry| estimate_text_tokens(entry.detail.as_str()))
+            .sum();
+        let active_turn_budget = active_turn_budget(
+            inputs.plan_explanation.as_deref(),
+            inputs.plan_steps.as_slice(),
+            inputs.pending_interactions.as_slice(),
+            inputs.history,
+        );
+        let selection_budget = inputs.compact_state.context_window_tokens.map(|window| {
+            window
+                .saturating_sub(inputs.compact_state.reserved_output_tokens)
+                .saturating_sub(system_prompt_budget)
+                .saturating_sub(active_turn_budget)
+                .saturating_sub(compacted_history_budget)
+        });
+        let retrieval_query = latest_user_request(inputs.history).unwrap_or_default();
+        let retrieval_request = RetrievalRequest {
+            query: retrieval_query.as_str(),
+            session_id: inputs.session_id.as_str(),
+            history: inputs.history,
+            memory_uri: inputs.memory_uri,
+        };
+        let retrieval_candidates = retrieval_candidates(
+            &retrieval_request,
+            inputs.retrieved_memory_candidates,
+            inputs.file_search_candidates,
+            inputs.mcp_resource_candidates,
+            inputs.hook_output_candidates,
+            inputs.graph_context_candidates,
+        );
+        let memory_selection = memory_selection(
+            effective_prompt.sources.as_slice(),
+            inputs.plan_explanation.as_deref(),
+            inputs.plan_steps.as_slice(),
+            inputs.pending_interactions.as_slice(),
+            compaction.source_entries.as_slice(),
+            inputs.history,
+            retrieval_candidates.as_slice(),
+            selection_budget,
+        );
+        let retrieval = RetrievalContextView {
+            orchestration: retrieval_orchestration_view(
+                inputs.session_id.as_str(),
+                retrieval_query.as_str(),
+                retrieval_entries.as_slice(),
+                &memory_selection,
+            ),
+            entries: retrieval_entries,
+            memory_selection,
+        };
+        let observability = ContextObservabilityView {
+            cache: ContextCacheObservationView::from_usage(
+                inputs.total_cache_hit_tokens,
+                inputs.total_cache_miss_tokens,
+            ),
+            compaction: ContextCompactionObservationView::from_compaction(&compaction),
+            microcompact: MicrocompactProjectionContextView::from_report(
+                &inputs.tool_result_projection_policy,
+                &inputs.tool_result_projection_report,
+            ),
+            retrieval: RetrievalObservationView::from_orchestration(&retrieval.orchestration),
+            agent_turn: inputs.agent_turn_trace,
+        };
+        let retrieved_memory_budget = retrieval
+            .memory_selection
+            .selected_items
+            .iter()
+            .filter(|item| crate::context::is_retrieved_memory_kind(item.kind.as_str()))
+            .map(|item| item.budget_impact_tokens.unwrap_or_default())
+            .sum();
+        let assembly = assemble_context_view(
+            &effective_prompt,
+            inputs.plan_explanation.as_deref(),
+            inputs.plan_steps.as_slice(),
+            inputs.pending_interactions.as_slice(),
+            compaction.source_entries.as_slice(),
+            retrieval.memory_selection.selected_items.as_slice(),
+            retrieval.memory_selection.available_items.as_slice(),
+            retrieval.memory_selection.dropped_items.as_slice(),
+            inputs.history,
+            inputs.skill_listing.as_deref(),
+        );
+
+        SharedRuntimeContext {
+            cwd: inputs.cwd,
+            branch: inputs.branch,
+            session_id: inputs.session_id,
+            history_len: inputs.history_len,
+            total_input_tokens: inputs.total_input_tokens,
+            total_output_tokens: inputs.total_output_tokens,
+            total_cache_hit_tokens: inputs.total_cache_hit_tokens,
+            total_cache_miss_tokens: inputs.total_cache_miss_tokens,
+            budget: ContextBudgetView::from_compact_state(
+                &inputs.compact_state,
+                system_prompt_budget,
+                stable_instructions_budget,
+                workspace_prompt_budget,
+                active_turn_budget,
+                compacted_history_budget,
+                retrieved_memory_budget,
+            ),
+            assembly,
+            prompt: PromptContextView::from_effective_prompt(
+                effective_prompt,
+                self.runtime.append_system_prompt.clone(),
+                self.runtime.warnings.clone(),
+            ),
+            plan: PlanContextView::from_agent_state(
+                inputs.execution_mode.as_str(),
+                inputs.plan_steps.into_iter(),
+                inputs.plan_explanation,
+            ),
+            todo: TodoContextView::from_state(inputs.todo_state),
+            shared_tasks: inputs.shared_tasks,
+            compaction,
+            retrieval,
+            observability,
+        }
+    }
+}
+
+// Keep budget helpers in the assembler module so private context assembly
+// helpers remain shared without registering budget_assembly as a Rust module.
+include!("../budget_assembly.rs");
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::context::RETRIEVED_WORKSPACE_MEMORY_KIND;
+
+    pub(super) fn test_workspace() -> WorkspaceMemory {
+        WorkspaceMemory::from_paths(PathBuf::from("/repo"), PathBuf::from("/repo/.rara"))
+    }
+
+    #[test]
+    fn assemble_keeps_prompt_and_compact_instruction_together() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig {
+            append_system_prompt: Some("appendix".to_string()),
+            compact_prompt: Some("compact me".to_string()),
+            ..PromptRuntimeConfig::default()
+        };
+
+        let assembled = ContextAssembler::new(&workspace, &runtime).assemble(PromptMode::Plan);
+
+        assert!(assembled.system_prompt().contains("appendix"));
+        assert_eq!(assembled.compact_instruction, "compact me");
+        assert!(
+            assembled
+                .effective_prompt
+                .section_keys
+                .contains(&"append_system_prompt")
+        );
+    }
+
+    #[test]
+    fn assemble_runtime_collects_budget_and_runtime_views() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig {
+            append_system_prompt: Some("appendix".to_string()),
+            warnings: vec!["missing prompt file".to_string()],
+            ..PromptRuntimeConfig::default()
+        };
+
+        let history = vec![Message {
+            role: "assistant".to_string(),
+            content: json!([{"type":"compacted_summary","text":"summary"}]),
+        }];
+
+        let runtime_context = ContextAssembler::new(&workspace, &runtime).assemble_runtime(
+            PromptMode::Plan,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: 3,
+                total_input_tokens: 11,
+                total_output_tokens: 7,
+                total_cache_hit_tokens: 8,
+                total_cache_miss_tokens: 2,
+                execution_mode: "plan".to_string(),
+                plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
+                plan_explanation: Some("Keep one assembly path.".to_string()),
+                todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
+                compact_state: crate::agent::CompactState {
+                    estimated_history_tokens: 1234,
+                    context_window_tokens: Some(8192),
+                    compact_threshold_tokens: 7000,
+                    reserved_output_tokens: 1024,
+                    ..Default::default()
+                },
+                history: &history,
+                memory_uri: "memory://local",
+                pending_interactions: Vec::new(),
+                skill_listing: None,
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport {
+                    original_chars: 60_000,
+                    projected_chars: 40_000,
+                    cleared_results: 2,
+                    summarized_results: 1,
+                    reference_only_results: 1,
+                    active_turn_kept_results: 3,
+                    kept_results: 6,
+                    cache_edit_eligible: false,
+                    cache_edit_applied: false,
+                },
+                agent_turn_trace: AgentTurnTraceView::default(),
+            },
+        );
+
+        assert_eq!(runtime_context.session_id, "session-1");
+        assert_eq!(runtime_context.budget.context_window_tokens, Some(8192));
+        assert_eq!(runtime_context.budget.compact_threshold_tokens, 7000);
+        assert_eq!(runtime_context.plan.execution_mode, "plan");
+        assert_eq!(runtime_context.plan.steps.len(), 1);
+        assert_eq!(
+            runtime_context.prompt.warnings,
+            vec!["missing prompt file".to_string()]
+        );
+        assert_eq!(
+            runtime_context.prompt.append_system_prompt.as_deref(),
+            Some("appendix")
+        );
+        assert_eq!(runtime_context.retrieval.entries.len(), 6);
+        assert_eq!(runtime_context.retrieval.entries[3].kind, "mcp_resource");
+        assert_eq!(runtime_context.retrieval.entries[3].status, "missing");
+        assert_eq!(runtime_context.retrieval.entries[4].kind, "hook_output");
+        assert_eq!(runtime_context.retrieval.entries[4].status, "missing");
+        assert_eq!(runtime_context.retrieval.entries[5].kind, "graph_context");
+        assert_eq!(runtime_context.retrieval.entries[5].status, "missing");
+        assert_eq!(runtime_context.compaction.source_entries.len(), 1);
+        assert_eq!(
+            runtime_context.observability.cache.hit_rate_basis_points,
+            Some(8_000)
+        );
+        assert_eq!(
+            runtime_context.observability.microcompact.saved_chars,
+            20_000
+        );
+        assert_eq!(
+            runtime_context.observability.microcompact.cleared_results,
+            2
+        );
+        assert_eq!(
+            runtime_context.observability.retrieval.provider_count,
+            runtime_context.retrieval.entries.len()
+        );
+    }
+
+    #[test]
+    fn assemble_turn_keeps_prompt_and_runtime_views_aligned() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig {
+            append_system_prompt: Some("appendix".to_string()),
+            warnings: vec!["missing prompt file".to_string()],
+            ..PromptRuntimeConfig::default()
+        };
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"hello"}]),
+        }];
+
+        let assembled = ContextAssembler::new(&workspace, &runtime).assemble_turn(
+            PromptMode::Plan,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: history.len(),
+                total_input_tokens: 11,
+                total_output_tokens: 7,
+                total_cache_hit_tokens: 0,
+                total_cache_miss_tokens: 0,
+                execution_mode: "plan".to_string(),
+                plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
+                plan_explanation: Some("Keep one assembly path.".to_string()),
+                todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
+                compact_state: crate::agent::CompactState {
+                    estimated_history_tokens: 1234,
+                    context_window_tokens: Some(8192),
+                    compact_threshold_tokens: 7000,
+                    reserved_output_tokens: 1024,
+                    ..Default::default()
+                },
+                history: &history,
+                memory_uri: "memory://local",
+                pending_interactions: Vec::new(),
+                skill_listing: None,
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
+            },
+        );
+
+        assert!(assembled.prompt.system_prompt().contains("appendix"));
+        assert_eq!(
+            assembled.runtime.prompt.append_system_prompt.as_deref(),
+            Some("appendix")
+        );
+        assert_eq!(
+            assembled.runtime.prompt.warnings,
+            vec!["missing prompt file".to_string()]
+        );
+        assert_eq!(assembled.runtime.plan.execution_mode, "plan");
+        assert_eq!(assembled.runtime.session_id, "session-1");
+    }
+
+    #[test]
+    fn assemble_runtime_ranks_retrieval_candidates_against_selection_budget() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig::default();
+        let history = vec![
+            Message {
+                role: "assistant".to_string(),
+                content: json!([
+                    {
+                        "type": "tool_use",
+                        "id": "tool-retrieve-1",
+                        "name": "retrieve_session_context",
+                        "input": { "query": "bootstrap contract" }
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "tool-retrieve-2",
+                        "name": "retrieve_session_context",
+                        "input": { "query": "previous auth flow" }
+                    }
+                ]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-retrieve-1",
+                        "content": "Tool retrieve_session_context completed with relevant_context.\nPayload:\n{\n  \"relevant_context\": [\n    \"Prefer one shared bootstrap path.\",\n    \"Keep session restore aligned with direct execution.\"\n  ]\n}"
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-retrieve-2",
+                        "content": "Tool retrieve_session_context completed with status, summary.\nPayload:\n{\n  \"status\": \"ok\",\n  \"summary\": \"Auth picker already moved behind the shared runtime bootstrap.\"\n}"
+                    }
+                ]),
+            },
+        ];
+
+        let runtime_context = ContextAssembler::new(&workspace, &runtime).assemble_runtime(
+            PromptMode::Plan,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: history.len(),
+                total_input_tokens: 11,
+                total_output_tokens: 7,
+                total_cache_hit_tokens: 0,
+                total_cache_miss_tokens: 0,
+                execution_mode: "plan".to_string(),
+                plan_steps: Vec::new(),
+                plan_explanation: None,
+                todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
+                compact_state: crate::agent::CompactState {
+                    estimated_history_tokens: 1234,
+                    context_window_tokens: Some(1_500),
+                    compact_threshold_tokens: 1_420,
+                    reserved_output_tokens: 1_024,
+                    ..Default::default()
+                },
+                history: &history,
+                memory_uri: "memory://local",
+                pending_interactions: Vec::new(),
+                skill_listing: None,
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
+            },
+        );
+
+        let selected_kinds = runtime_context
+            .retrieval
+            .memory_selection
+            .selected_items
+            .iter()
+            .map(|item| item.kind.as_str())
+            .collect::<Vec<_>>();
+        let dropped_kinds = runtime_context
+            .retrieval
+            .memory_selection
+            .dropped_items
+            .iter()
+            .map(|item| item.kind.as_str())
+            .collect::<Vec<_>>();
+        assert!(!selected_kinds.contains(&"retrieved_thread_context"));
+        assert!(dropped_kinds.contains(&"retrieved_thread_context"));
+        assert!(
+            runtime_context
+                .retrieval
+                .memory_selection
+                .dropped_items
+                .iter()
+                .any(|item| {
+                    item.kind == "retrieved_thread_context"
+                        && item
+                            .dropped_reason
+                            .as_ref()
+                            .is_some_and(|r| r.reason().contains("memory-selection budget"))
+                })
+        );
+    }
+
+    #[test]
+    fn assemble_runtime_places_selected_retrieved_memory_in_active_memory_inputs() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig::default();
+        let history = vec![Message {
+            role: "user".to_string(),
+            content: json!([{"type":"text","text":"Where is the reference project?"}]),
+        }];
+
+        let runtime_context = ContextAssembler::new(&workspace, &runtime).assemble_runtime(
+            PromptMode::Execute,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: history.len(),
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_hit_tokens: 0,
+                total_cache_miss_tokens: 0,
+                execution_mode: "execute".to_string(),
+                plan_steps: Vec::new(),
+                plan_explanation: None,
+                todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
+                compact_state: crate::agent::CompactState {
+                    context_window_tokens: Some(200_000),
+                    compact_threshold_tokens: 190_000,
+                    reserved_output_tokens: 1_024,
+                    ..Default::default()
+                },
+                history: &history,
+                memory_uri: "memory://local",
+                pending_interactions: Vec::new(),
+                skill_listing: None,
+                retrieved_memory_candidates: &[RetrievedMemoryCandidate {
+                    kind: RETRIEVED_WORKSPACE_MEMORY_KIND.to_string(),
+                    label: "Memory: reference project path".to_string(),
+                    detail: "content: Reference project source lives at /Users/example/reference-project."
+                        .to_string(),
+                    selection_reason: "retrieved as a candidate for the current turn query"
+                        .to_string(),
+                    rank: 1,
+                }],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
+            },
+        );
+
+        assert!(
+            runtime_context
+                .retrieval
+                .memory_selection
+                .selected_items
+                .iter()
+                .any(|item| item.kind == RETRIEVED_WORKSPACE_MEMORY_KIND)
+        );
+        assert!(runtime_context.assembly.entries.iter().any(|entry| {
+            entry.layer == "active_memory_inputs"
+                && entry.kind == RETRIEVED_WORKSPACE_MEMORY_KIND
+                && entry.injected
+        }));
+    }
+
+    #[test]
+    fn assemble_runtime_includes_active_thread_working_set_in_memory_selection() {
+        let workspace = test_workspace();
+        let runtime = PromptRuntimeConfig::default();
+        let history = vec![
+            Message {
+                role: "user".to_string(),
+                content: json!([{"type":"text","text":"please continue the bootstrap cleanup"}]),
+            },
+            Message {
+                role: "user".to_string(),
+                content: json!([
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "tool-shell-1",
+                        "content": "diff preview"
+                    }
+                ]),
+            },
+        ];
+
+        let runtime_context = ContextAssembler::new(&workspace, &runtime).assemble_runtime(
+            PromptMode::Plan,
+            RuntimeContextInputs {
+                cwd: "repo".to_string(),
+                branch: "main".to_string(),
+                session_id: "session-1".to_string(),
+                history_len: history.len(),
+                total_input_tokens: 11,
+                total_output_tokens: 7,
+                total_cache_hit_tokens: 0,
+                total_cache_miss_tokens: 0,
+                execution_mode: "plan".to_string(),
+                plan_steps: vec![(PlanStepStatus::Pending, "inspect bootstrap".to_string())],
+                plan_explanation: Some("Keep one assembly path.".to_string()),
+                todo_state: None,
+                shared_tasks: SharedTaskContextView::default(),
+                compact_state: crate::agent::CompactState {
+                    context_window_tokens: Some(8_192),
+                    compact_threshold_tokens: 7_000,
+                    reserved_output_tokens: 1_024,
+                    ..Default::default()
+                },
+                history: &history,
+                memory_uri: "",
+                pending_interactions: vec![RuntimeInteractionInput {
+                    kind: "approval".to_string(),
+                    title: "Approve shell command".to_string(),
+                    summary: "Allow one shell command in the repo root.".to_string(),
+                    source: None,
+                }],
+                skill_listing: None,
+                retrieved_memory_candidates: &[],
+                file_search_candidates: &[],
+                mcp_resource_candidates: &[],
+                hook_output_candidates: &[],
+                graph_context_candidates: &[],
+                tool_result_projection_policy: ToolResultProjectionPolicy::default(),
+                tool_result_projection_report: ToolResultProjectionReport::default(),
+                agent_turn_trace: AgentTurnTraceView::default(),
+            },
+        );
+
+        let selected_kinds = runtime_context
+            .retrieval
+            .memory_selection
+            .selected_items
+            .iter()
+            .map(|item| item.kind.as_str())
+            .collect::<Vec<_>>();
+        assert!(selected_kinds.contains(&"plan_explanation"));
+        assert!(selected_kinds.contains(&"plan_steps"));
+        assert!(selected_kinds.contains(&"approval"));
+        assert!(selected_kinds.contains(&"latest_user_request"));
+        assert!(selected_kinds.contains(&"tool_result"));
+
+        let active_memory_assembly_kinds = runtime_context
+            .assembly
+            .entries
+            .iter()
+            .filter(|entry| entry.layer == "active_memory_inputs")
+            .map(|entry| entry.kind.as_str())
+            .collect::<Vec<_>>();
+        assert!(!active_memory_assembly_kinds.contains(&"plan_explanation"));
+        assert!(!active_memory_assembly_kinds.contains(&"plan_steps"));
+        assert!(!active_memory_assembly_kinds.contains(&"approval"));
+        assert!(!active_memory_assembly_kinds.contains(&"latest_user_request"));
+        assert!(!active_memory_assembly_kinds.contains(&"tool_result"));
+    }
+
+    #[test]
+    fn runtime_budget_does_not_double_count_workspace_prompt_sources() {
+        let state = crate::agent::CompactState {
+            context_window_tokens: Some(3_000),
+            compact_threshold_tokens: 2_800,
+            reserved_output_tokens: 1_000,
+            ..Default::default()
+        };
+
+        let budget = ContextBudgetView::from_compact_state(&state, 900, 900, 250, 200, 150, 75);
+
+        assert_eq!(budget.workspace_prompt_budget, 250);
+        assert_eq!(budget.remaining_input_budget, Some(675));
+    }
+}

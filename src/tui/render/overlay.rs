@@ -1,4 +1,5 @@
 use crate::tui::theme::{ThemeToken, theme_color, token_bg, token_fg};
+mod diff;
 mod goal;
 mod read_only;
 pub(crate) use read_only::navigate_overlay;
@@ -29,6 +30,21 @@ pub(super) fn render_overlay(
     overlay: Overlay,
 ) -> Option<(u16, u16)> {
     match overlay {
+        Overlay::HistorySearch => {
+            let popup = popup_rect(f.area(), 96, 80);
+            render_dimmer(f, f.area());
+            f.render_widget(Clear, popup);
+            let block = popup_block();
+            let inner = block.inner(popup);
+            f.render_widget(block, popup);
+            crate::tui::prompt_history::render_history_search(f, app, inner)
+        }
+        Overlay::Diff => {
+            let popup = f.area();
+            f.render_widget(Clear, popup);
+            diff::render(f, app, popup);
+            None
+        }
         Overlay::Goal => {
             let popup = popup_rect(f.area(), 85, 70);
             render_dimmer(f, f.area());
@@ -61,8 +77,7 @@ pub(super) fn render_overlay(
             };
             render_dimmer(f, f.area());
             f.render_widget(Clear, popup);
-            super::super::list_picker::render_list_picker(f, app, kind, popup);
-            None
+            super::super::list_picker::render_list_picker(f, app, kind, popup)
         }
         Overlay::PermissionPicker => {
             let popup = popup_rect(f.area(), 72, 60);

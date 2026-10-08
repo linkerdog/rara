@@ -23,6 +23,7 @@ enum NoticeOwner {
 
 enum NoticeRecord {
     Plain,
+    MemoryOnly,
     Classified(SystemMessageKind),
 }
 
@@ -68,6 +69,21 @@ impl TuiApp {
         );
     }
 
+    /// Surface storage failures without recursively queuing another write.
+    pub(crate) fn push_unpersisted_notice(
+        &mut self,
+        level: NoticeLevel,
+        message: impl Into<String>,
+    ) {
+        self.publish_notice(
+            level,
+            message.into(),
+            NoticeOwner::General,
+            NoticeRecord::MemoryOnly,
+            Instant::now(),
+        );
+    }
+
     pub(crate) fn push_system_notice(
         &mut self,
         level: NoticeLevel,
@@ -103,6 +119,10 @@ impl TuiApp {
     ) {
         let message = redact_secrets(message);
         match record {
+            NoticeRecord::MemoryOnly => self.active_turn.entries.push(super::TranscriptEntry::new(
+                MessageRole::System,
+                message.clone(),
+            )),
             NoticeRecord::Plain => self.push_entry(MessageRole::System, message.clone()),
             NoticeRecord::Classified(kind) => self.push_system(message.clone(), kind),
         }

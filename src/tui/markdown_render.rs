@@ -1,3 +1,4 @@
+mod list_stream;
 mod local_links;
 mod references;
 mod streaming;
@@ -5,6 +6,7 @@ mod table;
 
 use std::path::{Path, PathBuf};
 
+pub(crate) use list_stream::{ListTail, render_list_continuation};
 use pulldown_cmark::{
     Alignment, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
 };

@@ -16,6 +16,7 @@ pub enum UiEvent {
     Draw,
     Paste(String),
     FocusChanged(bool),
+    ExternalEditor,
     #[cfg(unix)]
     Suspend,
 }
@@ -41,6 +42,18 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                     #[cfg(not(unix))]
                     return Some(UiEvent::App(AppEvent::Noop));
                 }
+                if control && key_event.code == KeyCode::Char('g') {
+                    app.quit_shortcut.clear();
+                    return if key_event.kind == KeyEventKind::Press
+                        && app.composer_input_is_active()
+                        && app.active_pending_interaction().is_none()
+                    {
+                        app.flush_composer_paste();
+                        Some(UiEvent::ExternalEditor)
+                    } else {
+                        Some(UiEvent::App(AppEvent::Noop))
+                    };
+                }
                 // Flushing can hide the palette before dismissal intent is routed.
                 let discarding_palette = matches!(app.overlay, Some(Overlay::CommandPalette))
                     && (key_event.code == KeyCode::Esc
@@ -48,6 +61,7 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
                 if app.composer_input_is_active() && !discarding_palette {
                     app.flush_composer_paste();
                 }
+                app.refresh_file_mentions();
                 Some(UiEvent::App(super::map_key_to_event(key_event, app)))
             } else {
                 None
@@ -83,6 +97,9 @@ pub fn translate_event(event: Event, app: &mut TuiApp) -> Option<UiEvent> {
 }
 
 fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
+    if app.file_mention_open() {
+        return AppEvent::Noop;
+    }
     match mouse_event.kind {
         MouseEventKind::Down(MouseButton::Left) if app.overlay.is_none() => {
             AppEvent::StartTranscriptSelection(ScreenPosition::new(
@@ -120,6 +137,9 @@ fn map_mouse_to_event(mouse_event: MouseEvent, app: &mut TuiApp) -> AppEvent {
             match &app.overlay {
                 Some(Overlay::Context | Overlay::Help(_) | Overlay::Status(_)) => {
                     AppEvent::NavigateOverlay(OverlayNavigation::Rows(delta))
+                }
+                Some(Overlay::Diff) => {
+                    AppEvent::NavigateDiff(super::diff_view::DiffNavigation::Rows(delta))
                 }
                 Some(Overlay::CommandPalette) | Some(Overlay::ModelSearch) => {
                     AppEvent::MoveCommandSelection(delta)

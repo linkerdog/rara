@@ -20,6 +20,19 @@ isolated real-child smoke are implemented. The handshake advertises only the
 methods supported by this process boundary. Declaring other request or
 acknowledgement variants does not establish their implementation.
 
+### Controlled MCP delivery boundary
+
+Controlled MCP registration is being implemented as a session-owned source. Its transport
+component must validate a bounded complete tool catalogue before admission, issue a single
+`tools/call` request without implicit retries, and close the source child before reporting
+retirement. Dynamic sources use the same outer authorization as configured sources; they do not
+load ambient MCP configuration or grant authority through model arguments.
+
+The stdio handshake must not advertise source registration until the session registry, exact
+source ownership, actual tool invocation and retirement are wired through the canonical session
+actor and covered by executable tests. A callable client component alone does not enable the
+app-server operation.
+
 ## Non-Goals
 
 - Network listeners, remote authentication, or shared multi-tenant hosting.

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use rara_state::state_db::{
@@ -11,83 +10,10 @@ use super::{
     CompletedInteractionSnapshot, InteractionKind, StateDb, TranscriptEntry, TranscriptTurn,
     TuiApp, state_db_status_error,
 };
-use crate::thread_store::{ThreadRecorder, ThreadRuntimeState, ThreadStore};
+use crate::thread_io::{RuntimeCheckpoint, ThreadIo, WriteOperation};
 use crate::tui::state::NoticeLevel;
 
-const RESUME_PICKER_THREAD_LIMIT: usize = 200;
-
 impl TuiApp {
-    pub(super) fn refresh_recent_threads(&mut self) {
-        let Some(state_db) = self.state_db.as_ref() else {
-            self.recent_threads.clear();
-            return;
-        };
-        self.recent_threads =
-            ThreadStore::list_recent_threads_for_db(state_db, RESUME_PICKER_THREAD_LIMIT)
-                .unwrap_or_default();
-    }
-
-    pub(super) fn refresh_recent_threads_for_resume_picker(&mut self) {
-        self.refresh_recent_threads();
-        // Always filter to current cwd; fall back to all threads if nothing matches.
-        let current_cwd = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let cwd_count = self
-            .recent_threads
-            .iter()
-            .filter(|t| t.metadata.cwd == current_cwd)
-            .count();
-        if cwd_count > 0 {
-            self.recent_threads
-                .retain(|t| t.metadata.cwd == current_cwd);
-        }
-        let query = self.resume_search_query.trim().to_ascii_lowercase();
-        if !query.is_empty() {
-            self.recent_threads
-                .retain(|thread| resume_thread_matches_query(thread, query.as_str()));
-        }
-        self.recent_threads.sort_by(|a, b| {
-            if self.resume_sort_by_created {
-                b.metadata.created_at.cmp(&a.metadata.created_at)
-            } else {
-                b.metadata.updated_at.cmp(&a.metadata.updated_at)
-            }
-        });
-        self.resume_picker_idx = if self.recent_threads.is_empty() {
-            0
-        } else {
-            self.resume_picker_idx.min(self.recent_threads.len() - 1)
-        };
-    }
-
-    pub(crate) fn cycle_resume_sort(&mut self) {
-        self.resume_sort_by_created = !self.resume_sort_by_created;
-        self.refresh_recent_threads_for_resume_picker();
-    }
-
-    pub(crate) fn push_resume_search_char(&mut self, c: char) {
-        self.insert_resume_search_text(&c.to_string());
-    }
-
-    pub(crate) fn insert_resume_search_text(&mut self, text: &str) {
-        self.resume_search_query.push_str(text);
-        self.resume_picker_idx = 0;
-        self.refresh_recent_threads_for_resume_picker();
-    }
-
-    pub(crate) fn pop_resume_search_char(&mut self) {
-        self.resume_search_query.pop();
-        self.resume_picker_idx = 0;
-        self.refresh_recent_threads_for_resume_picker();
-    }
-
-    pub(crate) fn clear_resume_search(&mut self) {
-        self.resume_search_query.clear();
-        self.resume_picker_idx = 0;
-        self.refresh_recent_threads_for_resume_picker();
-    }
-
     pub fn attach_state_db(&mut self, state_db: Arc<StateDb>) {
         let status = state_db.path().display().to_string();
         if !self.snapshot.session_id.is_empty() {
@@ -108,6 +34,14 @@ impl TuiApp {
                 }
             }
         }
+        match ThreadIo::new(state_db.clone()) {
+            Ok(storage) => self.storage = Some(storage),
+            Err(error) => {
+                self.set_state_db_error(format!("{error:#}"));
+                return;
+            }
+        }
+        self.storage_revision = 0;
         self.state_db = Some(state_db);
         self.refresh_recent_threads();
         self.state_db_status = Some(status);
@@ -118,28 +52,27 @@ impl TuiApp {
 
     pub fn set_state_db_error(&mut self, error: String) {
         self.state_db = None;
+        self.storage = None;
         self.state_db_status = Some(state_db_status_error("unavailable", error));
     }
 
     pub(crate) fn persist_runtime_state(&mut self) {
-        let Some(state_db) = self.state_db.as_ref() else {
-            return;
-        };
-        if self.snapshot.session_id.is_empty() {
+        if self.storage.is_none()
+            || self.snapshot.session_id.is_empty()
+            || self.pending_restore.is_some()
+        {
             return;
         }
-        let recorder = ThreadRecorder::new(state_db);
-
-        if let Err(err) = recorder.persist_runtime_state(&ThreadRuntimeState {
-            session_id: &self.snapshot.session_id,
-            cwd: &self.snapshot.cwd,
-            branch: &self.snapshot.branch,
-            provider: &self.config.provider,
-            model: self.current_model_label(),
-            base_url: self.config.base_url.as_deref(),
-            agent_mode: "execute",
-            bash_approval: self.bash_approval_mode_label(),
-            plan_explanation: self.snapshot.plan_explanation.as_deref(),
+        let mut checkpoint = RuntimeCheckpoint {
+            session_id: self.snapshot.session_id.clone(),
+            cwd: self.snapshot.cwd.clone(),
+            branch: self.snapshot.branch.clone(),
+            provider: self.config.provider.clone(),
+            model: self.current_model_label().to_owned(),
+            base_url: self.config.base_url.clone(),
+            agent_mode: self.agent_execution_mode_label().to_owned(),
+            bash_approval: self.bash_approval_mode_label().to_owned(),
+            plan_explanation: self.snapshot.plan_explanation.clone(),
             prompt_runtime: PersistedPromptRuntimeState {
                 append_system_prompt: self.snapshot.prompt_append_system_prompt.clone(),
                 warnings: self.snapshot.prompt_warnings.clone(),
@@ -155,10 +88,10 @@ impl TuiApp {
                 ),
                 last_compaction_boundary_version: self.snapshot.last_compaction_boundary_version,
             },
-        }) {
-            self.state_db_status = Some(state_db_status_error("write failed", err.to_string()));
-            return;
-        }
+            plan_steps: Vec::new(),
+            interactions: Vec::new(),
+            rollout: Vec::new(),
+        };
 
         let plan_steps = self
             .snapshot
@@ -171,12 +104,6 @@ impl TuiApp {
                 step: step.clone(),
             })
             .collect::<Vec<_>>();
-        if let Err(err) = recorder.replace_plan_steps(&self.snapshot.session_id, &plan_steps) {
-            self.state_db_status =
-                Some(state_db_status_error("plan write failed", err.to_string()));
-            return;
-        }
-
         let mut interactions = Vec::new();
         let mut plan_lifecycle = Vec::new();
         for interaction in &self.snapshot.pending_interactions {
@@ -279,13 +206,8 @@ impl TuiApp {
             }
         }
 
-        if let Err(err) = recorder.replace_interactions(&self.snapshot.session_id, &interactions) {
-            self.state_db_status = Some(state_db_status_error(
-                "interaction write failed",
-                err.to_string(),
-            ));
-            return;
-        }
+        checkpoint.plan_steps = plan_steps.clone();
+        checkpoint.interactions = interactions.clone();
 
         let mut structured_rollout = Vec::new();
         if !plan_steps.is_empty() || self.snapshot.plan_explanation.is_some() {
@@ -307,28 +229,14 @@ impl TuiApp {
                 lifecycle,
             }
         }));
-        if let Err(err) =
-            recorder.replace_runtime_rollout_events(&self.snapshot.session_id, &structured_rollout)
-        {
-            self.state_db_status = Some(state_db_status_error(
-                "structured rollout write failed",
-                err.to_string(),
-            ));
-            return;
-        }
-
-        let state_db_status = state_db.path().display().to_string();
-        self.state_db_status = Some(state_db_status);
+        checkpoint.rollout = structured_rollout;
+        self.enqueue_storage_write(WriteOperation::Runtime(Box::new(checkpoint)));
     }
 
     pub(super) fn persist_turn(&mut self, ordinal: usize, turn: &TranscriptTurn) -> bool {
-        let Some(state_db) = self.state_db.as_ref() else {
-            return true;
-        };
-        if self.snapshot.session_id.is_empty() {
+        if self.storage.is_none() || self.snapshot.session_id.is_empty() {
             return true;
         }
-        let recorder = ThreadRecorder::new(state_db);
         let entries = turn
             .entries
             .iter()
@@ -336,70 +244,124 @@ impl TuiApp {
                 role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
-            .collect::<Vec<_>>();
-        if let Err(err) = recorder.persist_turn(&self.snapshot.session_id, ordinal, &entries) {
-            self.state_db_status =
-                Some(state_db_status_error("turn write failed", err.to_string()));
-            return false;
-        }
-        true
+            .collect();
+        self.enqueue_storage_write(WriteOperation::CommitTurn {
+            session_id: self.snapshot.session_id.clone(),
+            ordinal,
+            entries,
+        })
     }
 
     pub(crate) fn record_entry_realtime(&self, entry: &PersistedTurnEntry) {
-        let Some((root_dir, session_id)) = self.live_log_context() else {
+        if self.snapshot.session_id.is_empty() {
             return;
-        };
-        if let Err(e) = rara_persistence::thread_turn_log::append_rollout_fragment(
-            &root_dir,
-            &session_id,
-            entry,
-        ) {
-            log::warn!("live transcript write failed for session {session_id}: {e}");
+        }
+        if let Some(storage) = &self.storage
+            && let Err(error) = storage.submit(WriteOperation::AppendLive {
+                session_id: self.snapshot.session_id.clone(),
+                entries: vec![entry.clone()],
+            })
+        {
+            log::warn!("Could not queue live transcript write: {error:#}");
         }
     }
 
     pub(crate) fn replace_live_log_entries(&self, entries: &[TranscriptEntry]) {
-        let Some((root_dir, session_id)) = self.live_log_context() else {
+        if self.snapshot.session_id.is_empty() {
             return;
-        };
+        }
         let entries = entries
             .iter()
             .map(|entry| PersistedTurnEntry {
                 role: entry.role.as_str().to_owned(),
                 message: entry.message.clone(),
             })
-            .collect::<Vec<_>>();
-        if let Err(err) = rara_persistence::thread_turn_log::replace_live_entries(
-            &root_dir,
-            &session_id,
-            &entries,
-        ) {
-            log::warn!("live transcript rewrite failed for session {session_id}: {err}");
+            .collect();
+        if let Some(storage) = &self.storage
+            && let Err(error) = storage.submit(WriteOperation::ReplaceLive {
+                session_id: self.snapshot.session_id.clone(),
+                entries,
+            })
+        {
+            log::warn!("Could not queue live transcript replacement: {error:#}");
         }
     }
 
     pub(crate) fn clear_live_log(&mut self) -> bool {
-        let Some((root_dir, session_id)) = self.live_log_context() else {
+        if self.storage.is_none() || self.snapshot.session_id.is_empty() {
+            return true;
+        }
+        self.enqueue_storage_write(WriteOperation::ClearLive {
+            session_id: self.snapshot.session_id.clone(),
+        })
+    }
+
+    fn enqueue_storage_write(&mut self, operation: WriteOperation) -> bool {
+        let Some(storage) = &self.storage else {
             return true;
         };
-        if let Err(err) = rara_persistence::thread_turn_log::clear_live_log(&root_dir, &session_id)
-        {
+        if let Err(error) = storage.submit(operation) {
             self.state_db_status = Some(state_db_status_error(
-                "live log clear failed",
-                err.to_string(),
+                "write admission failed",
+                format!("{error:#}"),
             ));
+            log::warn!("Could not queue storage write: {error:#}");
             return false;
         }
         true
     }
 
-    fn live_log_context(&self) -> Option<(PathBuf, String)> {
-        let state_db = self.state_db.as_ref()?;
-        let session_id = self.snapshot.session_id.clone();
-        if session_id.is_empty() {
-            return None;
+    pub(crate) fn poll_storage(&mut self) -> bool {
+        let Some(storage) = &self.storage else {
+            return false;
+        };
+        let status = storage.status();
+        if status.revision == self.storage_revision {
+            return false;
         }
-        Some((state_db.rollout_root(), session_id))
+        self.storage_revision = status.revision;
+        if let Some(error) = status.error {
+            self.state_db_status = Some(state_db_status_error("write failed", error.clone()));
+            let message = super::redact_secrets(format!(
+                "Storage write failed; pending changes are retained: {error}"
+            ));
+            // A storage failure report must not recursively enqueue another write.
+            self.push_unpersisted_notice(NoticeLevel::Error, message);
+        } else if let Some(db) = &self.state_db {
+            self.state_db_status = Some(db.path().display().to_string());
+        }
+        true
+    }
+
+    pub(crate) fn storage_flush_receiver(
+        &self,
+    ) -> anyhow::Result<tokio::sync::oneshot::Receiver<anyhow::Result<()>>> {
+        match &self.storage {
+            Some(storage) => storage.read(|| Ok(())),
+            None => {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                // The receiver is owned locally and cannot have been dropped.
+                drop(sender.send(Ok(())));
+                Ok(receiver)
+            }
+        }
+    }
+
+    pub(crate) async fn shutdown_storage(&mut self) -> anyhow::Result<()> {
+        self.flush_storage().await?;
+        match self.storage.as_mut() {
+            Some(storage) => storage.shutdown().await,
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) async fn flush_storage(&mut self) -> anyhow::Result<()> {
+        let result = match &self.storage {
+            Some(storage) => storage.flush().await,
+            None => Ok(()),
+        };
+        self.poll_storage();
+        result
     }
 }
 
@@ -464,22 +426,6 @@ fn plan_approval_tool_use_id(source: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-}
-
-fn resume_thread_matches_query(thread: &crate::thread_store::ThreadSummary, query: &str) -> bool {
-    let metadata = &thread.metadata;
-    [
-        thread.preview.as_str(),
-        metadata.session_id.as_str(),
-        metadata.cwd.as_str(),
-        metadata.branch.as_str(),
-        metadata.provider.as_str(),
-        metadata.model.as_str(),
-        metadata.agent_mode.as_str(),
-        metadata.bash_approval.as_str(),
-    ]
-    .into_iter()
-    .any(|value| value.to_ascii_lowercase().contains(query))
 }
 
 #[cfg(test)]

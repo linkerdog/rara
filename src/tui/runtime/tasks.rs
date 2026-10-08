@@ -113,7 +113,7 @@ fn merge_rebuilt_agent(rebuilt: Agent, previous: Agent) -> Agent {
     crate::runtime_client::RuntimeClient::merge_rebuilt_agent(rebuilt, previous)
 }
 
-fn try_start_queued_follow_up(
+pub(super) fn try_start_queued_follow_up(
     app: &mut TuiApp,
     agent_slot: &mut Option<Agent>,
     services: Option<RuntimeTaskServices>,
@@ -226,6 +226,7 @@ pub(crate) fn start_input_control_task_with_services(
     let (sender, receiver) = mpsc::unbounded_channel();
     let cancellation_token = Arc::new(AtomicBool::new(false));
     let query_control = QueryTaskControl::new(agent.session_id.clone());
+    app.begin_terminal_query();
     let task_control = query_control.clone();
     let task_control_for_app = query_control.clone();
     let bus = app.event_bus.clone().expect("event bus must exist");
@@ -428,6 +429,7 @@ pub(super) fn start_review_task(app: &mut TuiApp, prompt: String, mut agent: Age
     let task_control = query_control.clone();
     let task_control_for_app = query_control.clone();
     let event_provenance = local_tui_event_provenance(&agent.session_id);
+    app.begin_terminal_query();
     agent.set_execution_mode(AgentExecutionMode::Review);
     agent.set_bash_approval_mode(BashApprovalMode::Always);
     agent.set_full_access_mode(false);

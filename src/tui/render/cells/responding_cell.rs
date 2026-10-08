@@ -58,11 +58,15 @@ enum RespondingCellContent<'a> {
 }
 
 impl<'a> RespondingCell<'a> {
+    pub(crate) fn stream_prefix(index: usize) -> [&'static str; 2] {
+        [if index == 0 { "• " } else { "  " }, "  "]
+    }
+
     pub(crate) fn stream_body_line(line: &Line<'static>, index: usize) -> Line<'static> {
-        let mut spans = vec![
-            Span::raw(if index == 0 { "• " } else { "  " }),
-            Span::raw("  "),
-        ];
+        let mut spans = Self::stream_prefix(index)
+            .into_iter()
+            .map(Span::raw)
+            .collect::<Vec<_>>();
         spans.extend(line.spans.clone());
         Line::from(spans).style(line.style)
     }

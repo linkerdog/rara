@@ -20,12 +20,14 @@ mod auth_mode_picker;
 mod bidi_display_tests;
 mod clipboard;
 mod command;
+mod composer_atoms;
 mod composer_text;
 mod context_display;
 mod controller;
 mod custom_terminal;
 #[cfg(test)]
 mod diagnostics_tests;
+mod diff_view;
 #[cfg(test)]
 mod display_boundary_tests;
 mod display_clip;
@@ -34,6 +36,8 @@ mod display_tail;
 mod event_dispatch;
 mod event_loop;
 mod event_stream;
+mod external_editor;
+mod file_mentions;
 mod format;
 mod frame_scheduler;
 mod goal_resume;
@@ -58,6 +62,9 @@ mod markdown_render;
 mod markdown_stream;
 mod message_role;
 mod presentation_revision;
+mod prompt_history;
+#[cfg(test)]
+mod prompt_history_tests;
 pub(crate) use message_role::MessageRole;
 mod model_search;
 mod pane_geometry;
@@ -87,8 +94,12 @@ mod notice_tests;
 mod status_display;
 mod sub_agent_display;
 mod submit;
+mod terminal_control;
 mod terminal_event;
+mod terminal_feedback;
+mod terminal_glyphs;
 mod terminal_modes;
+mod terminal_presentation;
 mod terminal_ui;
 #[cfg(test)]
 mod testing;

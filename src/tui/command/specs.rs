@@ -2,7 +2,49 @@
 
 use crate::tui::state::{CommandSpec, LocalCommand, LocalCommandKind, TuiApp};
 
-pub const COMMAND_SPECS: [CommandSpec; 18] = [
+pub const COMMAND_SPECS: [CommandSpec; 24] = [
+    CommandSpec {
+        category: "Session",
+        name: "diff",
+        usage: "/diff",
+        summary: "Browse staged and unstaged changes in a scrollable overlay.",
+        detail: "Capture the working-tree diff asynchronously. Scroll with arrows, PageUp/PageDown, Home/End, or the mouse wheel; Esc closes the view.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "copy",
+        usage: "/copy [code]",
+        summary: "Copy the last completed assistant answer or its last code block.",
+        detail: "Use the terminal and native clipboard. With code, copy the last fenced or indented code block from that answer.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "init",
+        usage: "/init",
+        summary: "Ask the agent to create or update project instructions.",
+        detail: "Inspect the repository and existing AGENTS.md, then maintain concise instructions using the normal agent and permission flow.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "export",
+        usage: "/export [path]",
+        summary: "Export the durable conversation to Markdown or JSON.",
+        detail: "Save .md or .json in the workspace or at an explicit path. Include turns hidden by /clear and refuse to overwrite an existing file.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "new",
+        usage: "/new",
+        summary: "Start a new thread with the current configuration.",
+        detail: "Save the current thread and start an empty conversation. Preserve workspace, model, instructions, permissions, and the shared task list.",
+    },
+    CommandSpec {
+        category: "Session",
+        name: "rename",
+        usage: "/rename <name>",
+        summary: "Rename the current thread.",
+        detail: "Save a thread name for resume and export. Names must contain 1 to 256 characters and no control characters.",
+    },
     CommandSpec {
         category: "Session",
         name: "permissions",
@@ -148,6 +190,12 @@ pub fn parse_local_command(input: &str) -> Option<LocalCommand> {
         "status" => LocalCommandKind::Status,
         "context" => LocalCommandKind::Context,
         "clear" => LocalCommandKind::Clear,
+        "new" => LocalCommandKind::New,
+        "diff" => LocalCommandKind::Diff,
+        "copy" => LocalCommandKind::Copy,
+        "init" => LocalCommandKind::Init,
+        "export" => LocalCommandKind::Export,
+        "rename" => LocalCommandKind::Rename,
         "resume" => LocalCommandKind::Resume,
         "plan" => LocalCommandKind::Plan,
         "approval" => LocalCommandKind::Approval,
@@ -220,6 +268,8 @@ pub fn general_help_text() -> &'static str {
         "/compact  Summarize older conversation history\n",
         "/resume  Restore a recent thread\n\n",
         "Shift+Enter or Ctrl+J: insert a newline\n",
+        "Ctrl+G: edit the draft in VISUAL/EDITOR; wait for the editor to close\n",
+        "Ctrl+R: search prompt history; Enter uses a match, Esc restores the draft\n",
         "Esc: close an overlay, reject shell approval, or cancel a task\n",
         "Ctrl+C: close an overlay, cancel a task, or clear the composer\n",
         "Ctrl+C again within 1s: quit; Ctrl+D twice: quit with empty input\n",

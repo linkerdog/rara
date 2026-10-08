@@ -22,6 +22,9 @@ pub(super) fn todo_summary_line(app: &TuiApp) -> String {
 }
 
 pub(super) fn shared_task_summary_line(app: &TuiApp) -> String {
+    if app.shared_tasks_loading() {
+        return format!("list={} loading...", app.snapshot.shared_tasks.task_list_id);
+    }
     let tasks = &app.snapshot.shared_tasks;
     if let Some(error) = tasks.error.as_deref() {
         return format!(
@@ -117,6 +120,12 @@ pub(super) fn render_planning_lifecycle_context(app: &TuiApp) -> String {
 }
 
 pub(super) fn render_shared_tasks_context(app: &TuiApp) -> String {
+    if app.shared_tasks_loading() {
+        return format!(
+            "Shared Tasks\n  list: {}\n  Loading shared tasks...",
+            app.snapshot.shared_tasks.task_list_id
+        );
+    }
     let tasks = &app.snapshot.shared_tasks;
     if let Some(error) = tasks.error.as_deref() {
         return format!(

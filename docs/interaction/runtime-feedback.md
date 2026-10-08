@@ -21,6 +21,19 @@ runtime extension registries.
 
 ## Contracts
 
+### Terminal Window Feedback
+
+The window title identifies the workspace/thread and whether work is running,
+idle or awaiting approval/input. It follows rename/new/resume and restores the
+previous title on exit and suspend on xterm-compatible terminals. Title output
+can be disabled with `tui.terminal.title = false`.
+
+Notifications default off. Set `tui.terminal.notifications` to `bell` or `osc9`
+to request an unfocused-only signal when a query finishes or needs approval.
+Repeated redraws, focus changes and restored sessions do not repeat signals.
+See [terminal feedback](../features/terminal-feedback.md) for configuration,
+ownership, sanitization and terminal compatibility details.
+
 ### RUN-01: Submission And Queueing
 
 | State | User action | Visible/runtime outcome |
@@ -120,7 +133,18 @@ A failed resume keeps the current session and resume picker available, with a
 visible error. Startup resume failure keeps the fresh session available.
 Credential synchronization failure keeps the model picker available and does
 not start a rebuild. Required resume reads complete before changing session
-identity, history, or goal binding.
+identity, history, or goal binding. Resume search shows loading state and ignores
+outdated query replies. Selected threads load in the background with a persistent
+activity indicator; Esc cancels the selection and Enter retains the composer
+draft until loading finishes. A successful switch replaces session-local
+interactions and keeps live recovery data until its turn is durably committed.
+
+Transcript writes and shared-task scans must not block input or drawing. Quit
+shows a saving notice while waiting for the accepted writes; Esc cancels the
+exit without cancelling those writes. A failed save keeps the terminal session
+open with an error. Final cleanup drains the storage owner before returning.
+Workspace context inspection shows loading state until background file inputs
+are available; model requests continue assembling current inputs independently.
 
 A successful backend rebuild installs the replacement agent even when saving
 configuration fails. The in-session backend remains usable, and a visible
@@ -266,6 +290,19 @@ Suspension does not issue a runtime cancellation or change goal policy.
 Direct external SIGTSTP, background `bg` resume, and platforms without Unix job
 control are outside this keyboard-driven contract.
 
+### External Editor Handoff
+
+Ctrl+G follows the same terminal ownership boundary as suspension: drop the
+input reader, finish the inline frame, restore modes, then run the editor.
+Runtime events continue to drain while terminal drawing, input, feedback, and
+mode-maintenance ticks are paused. Completion restores cooked termios on Unix,
+returns from the editor's alternate screen, reacquires keyboard/title/input
+modes, and creates a new reader. The next frame uses the current size. A mode
+reacquisition error exits through the ordinary restoration boundary.
+
+See [External Editor](../features/external-editor.md) for configuration, draft,
+cleanup, and recovery contracts.
+
 ### RUN-08: Typed, Redacted, Transient Notices
 
 All TUI notices enter through one application-owned publishing path with an
@@ -274,7 +311,10 @@ the current notice and its system transcript entry are created. Callers cannot
 assign arbitrary notice text to the bottom pane or construct mutable notice
 contents directly. Startup, setup, paste, restore, and runtime task feedback
 follow the same rule. A notice is recorded once; callers must not separately
-append an identical transcript entry.
+append an identical transcript entry. Storage failure and flush-progress notices
+use the same redaction, severity, and expiry owner, but record only in memory
+until normal transcript persistence resumes; publishing them must not enqueue
+a write behind the failed operation or an acknowledged exit barrier.
 
 Recording retains the existing transcript presentation contract: routine system
 records do not create conversation cards, while classified diagnostic, bootstrap,
@@ -364,3 +404,4 @@ exceptions are limited to explicit CLI/protocol consumers and test fixtures.
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
 - [Keyboard enhancement and suspend ownership](../journal/2026-10-05-keyboard-enhancement.md)
+- [External editor handoff](../journal/2026-10-05-external-editor.md)

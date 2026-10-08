@@ -88,6 +88,13 @@ fn goal_detail_text(goal: &RalphGoal) -> String {
 }
 
 pub(super) fn activity_status_line(app: &TuiApp) -> (&'static str, Color, String) {
+    if app.pending_restore.is_some() {
+        return (
+            "Resuming",
+            STATUS_INFO,
+            "Loading saved thread · Esc to cancel".into(),
+        );
+    }
     if matches!(app.runtime_phase, RuntimePhase::RebuildingBackend) {
         return (
             "Downloading",

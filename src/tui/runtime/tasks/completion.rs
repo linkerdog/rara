@@ -5,6 +5,7 @@ use crate::tui::message_role::MessageRole;
 use crate::tui::runtime::permissions;
 use crate::tui::state::NoticeLevel;
 use crate::tui::state::Overlay;
+use crate::tui::terminal_feedback::TerminalNotification;
 
 #[cfg(test)]
 pub(crate) async fn finish_running_task_if_ready(
@@ -97,6 +98,7 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         Ok(completion) => completion,
         Err(error) => {
             log::warn!("Runtime task failed to join: {error}");
+            app.clear_terminal_attention();
             if agent_slot.is_none() {
                 app.snapshot.pending_interactions.clear();
                 app.clear_pending_planning_suggestion();
@@ -112,6 +114,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
             };
             let message = format!("Runtime task failed: {error}. {recovery}");
             app.push_notice(NoticeLevel::Error, message);
+            if matches!(task.kind, TaskKind::Query) {
+                app.notify_terminal(TerminalNotification::Failed);
+            }
             if let Some(mode) = app.pending_permission_mode.take() {
                 let message = format!(
                     "Permissions not applied: {}. The task failed to return its runtime agent.",
@@ -123,6 +128,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
         }
     };
     match completion {
+        TaskCompletion::ThreadCommand { result } => {
+            super::super::thread_commands::finish(app, agent_slot, result);
+        }
         TaskCompletion::ReviewPrepared { result } => {
             super::super::review::finish(app, agent_slot, result);
         }
@@ -293,9 +301,11 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                         app.set_runtime_phase(RuntimePhase::Idle, Some("prompt finished".into()));
                         try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
                     }
+                    app.notify_terminal_query_complete();
                 }
                 Err(err) => {
                     let error_message = format_error_chain(&err);
+                    app.clear_terminal_attention();
                     let stopped = task
                         .query_control
                         .as_ref()
@@ -345,6 +355,9 @@ pub(super) async fn finish_running_task_if_ready_with_completion_mode(
                     }
                     app.push_system_notice(NoticeLevel::Error, message, SystemMessageKind::Other);
                     try_start_queued_follow_up(app, agent_slot, runtime.as_deref().cloned());
+                    if !app.is_busy() {
+                        app.notify_terminal(TerminalNotification::Failed);
+                    }
                 }
             }
         }

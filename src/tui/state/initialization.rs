@@ -29,11 +29,15 @@ impl TuiApp {
             notices: Default::default(),
             diagnostics: None,
             input_history: Vec::new(),
+            file_mentions: Default::default(),
+            prompt_history: Default::default(),
             input_history_cursor: None,
             input_history_draft: None,
             committed_turns: Vec::new(),
+            next_turn_ordinal: 0,
             active_turn: Default::default(),
             overlay,
+            diff_view: Default::default(),
             overlay_stack: Vec::new(),
             sidebar_visible: true,
             thinking_collapsed: false,
@@ -87,9 +91,12 @@ impl TuiApp {
             .collect(),
             recent_commands: Vec::new(),
             recent_threads: Vec::new(),
+            pending_restore: None,
+            resume_query: Default::default(),
             resume_picker_idx: 0,
             resume_sort_by_created: false,
             resume_search_query: String::new(),
+            resume_search_cursor_offset: None,
             committed_render_generation: 0,
             committed_render_cache: RefCell::new(CommittedTranscriptRenderCache::default()),
             transcript_scroll: TranscriptScroll::default(),
@@ -98,15 +105,21 @@ impl TuiApp {
             scroll_acceleration: super::ScrollAcceleration::default(),
             overlay_scroll: Default::default(),
             terminal_width: 80,
+            terminal_capabilities: rara_terminal_detection::TerminalCapabilities::FULL,
             agent_markdown_stream: None,
             agent_thinking_stream: None,
             active_live: Default::default(),
             tool_progress: crate::tui::tool_progress::ToolProgressState::default(),
             running_tool_boundary_count: 0,
             terminal_focused: true,
+            terminal_feedback: Default::default(),
             quit_shortcut: super::QuitShortcutState::default(),
             state_db: None,
+            storage: None,
+            storage_revision: 0,
             state_db_status: None,
+            context_files: Default::default(),
+            shared_task_scan: Default::default(),
             shared_task_root: None,
             shared_task_fingerprint: None,
             shared_task_last_poll: None,
@@ -179,7 +192,7 @@ impl TuiApp {
     }
 
     pub fn is_busy(&self) -> bool {
-        self.bottom_pane.running_task.is_some()
+        self.bottom_pane.running_task.is_some() || self.pending_restore.is_some()
     }
 
     pub fn running_elapsed(&self) -> Option<std::time::Duration> {

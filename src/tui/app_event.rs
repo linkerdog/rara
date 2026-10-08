@@ -4,6 +4,8 @@ use super::state::{ApprovalDetailNavigation, HelpTab, Overlay, QuitShortcutKey, 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Noop,
+    FileMention(super::file_mentions::FileMentionAction),
+    PromptHistory(super::prompt_history::HistoryAction),
     /// Reserved for protocol/UI-control callers that should request overlays
     /// without reaching into TUI state directly (docs/todo.md).
     #[allow(dead_code)] // Reserved for protocol/UI-control callers (docs/todo.md)
@@ -23,6 +25,7 @@ pub enum AppEvent {
     MoveCursorDown,
     NavigateInputHistory(i32),
     ScrollTranscript(i32),
+    NavigateDiff(super::diff_view::DiffNavigation),
     StartTranscriptSelection(ScreenPosition),
     DragTranscriptSelection(ScreenPosition),
     FinishTranscriptSelection(ScreenPosition),
@@ -61,6 +64,10 @@ pub enum AppEvent {
     SelectStatusTab(StatusTab),
     ApplyOverlaySelection,
     CycleResumeSort,
+    ToggleResumeScope,
+    RefreshResume,
+    ResumePageUp,
+    ResumePageDown,
     ClearResumeSearch,
     CancelRunningTask,
     QuitShortcut(QuitShortcutKey),

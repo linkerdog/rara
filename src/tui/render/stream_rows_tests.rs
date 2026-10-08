@@ -304,6 +304,7 @@ fn explicit_epoch_refreshes_same_revision_style_and_alignment() {
             epoch: 0,
             revision: 4,
             stable_lines: 1,
+            append_only_start: None,
             lines: &original,
         },
         80,
@@ -316,6 +317,7 @@ fn explicit_epoch_refreshes_same_revision_style_and_alignment() {
             epoch: 1,
             revision: 4,
             stable_lines: 1,
+            append_only_start: None,
             lines: &changed,
         },
         80,
@@ -338,4 +340,343 @@ fn compact_growth_only_wraps_new_head_and_summary_rows() {
     assert!(work.wrapped_lines <= 200 * 4, "{work:?}");
     assert!(work.cloned_rows <= 200 * 4, "{work:?}");
     assert_eq!(work.hashed_rows, 0);
+}
+
+#[test]
+fn plain_soft_break_rows_reuse_completed_lines_and_replay_late_heading() {
+    for width in [1, 8, 80] {
+        for view in [ResponseView::Full, ResponseView::Compact] {
+            let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+            let mut layout = StreamRowCache::default();
+            let mut source = "Ordinary paragraph line\n".to_string();
+            collector.push_delta(&source);
+            let original = materialize(&mut collector, &mut layout, width, view);
+            for _ in 0..200 {
+                let chunk = "Another paragraph line\n";
+                source.push_str(chunk);
+                collector.push_delta(chunk);
+                let rows = materialize(&mut collector, &mut layout, width, view);
+                assert!(std::ptr::eq(original.get(0).unwrap(), rows.get(0).unwrap()));
+            }
+            let work = layout.work.get();
+            assert!(work.cloned_rows <= 201, "{work:?}");
+            assert!(work.wrapped_lines <= 402, "{work:?}");
+            check_collector(&mut collector, &mut layout, width, view);
+
+            source.push_str("===\n");
+            collector.push_delta("===\n");
+            let full = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            )
+            .lines;
+            let replayed = materialize(&mut collector, &mut layout, width, view);
+            assert_rows(&replayed, &canonical_response(&full, width, view));
+            assert!(!std::ptr::eq(
+                original.get(0).unwrap(),
+                replayed.get(0).unwrap()
+            ));
+            assert_rows(
+                &original,
+                &canonical_response(&[Line::from("Ordinary paragraph line")], width, view),
+            );
+        }
+    }
+}
+
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "Expose byte counts that row-only metrics hide for long physical lines."
+)]
+fn growing_physical_line_layout_work_is_linear() {
+    let mut measurements = Vec::new();
+    for width in [8, 80] {
+        for chunk in ["ordinary words ", "unbrokenword", "Words 👩‍💻 cafe\u{301} "] {
+            let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+            let mut layout = StreamRowCache::default();
+            let mut source = String::new();
+            for _ in 0..200 {
+                source.push_str(chunk);
+                collector.push_delta(chunk);
+                materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            }
+            let expected = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            )
+            .lines;
+            assert_rows(
+                &materialize(&mut collector, &mut layout, width, ResponseView::Full),
+                &canonical_response(&expected, width, ResponseView::Full),
+            );
+            let work = layout.work.get();
+            eprintln!(
+                "{width} columns, {chunk:?}, {} source bytes: {work:?}",
+                source.len()
+            );
+            measurements.push((width, chunk, source.len(), work));
+        }
+    }
+    for (width, chunk, bytes, work) in measurements {
+        // Three mutable visual rows plus new UTF-8 content; width is part of the
+        // layout bound, independently of the total accumulated source length.
+        let budget = bytes * 4 + 200 * usize::from(width) * 16;
+        assert!(
+            work.cloned_bytes <= budget,
+            "{width} columns, {chunk:?}: {work:?}"
+        );
+        assert!(
+            work.wrapped_bytes <= budget,
+            "{width} columns, {chunk:?}: {work:?}"
+        );
+    }
+}
+
+#[test]
+fn growing_line_matches_canonical_through_graphemes_projection_and_completion() {
+    let prefix = "Ordinary words with spaces. ".repeat(8);
+    let sources = [
+        format!("{prefix}{} tail", "unbrokenword".repeat(20)),
+        format!("{prefix}👩‍💻 cafe\u{301} \u{4e2d}\u{6587} 🇬🇧🇺🇸 end"),
+        format!("{prefix}❤\u{fe0f} and 👩‍❤️‍💋‍👩 with a\u{ff9e}\u{ff9e}\u{ff9e} tail"),
+        format!("{prefix}{}\u{301} tail", "a".repeat(100)),
+        format!("{prefix}\u{200b}More words\nNext ordinary line grows again."),
+        format!("{prefix}\u{202e}More words\nNext ordinary line grows again."),
+        format!("{prefix}\n{}\nLast", "New physical line words. ".repeat(8)),
+        format!("{prefix}\n===\nAfter heading"),
+        format!("# Heading\n\n{prefix}*late emphasis* and [link](destination)"),
+        format!("First\nSecond\nThird\n{prefix}\nFifth\nSixth"),
+    ];
+    for source in sources {
+        for width in [1, 8, 80] {
+            for view in [ResponseView::Full, ResponseView::Compact] {
+                let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+                let mut layout = StreamRowCache::default();
+                for (offset, ch) in source.char_indices() {
+                    let end = offset + ch.len_utf8();
+                    collector.push_delta(&source[offset..end]);
+                    let full =
+                        crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                            &source[..end],
+                            None,
+                            Some(Path::new("/workspace")),
+                        )
+                        .lines;
+                    assert_rows(
+                        &materialize(&mut collector, &mut layout, width, view),
+                        &canonical_response(&full, width, view),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn growing_line_retains_prefix_snapshots_and_resets_on_layout_or_source_changes() {
+    let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+    let mut layout = StreamRowCache::default();
+    let mut source = "Ordinary words ".repeat(100);
+    collector.push_delta(&source);
+    let original = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+    let frozen = original.iter().cloned().collect::<Vec<_>>();
+    for chunk in ["more words", " more", "\n", "Next physical line"] {
+        source.push_str(chunk);
+        collector.push_delta(chunk);
+        let rows = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+        assert!(std::ptr::eq(original.get(0).unwrap(), rows.get(0).unwrap()));
+        check_collector(&mut collector, &mut layout, 8, ResponseView::Full);
+    }
+    assert_rows(&original, &frozen);
+    for width in [0, 1, 80, 8] {
+        for view in [ResponseView::Compact, ResponseView::Full] {
+            check_collector(&mut collector, &mut layout, width, view);
+        }
+    }
+    let replacement = source.replace("Ordinary", "Replaced");
+    assert_eq!(source.len(), replacement.len());
+    collector.replace_source(&replacement);
+    let replaced = materialize(&mut collector, &mut layout, 8, ResponseView::Full);
+    assert!(!std::ptr::eq(
+        original.get(0).unwrap(),
+        replaced.get(0).unwrap()
+    ));
+    check_collector(&mut collector, &mut layout, 8, ResponseView::Full);
+    assert_rows(&original, &frozen);
+}
+
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "Report rich-line byte work separately from source parsing."
+)]
+fn formatted_continuation_layout_work_is_linear() {
+    let mut measurements = Vec::new();
+    for width in [8, 80] {
+        for prefix in [
+            "**Important:** ordinary ".to_string(),
+            "Use `value` and [local](src/lib.rs) ordinary ".to_string(),
+            format!("{}ordinary ", "**bold** ".repeat(200)),
+        ] {
+            let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+            let mut layout = StreamRowCache::default();
+            let mut source = prefix.clone();
+            collector.push_delta(&prefix);
+            materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            for _ in 0..200 {
+                let chunk = "ordinary words ";
+                source.push_str(chunk);
+                collector.push_delta(chunk);
+                materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            }
+            let expected = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            )
+            .lines;
+            assert_rows(
+                &materialize(&mut collector, &mut layout, width, ResponseView::Full),
+                &canonical_response(&expected, width, ResponseView::Full),
+            );
+            let work = layout.work.get();
+            eprintln!("{width} columns, {} prefix bytes: {work:?}", prefix.len());
+            let spans = expected.iter().map(|line| line.spans.len()).sum::<usize>();
+            measurements.push((width, source.len(), spans, work));
+        }
+    }
+    for (width, bytes, spans, work) in measurements {
+        let budget = bytes * 4 + 200 * usize::from(width) * 16;
+        assert!(work.cloned_bytes <= budget, "{width} columns: {work:?}");
+        assert!(work.wrapped_bytes <= budget, "{width} columns: {work:?}");
+        assert!(work.stream_spans <= spans * 4 + 200 * 8, "{work:?}");
+    }
+}
+
+#[test]
+fn rich_line_layout_matches_canonical_during_append_replay_and_completion() {
+    for prefix in [
+        "**Bold** _italic_ and `code` ",
+        "See [local](src/lib.rs) and [web](https://example.com) ",
+        "**❤**\u{fe0f} **👩**‍💻 and cafe\u{301} ",
+        "A &amp; and &#32; with \\* ",
+        "Unclosed *marker and [link](target ",
+        "First\nSecond\nThird\n**Fourth** ",
+    ] {
+        for tail in [
+            "ordinary words\nNew words\nFinal words",
+            "ordinary words ) and *closed* \n\nNext paragraph",
+            "ordinary words \u{202e}another direction\nNext line",
+            "ordinary words\n===\nAfter heading",
+        ] {
+            let source = format!("{prefix}{}{tail}", "ordinary words ".repeat(8));
+            for width in [1, 8, 80] {
+                for view in [ResponseView::Full, ResponseView::Compact] {
+                    let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+                    let mut layout = StreamRowCache::default();
+                    for (offset, ch) in source.char_indices() {
+                        let end = offset + ch.len_utf8();
+                        collector.push_delta(&source[offset..end]);
+                        let expected =
+                            crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                                &source[..end],
+                                None,
+                                Some(Path::new("/workspace")),
+                            )
+                            .lines;
+                        assert_rows(
+                            &materialize(&mut collector, &mut layout, width, view),
+                            &canonical_response(&expected, width, view),
+                        );
+                    }
+                    collector.finalize();
+                    check_collector(&mut collector, &mut layout, width, view);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn rich_line_cursor_skips_empty_spans_and_preserves_retained_snapshots() {
+    let mut spans = vec![Span::raw(""); 5000];
+    spans.push(Span::styled(
+        "Prefix ".repeat(100),
+        Style::default().fg(Color::Red),
+    ));
+    spans.push(Span::raw("ordinary words"));
+    let mut lines = vec![Line::from(spans)];
+    let mut layout = StreamRowCache::default();
+    let mut original: Option<(TranscriptRows, Vec<Line<'static>>)> = None;
+    for revision in 0..200 {
+        lines[0]
+            .spans
+            .last_mut()
+            .unwrap()
+            .content
+            .to_mut()
+            .push_str(" more words");
+        let rows = layout.materialize(
+            RenderedStream {
+                epoch: 0,
+                revision,
+                stable_lines: 0,
+                append_only_start: Some(0),
+                lines: &lines,
+            },
+            8,
+            ResponseView::Full,
+        );
+        assert_rows(&rows, &canonical_response(&lines, 8, ResponseView::Full));
+        if let Some((retained, expected)) = &original {
+            assert!(std::ptr::eq(retained.get(0).unwrap(), rows.get(0).unwrap()));
+            assert_rows(retained, expected);
+        } else {
+            let expected = rows.iter().cloned().collect::<Vec<_>>();
+            original = Some((rows, expected));
+        }
+    }
+    assert!(
+        layout.work.get().stream_spans < 12_000,
+        "{:?}",
+        layout.work.get()
+    );
+}
+
+#[test]
+fn completed_list_items_retain_styled_visual_rows() {
+    for width in [8, 80] {
+        let mut collector = MarkdownStreamCollector::new(None, Path::new("/workspace"));
+        let mut layout = StreamRowCache::default();
+        let mut source = String::new();
+        let mut retained = None;
+        for index in 0..200 {
+            let chunk = format!("1. **Item** {index} and [local](src/lib.rs)\n");
+            source.push_str(&chunk);
+            collector.push_delta(&chunk);
+            let rows = materialize(&mut collector, &mut layout, width, ResponseView::Full);
+            let canonical = crate::tui::markdown_render::render_markdown_text_with_width_and_cwd(
+                &source,
+                None,
+                Some(Path::new("/workspace")),
+            );
+            assert_rows(
+                &rows,
+                &canonical_response(&canonical.lines, width, ResponseView::Full),
+            );
+            if index == 2 {
+                retained = Some(rows);
+            } else if let Some(before) = &retained {
+                assert!(std::ptr::eq(before.get(0).unwrap(), rows.get(0).unwrap()));
+            }
+        }
+        assert!(
+            layout.work.get().wrapped_lines <= 200 * 4,
+            "{:?}",
+            layout.work.get()
+        );
+    }
 }

@@ -23,7 +23,7 @@ projection must be shared by row rendering, navigation bounds, and selection.
 ### INPUT-01: Active Surface Owns The Key
 
 Priority is the top overlay, then a pending interaction's shortcuts with the
-scope described below, then ordinary composer and transcript handling. One key
+scope described below, then file completion, then ordinary composer and transcript handling. One key
 must not both dismiss an overlay and cancel a turn or approve a request.
 
 | Active surface | Keys | Result |
@@ -32,8 +32,14 @@ must not both dismiss an overlay and cancel a turn or approve a request.
 | Command palette or model search | Up/Down | Move the selected result |
 | Command palette or model search | Enter | Apply the selected result |
 | Command palette or model search | Esc | Close the search surface |
+| Prompt history search | Printable characters, cursor keys, Backspace/Delete, paste | Edit the separate query; query edits select the newest match |
+| Prompt history search | Ctrl+R/Up; Down/Ctrl+S | Select an older/newer unique match without wrapping |
+| Prompt history search | Enter; Esc/Ctrl+C | Load the selected prompt without submitting; restore the unchanged draft and cursor |
+| File completion | Up/Down; Tab/Enter; Esc/Ctrl+C | Select a file; insert the reference without submitting; dismiss and preserve the draft |
 | Non-search list or permission picker | Up/Down or j/k | Move selection; Enter applies |
-| Resume picker | Printable characters | Search recent threads; Up/Down selects; Tab cycles sort |
+| Resume picker | Printable characters; Left/Right, Home/End, Backspace/Delete | Edit the search query with the shared grapheme editor |
+| Resume picker | Up/Down; PageUp/PageDown; wheel | Move selection; load the next result page when needed |
+| Resume picker | Tab/BackTab; Ctrl+S; Ctrl+R | Toggle cwd/all; toggle updated/created order; refresh or retry |
 | Help | 1/2/3 | Choose General/Commands/Runtime tab |
 | Help Commands tab | Up/Down or j/k; wheel | Move through wrapped command entries |
 | Status | 1/2/3 or Left/Right/Tab/BackTab | Change status tab |
@@ -46,9 +52,22 @@ not inherit the plain-list j/k shortcuts.
 
 ### INPUT-02: Composer Submission And Editing
 
-- Enter submits; Shift+Enter inserts a newline when the terminal distinguishes
-  it through enhanced key reporting. Ctrl+J is the legacy-terminal fallback.
-  Keyboard enhancement ownership and restoration follow RUN-05.
+- Enter submits unless file completion owns the key; Shift+Enter inserts a
+  newline when the terminal distinguishes it through enhanced key reporting.
+  Ctrl+J is the legacy-terminal fallback. Keyboard ownership follows RUN-05.
+- `@` at a token boundary opens asynchronous fuzzy file completion. Loading,
+  empty, and failed completion states consume Enter/Tab without submitting.
+  Acceptance replaces the current query token with a JSON-quoted inline path
+  such as `@"src/main.rs"`. No file content is attached. Esc/Ctrl+C preserve
+  the draft and dismiss the unchanged query. Other overlays and pending
+  interactions take priority; Ctrl+R can open history search.
+- Encoded file mentions and owned paste placeholders share atomic movement,
+  deletion, and wrapping. Overwide labels are clipped for display only. History
+  reconstructs encoded mentions without filesystem access; Up/Down preserves
+  the current draft's paste ownership. Submission expands only owned paste
+  ranges, so literal duplicate labels and labels inside payloads are unchanged.
+  See [Composer File Mentions](../features/file-mentions.md) for limits and
+  stale-result ownership.
 - Ctrl+C closes the top overlay without cancelling underlying work or arming
   quit. Without an overlay, the first press clears an idle composer or requests
   cancellation while running, preserving the running draft. It also shows
@@ -65,10 +84,25 @@ not inherit the plain-list j/k shortcuts.
   subject to their own key encoding. `/quit` remains an explicit direct exit.
 - Unix Ctrl+Z suspends the foreground process group through RUN-07. It never
   edits the active input field; platforms without job control ignore it.
-- With no overlay, Esc requests cancellation while running and is otherwise a
+- With no overlay or file completion, Esc requests cancellation while running and is otherwise a
   no-op, except for the explicit shell-approval rejection action in RUN-03.
 - Up/Down first follow the existing input-history boundary rules, otherwise
   move inside multiline input or scroll when the composer is empty.
+- Ctrl+R opens incremental prompt search from the composer or command palette,
+  unless a pending interaction owns the input. It never inserts a literal `r`
+  into another overlay. Search shows a separate query, newest-first unique
+  matches, and a wrapped multiline preview. Cancel preserves pending large-paste
+  payloads; acceptance replaces the draft and clears its old payload ownership.
+  Background refresh selects the newest match unless the user explicitly
+  traversed results while loading. Draft/cursor/overlay changes invalidate
+  delayed Up recall. Persistence, privacy filters, bounds, disabled behavior,
+  and shutdown ordering are defined in [Prompt History](../features/prompt-history.md).
+- Ctrl+G opens the expanded draft in a nonempty VISUAL, falling back to EDITOR.
+  The shortcut applies to the composer and its completion surfaces; other
+  overlays and pending decisions retain ownership. It does not submit. Failure
+  or an unchanged result preserves cursor and owned paste ranges. Successful
+  edits return through paste sanitization; stale results receive a recovery file
+  without replacing the current draft. See [External Editor](../features/external-editor.md).
 - Ctrl+B toggles the sidebar; Alt+T toggles thinking visibility.
 - Pasted content uses the paste event path, including large-paste expansion at
   submission; it must not be replayed as individual shortcut key presses.
@@ -81,7 +115,7 @@ not inherit the plain-list j/k shortcuts.
   Submission expands and consumes the complete draft through the same cleanup
   boundary, including whitespace-only input; submitted paste notices do not
   linger after their content is sent or discarded.
-  Outside the command palette, Esc retains its existing cancellation/no-op
+  Outside the command palette and file completion, Esc retains cancellation/no-op
   behavior and preserves the draft. Palette dismissal discards its draft as
   specified in INPUT-03; no paste may appear later in a cleared or submitted
   composer.
@@ -216,15 +250,34 @@ navigation can still change the selection for the initial frame.
 | INPUT-02 | Cursor/history tests plus immediate paste-submit, edit, clear, Esc, and mixed-size paste sequences through production key dispatch; indent cache isolation and rendered vertical movement across sidebar/resize widths |
 | Quit shortcuts | Overlay ownership, busy cancellation, same-key confirmation, expiry, input disarming, reported repeats, and footer rendering through production key dispatch |
 | Grapheme editing | Shared editor ownership; previous/next whole clusters; Backspace/Delete; stale character offsets; insertion/paste/deletion joining neighboring clusters |
+| Prompt recall/search | Restart and cross-session refresh, stale-read fencing, query editing, accept without submit, draft/paste restoration, reviewed preview snapshot and narrow cursor bounds |
 | INPUT-03 | Open and dismiss overlays through key dispatch; verify no runtime cancel command is sent |
 | INPUT-04 | Filter by provider; render and select the same model through Enter; verify zero-result behavior |
 | INPUT-05 | Select a model and assert rebuild/setup routing; disambiguate endpoint profiles sharing a model ID |
+| Resume search | Full-path scope/fallback and old-index matches; cursor pages and stale completions; every footer binding; grapheme editing/paste and visible cursor at 40/60/80 columns |
 | INPUT-06 | All seven Help/Status/Context bodies at 80x24, 60x20, and 40x12; final-row reachability, CJK/long-line wrapping, entry navigation, immediate scroll clamping, resize/content shrink, and draft/transcript isolation |
+
+### Resume Search And Scope
+
+The initial scope prefers the full current cwd and falls back to all directories
+only when that cwd has no other resumable sessions, independent of the search
+text. The scope label reflects the effective result. Explicit cwd/all toggles
+are authoritative: an explicitly empty cwd stays empty. Rows show the stored
+full cwd; workspace basenames are never filtering identities. Current-session exclusion and
+scope/search filtering occur once in the indexed query.
+
+Search covers the complete index, with 50-result cursor pages loaded on demand.
+The visible count describes loaded rows and indicates whether more exist.
+Page keys move by the measured list capacity. Loading another page keeps
+existing rows available; a new search clears stale rows immediately. Errors
+appear in the picker with an explicit retry control. Esc clears a nonempty
+query first, then closes an empty-query picker. Enter resumes the selected row.
+Editing the query never edits the hidden composer, and its cursor remains
+visible at narrow widths. See [indexed thread listing](../features/threads.md#indexed-thread-listing)
+for the search fields and live-pagination contract.
 
 ## Open Risks
 
-- Resume search retains append/backspace editing; full cursor editing there
-  remains a separate follow-up.
 - A configurable Vim mode remains outside the current editor contract.
 - Large-paste placeholders are not atomic editing elements yet; editing their
   label can prevent expansion on submit. Grapheme-safe editing does not imply
@@ -235,6 +288,7 @@ navigation can still change the selection for the initial frame.
 
 ## Source Journals
 
+- [Persistent prompt history](../journal/2026-10-05-prompt-history.md)
 - [TUI interaction contracts](../journal/2026-09-17-tui-interaction-contracts.md)
 - [Input ownership and draft preservation](../journal/2026-09-17-tui-input-ownership.md)
 - [Paste input ordering](../journal/2026-10-02-tui-paste-input-order.md)
@@ -243,4 +297,5 @@ navigation can still change the selection for the initial frame.
 - [Unicode display and editing boundaries](../journal/2026-10-03-unicode-boundaries.md)
 - [Interrupt, quit, and Unix job control](../journal/2026-10-03-tui-interrupt-suspend.md)
 - [Terminal review follow-up](../journal/2026-10-03-terminal-review-follow-up.md)
+- [Indexed resume search and input ownership](../journal/2026-10-05-resume-indexed-search.md)
 - [Bounded read-only overlays](../journal/2026-10-05-overlay-scroll-bounds.md)

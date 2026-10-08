@@ -83,10 +83,43 @@ fn is_break_space(grapheme: &str) -> bool {
 
 /// Produces only grapheme-boundary ranges, including empty explicit lines.
 pub(crate) fn wrap_ranges(input: &str, options: WrapOptions) -> Vec<Range<usize>> {
+    wrap_ranges_with_atoms(input, options, &[])
+}
+
+/// Atomic spans are sorted, disjoint byte ranges at grapheme boundaries.
+pub(crate) fn display_units<'a>(input: &'a str, atoms: &[Range<usize>]) -> Vec<(usize, &'a str)> {
+    let mut atom = 0;
+    input
+        .grapheme_indices(true)
+        .filter_map(|(offset, grapheme)| {
+            while atoms.get(atom).is_some_and(|range| range.end <= offset) {
+                atom += 1;
+            }
+            match atoms.get(atom) {
+                Some(range) if range.start == offset => {
+                    input.get(range.clone()).map(|text| (offset, text))
+                }
+                Some(range) if range.contains(&offset) => None,
+                Some(_) | None => Some((offset, grapheme)),
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn wrap_ranges_with_atoms(
+    input: &str,
+    options: WrapOptions,
+    atoms: &[Range<usize>],
+) -> Vec<Range<usize>> {
     let mut rows = Vec::new();
     let mut line_start = 0;
     for line in input.split('\n') {
-        let graphemes = line.grapheme_indices(true).collect::<Vec<_>>();
+        let local_atoms = atoms
+            .iter()
+            .filter(|range| range.start >= line_start && range.end <= line_start + line.len())
+            .map(|range| range.start - line_start..range.end - line_start)
+            .collect::<Vec<_>>();
+        let graphemes = display_units(line, &local_atoms);
         let mut start = 0;
         if graphemes.is_empty() {
             rows.push(line_start..line_start);
@@ -102,7 +135,7 @@ pub(crate) fn wrap_ranges(input: &str, options: WrapOptions) -> Vec<Range<usize>
             let mut columns = 0usize;
             let mut word_break = None;
             while let Some((_, grapheme)) = graphemes.get(end) {
-                let width = grapheme_width(grapheme);
+                let width = display_width(grapheme);
                 // Leading whitespace is literal indentation, not an empty word.
                 if matches!(options.mode, WrapMode::Word)
                     && is_break_space(grapheme)

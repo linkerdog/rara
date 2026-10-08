@@ -147,3 +147,63 @@ fn streamed_rows_refresh_without_new_source_after_theme_installation() {
         visual_rows = rows;
     }
 }
+
+#[test]
+fn plain_paragraph_reenables_incremental_work_after_theme_replay() {
+    if !isolated_theme_test() {
+        return;
+    }
+    let mut source = "# Heading\n\nPlain words\n".to_string();
+    let cwd = std::env::temp_dir();
+    let mut stream = crate::tui::markdown_stream::MarkdownStreamCollector::new(None, &cwd);
+    stream.push_delta(&source);
+    stream.lines();
+    for config in themes() {
+        let epoch = stream.rendered_stream().epoch;
+        theme::install_config(&config);
+        assert_eq!(
+            stream.lines(),
+            render_markdown_text_with_width_and_cwd(&source, None, Some(&cwd)).lines
+        );
+        assert_ne!(stream.rendered_stream().epoch, epoch);
+        let parsed = stream.work().parsed_bytes;
+        let chunk = "Another plain line\n";
+        source.push_str(chunk);
+        stream.push_delta(chunk);
+        assert_eq!(
+            stream.lines(),
+            render_markdown_text_with_width_and_cwd(&source, None, Some(&cwd)).lines
+        );
+        assert_eq!(stream.work().parsed_bytes, parsed);
+    }
+}
+
+#[test]
+fn growing_visual_prefix_is_rebuilt_after_theme_replay() {
+    if !isolated_theme_test() {
+        return;
+    }
+    let mut source = format!("# Heading\n\n{}", "ordinary words ".repeat(40));
+    let cwd = std::env::temp_dir();
+    let mut stream = crate::tui::markdown_stream::MarkdownStreamCollector::new(None, &cwd);
+    let mut layout = super::StreamRowCache::default();
+    stream.push_delta(&source);
+    stream.lines();
+    let original = layout.materialize(stream.rendered_stream(), 8, super::ResponseView::Full);
+    let frozen = original.iter().cloned().collect::<Vec<_>>();
+    for config in themes() {
+        theme::install_config(&config);
+        for chunk in ["", "more words "] {
+            source.push_str(chunk);
+            stream.push_delta(chunk);
+            stream.lines();
+            let rows = layout.materialize(stream.rendered_stream(), 8, super::ResponseView::Full);
+            let full = render_markdown_text_with_width_and_cwd(&source, None, Some(&cwd)).lines;
+            assert_eq!(
+                rows.iter().cloned().collect::<Vec<_>>(),
+                super::stream_rows_tests::canonical_response(&full, 8, super::ResponseView::Full)
+            );
+        }
+        assert_eq!(original.iter().cloned().collect::<Vec<_>>(), frozen);
+    }
+}

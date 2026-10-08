@@ -30,6 +30,13 @@ Each active feature spec should include:
 ## Current Persistence Specs
 
 - `session-transcript.md`: typed session and sub-agent transcript storage.
+- `external-editor.md`: Ctrl+G draft editing, terminal handoff, and recovery.
+- `file-mentions.md`: asynchronous file completion and atomic composer references.
+- `prompt-history.md`: bounded per-user composer recall, privacy, and lazy search.
+
+## Terminal Specs
+
+- `terminal-feedback.md`: terminal title ownership and focus-gated notifications.
 
 ## Control-Plane Readiness
 
@@ -80,6 +87,7 @@ future appserver integrations can use.
   invalidation, ordering, and shared observability contract.
 - `thread-goals.md`: persistent `/goal` runtime, tool, continuation, budget,
   and compact TUI contracts aligned with Codex 0.154.
+- `session-commands.md`: copy, new-thread, diff, init, rename, and export contracts.
 - `subagent-context-optimization.md`: bounded parent/child subagent context
   inheritance, child budget, result summary, and restart/reconnect contracts.
 - `multi-agent-orchestration.md`: session-tree ownership, shared child capacity,

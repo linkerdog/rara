@@ -1,6 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app_event::AppEvent;
+use super::file_mentions::FileMentionAction;
+use super::prompt_history::HistoryAction;
 use super::state::{
     ApprovalDetailNavigation, HelpTab, Overlay, OverlayNavigation, QuitShortcutKey, StatusTab,
     TuiApp,
@@ -9,9 +11,42 @@ use super::state::{
 pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
     let code = key.code;
     let modifiers = key.modifiers;
+    if app.file_mention_open() {
+        let action = match (code, modifiers) {
+            (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                Some(FileMentionAction::Dismiss)
+            }
+            (KeyCode::Tab | KeyCode::Enter, KeyModifiers::NONE) => Some(FileMentionAction::Accept),
+            (KeyCode::Up, KeyModifiers::NONE) => Some(FileMentionAction::Previous),
+            (KeyCode::Down, KeyModifiers::NONE) => Some(FileMentionAction::Next),
+            _ => None,
+        };
+        if let Some(action) = action {
+            return AppEvent::FileMention(action);
+        }
+    }
     // Control shortcuts must not fall through to an overlay's printable input.
     if modifiers == KeyModifiers::CONTROL {
+        if app.overlay == Some(Overlay::ListPicker(super::state::ListPickerKind::Resume)) {
+            match code {
+                KeyCode::Char('s') => return AppEvent::CycleResumeSort,
+                KeyCode::Char('r') => return AppEvent::RefreshResume,
+                KeyCode::Char('d') => return AppEvent::DeleteForward,
+                _ => {}
+            }
+        }
         match code {
+            KeyCode::Char('r') => {
+                return if app.overlay == Some(Overlay::HistorySearch) {
+                    AppEvent::PromptHistory(HistoryAction::Older)
+                } else if matches!(app.overlay, None | Some(Overlay::CommandPalette))
+                    && app.active_pending_interaction().is_none()
+                {
+                    AppEvent::PromptHistory(HistoryAction::Open)
+                } else {
+                    AppEvent::Noop
+                };
+            }
             KeyCode::Char('c') => {
                 return if app.overlay.is_some() {
                     AppEvent::CloseOverlay
@@ -27,6 +62,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                     None
                     | Some(
                         Overlay::CommandPalette
+                        | Overlay::HistorySearch
                         | Overlay::ModelSearch
                         | Overlay::BaseUrlEditor
                         | Overlay::ApiKeyEditor(_)
@@ -46,6 +82,7 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
                         | Overlay::Help(_)
                         | Overlay::Status(_)
                         | Overlay::Context
+                        | Overlay::Diff
                         | Overlay::SkillsPicker
                         | Overlay::ListPicker(_)
                         | Overlay::PermissionPicker,
@@ -73,6 +110,49 @@ pub(crate) fn map_key_to_event(key: KeyEvent, app: &TuiApp) -> AppEvent {
         }
     }
     match app.overlay {
+        Some(Overlay::HistorySearch) => match (code, modifiers) {
+            (KeyCode::Esc, _) => AppEvent::CloseOverlay,
+            (KeyCode::Enter, _) => AppEvent::PromptHistory(HistoryAction::Accept),
+            (KeyCode::Up, _) => AppEvent::PromptHistory(HistoryAction::Older),
+            (KeyCode::Down, _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                AppEvent::PromptHistory(HistoryAction::Newer)
+            }
+            (KeyCode::Backspace, _) => AppEvent::Backspace,
+            (KeyCode::Delete, _) => AppEvent::DeleteForward,
+            (KeyCode::Left, _) => AppEvent::MoveCursorLeft,
+            (KeyCode::Right, _) => AppEvent::MoveCursorRight,
+            (KeyCode::Home, _) | (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                AppEvent::MoveCursorHome
+            }
+            (KeyCode::End, _) | (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                AppEvent::MoveCursorEnd
+            }
+            (KeyCode::Char(c), modifiers)
+                if !modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                AppEvent::InputChar(c)
+            }
+            _ => AppEvent::Noop,
+        },
+        Some(Overlay::Diff) => {
+            use super::diff_view::DiffNavigation;
+            match code {
+                KeyCode::Esc => AppEvent::CloseOverlay,
+                KeyCode::Up | KeyCode::Char('k') => {
+                    AppEvent::NavigateDiff(DiffNavigation::Rows(-1))
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    AppEvent::NavigateDiff(DiffNavigation::Rows(1))
+                }
+                KeyCode::PageUp => AppEvent::NavigateDiff(DiffNavigation::Pages(-1)),
+                KeyCode::PageDown => AppEvent::NavigateDiff(DiffNavigation::Pages(1)),
+                KeyCode::Home => AppEvent::NavigateDiff(DiffNavigation::Start),
+                KeyCode::End => AppEvent::NavigateDiff(DiffNavigation::End),
+                _ => AppEvent::Noop,
+            }
+        }
         Some(Overlay::Goal) => super::goal_ui::key_event(app, code),
         Some(Overlay::Help(_)) => match key {
             KeyEvent {

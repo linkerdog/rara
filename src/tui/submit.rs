@@ -34,7 +34,18 @@ async fn handle_submit_inner(
     runtime_port: Option<&dyn RuntimeClientPort>,
 ) -> anyhow::Result<bool> {
     app.flush_composer_paste();
+    let has_large_paste = !app.bottom_pane.large_paste_pending.is_empty();
     app.bottom_pane.expand_large_paste();
+    if app.pending_restore.is_some()
+        && !parse_local_command(app.bottom_pane.input.trim())
+            .is_some_and(|command| command.kind == super::state::LocalCommandKind::Quit)
+    {
+        app.push_notice(
+            NoticeLevel::Info,
+            "Wait for the saved thread to load, or press Esc to cancel.",
+        );
+        return Ok(false);
+    }
     let input = std::mem::take(&mut app.bottom_pane.input);
     app.clear_composer();
     if input.is_empty() {
@@ -65,7 +76,11 @@ async fn handle_submit_inner(
         }
         return Ok(false);
     }
-    app.record_input_history(&trimmed);
+    if !has_large_paste {
+        app.record_input_history(&input);
+    } else {
+        app.reset_input_history_navigation();
+    }
 
     if app.is_busy() && !trimmed.starts_with('/') {
         if let Some(runtime_port) = runtime_port {

@@ -1,7 +1,5 @@
 use super::types::{Overlay, TuiApp};
-use super::{
-    INPUT_HISTORY_LIMIT, TextInputTarget, char_offset_to_byte_index, effective_cursor_offset,
-};
+use super::{TextInputTarget, char_offset_to_byte_index, effective_cursor_offset};
 use crate::tui::input_text::{
     ceil_grapheme_offset, floor_grapheme_offset, next_grapheme_offset, previous_grapheme_offset,
 };
@@ -9,6 +7,7 @@ use crate::tui::input_text::{
 impl TuiApp {
     fn active_text_input_target(&self) -> Option<TextInputTarget> {
         match self.overlay {
+            Some(Overlay::HistorySearch) => Some(TextInputTarget::HistorySearch),
             Some(Overlay::Goal) => matches!(
                 self.goal_ui.dialog,
                 Some(crate::tui::goal_ui::GoalDialog::Edit(_))
@@ -16,6 +15,9 @@ impl TuiApp {
             .then_some(TextInputTarget::GoalObjective),
             None | Some(Overlay::CommandPalette) => Some(TextInputTarget::Composer),
             Some(Overlay::ModelSearch) => Some(TextInputTarget::ModelSearch),
+            Some(Overlay::ListPicker(super::ListPickerKind::Resume)) => {
+                Some(TextInputTarget::ResumeSearch)
+            }
             Some(Overlay::BaseUrlEditor) => Some(TextInputTarget::BaseUrl),
             Some(Overlay::ApiKeyEditor(_)) => Some(TextInputTarget::ApiKey),
             Some(Overlay::ModelNameEditor) => Some(TextInputTarget::ModelName),
@@ -24,6 +26,7 @@ impl TuiApp {
                 Overlay::Help(_)
                 | Overlay::Status(_)
                 | Overlay::Context
+                | Overlay::Diff
                 | Overlay::SkillsPicker
                 | Overlay::PermissionPicker
                 | Overlay::ListPicker(_),
@@ -53,6 +56,14 @@ impl TuiApp {
         target: TextInputTarget,
     ) -> (&mut String, &mut Option<usize>) {
         match target {
+            TextInputTarget::HistorySearch => (
+                &mut self.prompt_history.query,
+                &mut self.prompt_history.query_cursor,
+            ),
+            TextInputTarget::ResumeSearch => (
+                &mut self.resume_search_query,
+                &mut self.resume_search_cursor_offset,
+            ),
             TextInputTarget::GoalObjective => (&mut self.goal_ui.input, &mut self.goal_ui.cursor),
             TextInputTarget::Composer => (
                 &mut self.bottom_pane.input,
@@ -79,11 +90,13 @@ impl TuiApp {
 
     fn update_after_active_input_edit(&mut self, target: TextInputTarget) {
         match target {
+            TextInputTarget::HistorySearch => self.prompt_history.reset_selection(),
             TextInputTarget::Composer => {
                 self.reset_input_history_navigation();
                 self.sync_command_palette_with_input();
             }
             TextInputTarget::ModelSearch => self.model_search_idx = 0,
+            TextInputTarget::ResumeSearch => self.resume_search_changed(),
             TextInputTarget::GoalObjective
             | TextInputTarget::BaseUrl
             | TextInputTarget::ApiKey
@@ -96,6 +109,10 @@ impl TuiApp {
         effective_cursor_offset(&self.model_search_query, self.model_search_cursor_offset)
     }
 
+    pub(crate) fn resume_search_cursor_offset(&self) -> usize {
+        effective_cursor_offset(&self.resume_search_query, self.resume_search_cursor_offset)
+    }
+
     /// Returns the slash-command query string with the leading `/` stripped.
     /// For example, if the input is `/help`, this returns `"help"`.
     pub fn command_query(&self) -> &str {
@@ -103,10 +120,7 @@ impl TuiApp {
     }
 
     pub fn composer_cursor_offset(&self) -> usize {
-        effective_cursor_offset(
-            self.bottom_pane.input.as_str(),
-            self.bottom_pane.input_cursor_offset,
-        )
+        self.bottom_pane.composer_cursor_offset()
     }
 
     pub fn base_url_cursor_offset(&self) -> usize {
@@ -134,6 +148,7 @@ impl TuiApp {
     /// Test helper for seeding composer input without simulating key events.
     #[allow(dead_code)] // Reserved for programmatic input control
     pub fn set_input(&mut self, input: String) {
+        self.bottom_pane.large_paste_pending.clear();
         self.bottom_pane.input = input;
         self.bottom_pane.input_cursor_offset = None;
         self.reset_input_history_navigation();
@@ -141,39 +156,20 @@ impl TuiApp {
     }
 
     fn set_input_from_history(&mut self, input: String) {
+        self.bottom_pane.large_paste_pending.clear();
         self.bottom_pane.input = input;
         self.bottom_pane.input_cursor_offset = Some(self.bottom_pane.input.chars().count());
         self.sync_command_palette_with_input();
     }
 
-    pub fn record_input_history(&mut self, input: &str) {
-        let input = input.trim();
-        if input.is_empty() {
-            return;
-        }
-        if self
-            .input_history
-            .last()
-            .is_some_and(|previous| previous == input)
-        {
-            self.reset_input_history_navigation();
-            return;
-        }
-        self.input_history.push(input.to_string());
-        if self.input_history.len() > INPUT_HISTORY_LIMIT {
-            let excess = self.input_history.len() - INPUT_HISTORY_LIMIT;
-            self.input_history.drain(..excess);
-        }
-        self.reset_input_history_navigation();
-    }
-
     pub fn reset_input_history_navigation(&mut self) {
+        self.cancel_pending_history_navigation();
         self.input_history_cursor = None;
         self.input_history_draft = None;
     }
 
     pub fn should_handle_input_history_navigation(&self, delta: i32) -> bool {
-        if self.input_history.is_empty() {
+        if self.input_history.is_empty() && !self.prompt_history_can_load() {
             return false;
         }
         if self.bottom_pane.input.is_empty() {
@@ -184,19 +180,27 @@ impl TuiApp {
             cursor == 0 || self.input_history_cursor.is_some()
         } else {
             delta > 0
-                && cursor == self.bottom_pane.input.chars().count()
-                && self.input_history_cursor.is_some()
+                && (self.prompt_history_navigation_pending()
+                    || (cursor == self.bottom_pane.input.chars().count()
+                        && self.input_history_cursor.is_some()))
         }
     }
 
     pub fn navigate_input_history(&mut self, delta: i32) {
+        if self.request_history_navigation(delta) {
+            return;
+        }
+        self.navigate_loaded_input_history(delta);
+    }
+
+    pub(crate) fn navigate_loaded_input_history(&mut self, delta: i32) {
         if self.input_history.is_empty() || delta == 0 {
             return;
         }
 
         let next = match self.input_history_cursor {
             None if delta < 0 => {
-                self.input_history_draft = Some(self.bottom_pane.input.clone());
+                self.input_history_draft = Some(self.bottom_pane.saved_draft());
                 Some(self.input_history.len().saturating_sub(1))
             }
             None => return,
@@ -215,21 +219,14 @@ impl TuiApp {
             None => {
                 let draft = self.input_history_draft.take().unwrap_or_default();
                 self.input_history_cursor = None;
-                self.set_input_from_history(draft);
+                self.bottom_pane.restore_draft(draft);
+                self.sync_command_palette_with_input();
             }
         }
     }
 
     pub fn insert_active_input_char(&mut self, ch: char) {
-        let Some(target) = self.active_text_input_target() else {
-            return;
-        };
-        let (text, cursor_offset) = self.text_and_cursor_mut(target);
-        let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
-        let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
-        text.insert(byte_idx, ch);
-        *cursor_offset = Some(ceil_grapheme_offset(text, cursor.saturating_add(1)));
-        self.update_after_active_input_edit(target);
+        self.insert_active_input_text(ch.encode_utf8(&mut [0; 4]));
     }
 
     pub fn insert_active_input_text(&mut self, inserted: &str) {
@@ -239,6 +236,12 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            self.bottom_pane.edit_composer(cursor..cursor, inserted);
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         let byte_idx = char_offset_to_byte_index(text.as_str(), cursor);
@@ -252,13 +255,8 @@ impl TuiApp {
 
     pub fn insert_newline_in_composer(&mut self) {
         let cursor = self.composer_cursor_offset();
-        let byte_idx = char_offset_to_byte_index(self.bottom_pane.input.as_str(), cursor);
-        self.bottom_pane.input.insert(byte_idx, '\n');
-        self.bottom_pane.input_cursor_offset = Some(ceil_grapheme_offset(
-            &self.bottom_pane.input,
-            cursor.saturating_add(1),
-        ));
-        self.sync_command_palette_with_input();
+        self.bottom_pane.edit_composer(cursor..cursor, "\n");
+        self.update_after_active_input_edit(TextInputTarget::Composer);
     }
 
     /// Keep the composer cursor visible by adjusting `composer_scroll`.
@@ -289,8 +287,8 @@ impl TuiApp {
             terminal_width: self.terminal_width,
             sidebar_visible: self.sidebar_visible,
         };
-        crate::tui::composer_text::wrapped_text(
-            &self.bottom_pane.input,
+        crate::tui::composer_text::wrapped_composer(
+            &self.bottom_pane,
             crate::tui::composer_text::WrapConfig::composer(columns.main_width()),
         )
     }
@@ -299,6 +297,16 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            if cursor == 0 {
+                return;
+            }
+            let previous = previous_grapheme_offset(&self.bottom_pane.input, cursor);
+            self.bottom_pane.edit_composer(previous..cursor, "");
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor == 0 {
@@ -316,6 +324,16 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let cursor = self.composer_cursor_offset();
+            let next = next_grapheme_offset(&self.bottom_pane.input, cursor);
+            if next == cursor {
+                return;
+            }
+            self.bottom_pane.edit_composer(cursor..next, "");
+            self.update_after_active_input_edit(target);
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         if cursor >= text.chars().count() {
@@ -332,6 +350,13 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let previous =
+                previous_grapheme_offset(&self.bottom_pane.input, self.composer_cursor_offset());
+            self.bottom_pane.input_cursor_offset =
+                Some(self.bottom_pane.floor_atom_boundary(previous));
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some(previous_grapheme_offset(text, cursor));
@@ -341,6 +366,11 @@ impl TuiApp {
         let Some(target) = self.active_text_input_target() else {
             return;
         };
+        if target == TextInputTarget::Composer {
+            let next = next_grapheme_offset(&self.bottom_pane.input, self.composer_cursor_offset());
+            self.bottom_pane.input_cursor_offset = Some(self.bottom_pane.ceil_atom_boundary(next));
+            return;
+        }
         let (text, cursor_offset) = self.text_and_cursor_mut(target);
         let cursor = effective_cursor_offset(text.as_str(), *cursor_offset);
         *cursor_offset = Some(next_grapheme_offset(text, cursor));

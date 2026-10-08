@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::ops::Range;
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::display_sanitize::{annotate_bidi_text, bidi_annotation};
 pub(crate) use super::text_wrap::expand_tabs;
-use super::text_wrap::{WrapMode, WrapOptions, display_width, grapheme_width, wrap_ranges};
+use super::text_wrap::{
+    WrapMode, WrapOptions, display_units, display_width, truncate_to_width, wrap_ranges_with_atoms,
+};
 
 pub(crate) const COMPOSER_INITIAL_INDENT: &str = "› ";
 pub(crate) const COMPOSER_SUBSEQUENT_INDENT: &str = "  ";
@@ -78,6 +81,7 @@ impl WrappedText {
 
 struct WrapCache {
     input: String,
+    atoms: Vec<Range<usize>>,
     width: u16,
     initial_indent: String,
     subsequent_indent: String,
@@ -85,21 +89,39 @@ struct WrapCache {
 }
 
 pub(crate) fn wrapped_text(input: &str, config: WrapConfig<'_>) -> Arc<WrappedText> {
+    cached_layout(input, &[], config)
+}
+
+pub(crate) fn wrapped_composer(
+    pane: &super::state::BottomPaneModel,
+    config: WrapConfig<'_>,
+) -> Arc<WrappedText> {
+    let atoms = pane
+        .composer_atoms()
+        .into_iter()
+        .map(|atom| atom.range)
+        .collect::<Vec<_>>();
+    cached_layout(&pane.input, &atoms, config)
+}
+
+fn cached_layout(input: &str, atoms: &[Range<usize>], config: WrapConfig<'_>) -> Arc<WrappedText> {
     thread_local! {
         static CACHE: RefCell<Option<WrapCache>> = const { RefCell::new(None) };
     }
     CACHE.with(|cell| {
         if let Some(cache) = cell.borrow().as_ref()
             && cache.input == input
+            && cache.atoms == atoms
             && cache.width == config.width
             && cache.initial_indent == config.initial_indent
             && cache.subsequent_indent == config.subsequent_indent
         {
             return cache.layout.clone();
         }
-        let layout = Arc::new(build_layout(input, &config));
+        let layout = Arc::new(build_layout(input, atoms, &config));
         cell.replace(Some(WrapCache {
             input: input.into(),
+            atoms: atoms.to_vec(),
             width: config.width,
             initial_indent: config.initial_indent.into(),
             subsequent_indent: config.subsequent_indent.into(),
@@ -109,9 +131,19 @@ pub(crate) fn wrapped_text(input: &str, config: WrapConfig<'_>) -> Arc<WrappedTe
     })
 }
 
-fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
+fn build_layout(input: &str, atoms: &[Range<usize>], config: &WrapConfig<'_>) -> WrappedText {
     let projected = annotate_bidi_text(input);
-    let mut layout = build_display_layout(&projected, config);
+    let byte_offsets = std::iter::once(0)
+        .chain(input.chars().scan(0, |offset, ch| {
+            *offset += bidi_annotation(ch).map_or(ch.len_utf8(), str::len);
+            Some(*offset)
+        }))
+        .collect::<Vec<_>>();
+    let display_atoms = atoms
+        .iter()
+        .filter_map(|range| Some(*byte_offsets.get(range.start)?..*byte_offsets.get(range.end)?))
+        .collect::<Vec<_>>();
+    let mut layout = build_display_layout(&projected, &display_atoms, config);
     if matches!(projected, Cow::Borrowed(_)) {
         return layout;
     }
@@ -126,17 +158,26 @@ fn build_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
             source_offset += 1;
             display_offset += bidi_annotation(ch).map_or(1, |label| label.chars().count());
         }
-        positions.push((source_offset, layout.position_for_offset(display_offset)));
+        if !atoms
+            .iter()
+            .any(|range| range.start < source_offset && source_offset < range.end)
+        {
+            positions.push((source_offset, layout.position_for_offset(display_offset)));
+        }
     }
     layout.positions = positions;
     layout
 }
 
 /// Wraps already projected text; offsets here belong to that display string.
-fn build_display_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
+fn build_display_layout(
+    input: &str,
+    atoms: &[Range<usize>],
+    config: &WrapConfig<'_>,
+) -> WrappedText {
     let width = usize::from(config.width.max(1));
     let mut rows = Vec::new();
-    let ranges = wrap_ranges(
+    let ranges = wrap_ranges_with_atoms(
         input,
         WrapOptions {
             width,
@@ -144,6 +185,7 @@ fn build_display_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
             subsequent_indent: display_width(config.subsequent_indent).min(width),
             mode: WrapMode::Grapheme,
         },
+        atoms,
     );
     let mut positions: Vec<(usize, VisualPosition)> = Vec::new();
     let mut byte_offset = 0;
@@ -165,12 +207,33 @@ fn build_display_layout(input: &str, config: &WrapConfig<'_>) -> WrappedText {
             positions.push((offset, start));
         }
         let text = &input[range.clone()];
-        for grapheme in text.graphemes(true) {
-            offset += grapheme.chars().count();
-            column = column.saturating_add(grapheme_width(grapheme));
+        let local_atoms = atoms
+            .iter()
+            .filter(|atom| atom.start >= range.start && atom.end <= range.end)
+            .map(|atom| atom.start - range.start..atom.end - range.start)
+            .collect::<Vec<_>>();
+        let mut rendered = indent.to_owned();
+        for (byte, unit) in display_units(text, &local_atoms) {
+            let available = width.saturating_sub(column);
+            let clipped;
+            let display = if local_atoms.iter().any(|atom| atom.start == byte)
+                && display_width(unit) > available
+            {
+                clipped = if available == 0 {
+                    String::new()
+                } else {
+                    format!("{}…", truncate_to_width(unit, available - 1))
+                };
+                clipped.as_str()
+            } else {
+                unit
+            };
+            rendered.push_str(display);
+            offset += unit.chars().count();
+            column = column.saturating_add(display_width(display));
             positions.push((offset, VisualPosition { row, column }));
         }
-        rows.push(format!("{indent}{text}"));
+        rows.push(rendered);
         byte_offset = range.end;
     }
     WrappedText {

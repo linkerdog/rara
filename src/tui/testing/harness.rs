@@ -125,7 +125,9 @@ impl TuiHarness {
                 crate::tui::terminal_ui::handle_paste(text, &mut self.app);
                 return Ok(false);
             }
-            Some(UiEvent::Draw | UiEvent::FocusChanged(_)) | None => return Ok(false),
+            Some(UiEvent::Draw | UiEvent::FocusChanged(_) | UiEvent::ExternalEditor) | None => {
+                return Ok(false);
+            }
             #[cfg(unix)]
             Some(UiEvent::Suspend) => return Ok(false),
         };
@@ -285,7 +287,11 @@ impl TuiHarness {
     }
 
     pub(crate) fn expect_command(&self, expected: RuntimeCommand) {
-        assert_eq!(self.runtime.commands(), [expected]);
+        self.expect_commands(&[expected]);
+    }
+
+    pub(crate) fn expect_commands(&self, expected: &[RuntimeCommand]) {
+        assert_eq!(self.runtime.commands(), expected);
     }
 
     pub(crate) fn expect_runtime_phase(&self, expected: RuntimePhase) {
