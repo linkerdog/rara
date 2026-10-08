@@ -1,0 +1,19 @@
+[package]
+name = "rara-agent-trace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "rara_agent_trace"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
