@@ -61,6 +61,10 @@ pub(crate) struct Cli {
     #[arg(long = "plugin-dir", value_name = "DIR", global = true)]
     plugin_dirs: Vec<PathBuf>,
 
+    /// Write a content-free agent trace bundle under this directory.
+    #[arg(long, env = "RARA_AGENT_TRACE_DIR", value_name = "DIR", global = true)]
+    agent_trace_dir: Option<PathBuf>,
+
     /// Skip local tool approval and classifier checks for this session; enable sandbox network.
     #[arg(long, global = true)]
     dangerously_skip_permissions: bool,
@@ -391,6 +395,9 @@ fn apply_cli_overrides(config: &mut RaraConfig, cli: Cli) -> Option<Commands> {
     }
     if let Some(revision) = cli.revision {
         config.set_revision(Some(revision));
+    }
+    if let Some(agent_trace_dir) = cli.agent_trace_dir {
+        config.agent_trace_dir = Some(agent_trace_dir);
     }
     if let Some(Commands::Mem(args)) = cli.command.as_ref() {
         config.builtin_plugins.nowledge_mem.enabled = true;

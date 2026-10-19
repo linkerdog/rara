@@ -1,4 +1,5 @@
 use rara_agent::{ModelRequest, ModelTurnEvent, ModelTurnPolicy, StreamEvidence};
+use rara_agent_trace::TraceModelStatus;
 use rara_core::llm::contracts::ModelRequestFingerprint;
 use rara_core::llm::types::LlmResponse;
 use rara_observability::InferenceCall;
@@ -42,7 +43,19 @@ impl<F: FnMut(AgentEvent) + Send> ModelTurnPolicy for NativeModelPolicy<'_, '_, 
         if let Some(call) = self.inference_call.take() {
             call.finish(response);
         }
+        let duration_ms = self
+            .request_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
         let Ok(response) = response else {
+            self.agent.record_agent_trace_model_finished(
+                self.model_label.clone(),
+                duration_ms,
+                TraceModelStatus::Failed,
+                None,
+                None,
+            );
             return;
         };
         self.agent.capture_summary_prefix(
@@ -50,11 +63,6 @@ impl<F: FnMut(AgentEvent) + Send> ModelTurnPolicy for NativeModelPolicy<'_, '_, 
             self.request.tools,
             &self.request.metadata,
         );
-        let duration_ms = self
-            .request_started_at
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
         let output_tokens = response
             .usage
             .as_ref()
@@ -65,6 +73,13 @@ impl<F: FnMut(AgentEvent) + Send> ModelTurnPolicy for NativeModelPolicy<'_, '_, 
             output_tokens,
             finish_reason: response.stop_reason.clone(),
         });
+        self.agent.record_agent_trace_model_finished(
+            self.model_label.clone(),
+            duration_ms,
+            TraceModelStatus::Succeeded,
+            response.stop_reason.clone(),
+            response.usage.as_ref(),
+        );
         self.agent
             .last_query_report
             .model_turns

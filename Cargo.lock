@@ -8992,6 +8992,7 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.10.3",
  "rara-agent",
+ "rara-agent-trace",
  "rara-app-server",
  "rara-background-tasks",
  "rara-bedrock",
@@ -9058,6 +9059,15 @@ dependencies = [
  "thiserror 2.0.21",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "rara-agent-trace"
+version = "0.0.22"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

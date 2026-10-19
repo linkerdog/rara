@@ -15,6 +15,7 @@ mod runtime;
 mod tests;
 mod thread_reset;
 mod tool_effects;
+mod trace;
 
 use std::sync::{Arc, atomic::AtomicBool};
 
@@ -337,6 +338,7 @@ pub struct Agent {
     agent_tree_control: Option<Arc<crate::tools::agent::AgentTreeControl>>,
     cancellation_token: Option<Arc<AtomicBool>>,
     runtime_turn_id: Option<String>,
+    agent_trace: rara_agent_trace::AgentTraceRecorder,
 }
 
 fn hook_output_candidate(text: &str, index: usize, session_id: &str) -> RetrievalCandidate {
