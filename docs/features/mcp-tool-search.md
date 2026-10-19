@@ -2,7 +2,8 @@
 
 ## Problem
 
-大 MCP server（100+ tools）把所有 tool schema 注入每轮 prompt，吃 token、污染 context。
+Injecting every schema from a large MCP server into every prompt consumes
+context budget and destabilizes the prompt prefix.
 
 ## Design
 
@@ -18,7 +19,7 @@ returns a structured empty result instead of changing the visible tool list.
 session start
   → clear mcp tool cache
   → MCP servers connect
-    → list_tools() per server
+    → list_all_tools() per server within one listing deadline
     → insert tool { name, server, display_name, description, input_schema } into volatile cache
   → agent prompt: stable mcp_tool_search tool visible
   → model calls mcp_tool_search("bash")
@@ -35,7 +36,7 @@ struct McpToolRecord {
     name: String,          // tool name (searchable)
     server: String,        // which MCP server
     display_name: String,  // "server: name" for display
-    input_schema: String,  // JSON schema string
+    input_schema: serde_json::Value, // JSON schema object
     description: String,   // tool description (searchable)
 }
 ```
@@ -66,11 +67,23 @@ servers connect, disconnect, or refresh.
 1. `src/mcp_tool_cache.rs` — volatile cache insert/search/clear.
 2. `src/tools/mcp_tool_search.rs` — registered tool definition over cache.search().
 3. Runtime bootstrap — construct one shared cache and register the search tool.
-4. `/mcp` refresh path — repopulate the cache from configured stdio servers.
+4. `/mcp` refresh path — repopulate the cache from configured stdio and
+   streamable-HTTP servers.
 5. Future lifecycle hooks — refresh on connection-manager events for dynamic
    server changes.
 
 ## Implementation checkpoint
+
+2026-10-03:
+
+- Both transports index every tool page within one ten-second listing deadline,
+  separate from the ten-second initialization deadline. A failed page prevents
+  publishing a partial list; later servers can still populate the cache.
+- HTTP discovery uses the registry's loopback proxy-bypass decision and merges
+  header names case-insensitively: static values override environment headers,
+  which override bearer-derived authorization.
+- Runtime warnings redact nested error causes before displaying them. See the
+  [MCP runtime contract](mcp-runtime.md) for endpoint and routing details.
 
 2026-05-09:
 

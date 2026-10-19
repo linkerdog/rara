@@ -342,6 +342,12 @@ Active backlog only. Keep this file small and current.
       transcript, usage, cancellation, and MCP parity before replacing Rig in
       production lanes.
 
+## MCP Runtime
+
+- [ ] Add an MCP tool-call path. Tool Search now indexes tools from stdio and
+      streamable-HTTP servers, but nothing invokes them yet. See
+      [the MCP runtime contract](features/mcp-runtime.md).
+
 ## App Server Stdio
 
 - [ ] Complete controlled MCP source registration through the idle session actor:

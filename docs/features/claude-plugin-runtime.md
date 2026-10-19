@@ -360,8 +360,10 @@ registered user or project MCP servers with the same name; normal non-builtin
 plugin MCP duplicates remain hard errors.
 
 Cloud mode is also supported. Cloud mode defaults to the fixed Nowledge Mem
-server `https://cloud.nowledge.co`. The generated endpoint is
-`/remote-api/mcp/`. The transport emits
+server `https://cloud.nowledge.co`. The generated MCP endpoint is
+`https://cloud.nowledge.co/mcp`, the endpoint the Nowledge Mem connectors
+register. The REST API base stays `https://cloud.nowledge.co/remote-api`. The
+transport emits
 Authorization and X-NMEM-API-Key from the configured API key, plus the optional
 X-Nmem-Space-Id from NMEM_SPACE. The key is persisted using RARA's existing
 secret configuration field and is exposed to the runtime only through
