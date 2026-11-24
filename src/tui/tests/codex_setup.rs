@@ -420,6 +420,8 @@ fn codex_chatgpt_auth_store_sets_chatgpt_base_url_before_model_flow() {
                 .expect("valid id token"),
                 access_token: "oauth-access-token".into(),
                 refresh_token: "refresh".into(),
+                oauth_provenance: None,
+                login_owner_id: None,
                 account_id: None,
             }),
             last_refresh: None,
