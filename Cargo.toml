@@ -128,7 +128,9 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 pulldown-cmark = "0.13"
 unicase = "2.9"
 textwrap = "0.16.2"
-unicode-width = "0.2"
+# Ratatui 0.30 and our shared width policy compensate for halfwidth sound marks.
+# unicode-width 0.2.3 counts those marks itself, doubling that compensation.
+unicode-width = "=0.2.2"
 unicode-segmentation = "1.13"
 nom = "8.0"
 syntect = "5"

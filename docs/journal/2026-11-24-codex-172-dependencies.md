@@ -37,6 +37,18 @@ All five failed jobs (build, Clippy, tests, exec CLI, and Bazel) reported this
 same compile error. A successful dependency resolution alone did not detect the
 upstream API incompatibility; the corrected head still requires CI compilation.
 
+The next CI head `323daff8` passed build, Clippy, and exec CLI. Cargo tests and
+Bazel tests exposed a separate Unicode width regression: unicode-width 0.2.3
+counts halfwidth sound marks itself, while Ratatui 0.30 and RARA's shared width
+policy still add the compensation needed by 0.2.2. Pin unicode-width to exactly
+0.2.2 until both width policies can migrate together. Keep the existing terminal
+clear-position and sidebar truncation assertions unchanged.
+
+The Bazel PTY editor handoff test also timed out on its first attempt, then
+passed both subsequent automatic retries. This remains an observed intermittent
+failure, not evidence of a dependency regression; no terminal behavior or test
+timeout is changed here.
+
 ## Reference Patterns
 
 The Codex 0.172 sources retain the existing authentication entry points, add
