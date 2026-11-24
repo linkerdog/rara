@@ -20,6 +20,23 @@ The existing `aws-lc-sys` header-copy patch is refreshed for 0.47.0's
 `copy_writable` call while preserving its symlink handling. Bazel configuration
 and unrelated Git pins are unchanged.
 
+## CI Compatibility Correction
+
+The initial CI head `2142f669` failed in `rama-core` before RARA compiled:
+`rama_error::OpaqueError` no longer exists at the root of `rama-error` 0.3.0.
+The dependency refresh mixed Rama's alpha.4 consumers with stable 0.3.0 utility
+crates because their version requirements permit that resolution.
+
+Keep `rama-error`, `rama-macros`, and `rama-utils` locked to
+`0.3.0-alpha.4`, matching every other Rama crate and Codex 0.172's upstream
+lockfile. Future lockfile refreshes must preserve this cohort until the Codex
+dependency graph supports a consistent newer Rama release. No Codex downgrade
+or application workaround is needed.
+
+All five failed jobs (build, Clippy, tests, exec CLI, and Bazel) reported this
+same compile error. A successful dependency resolution alone did not detect the
+upstream API incompatibility; the corrected head still requires CI compilation.
+
 ## Reference Patterns
 
 The Codex 0.172 sources retain the existing authentication entry points, add
