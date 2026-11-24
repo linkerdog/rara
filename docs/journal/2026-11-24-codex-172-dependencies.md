@@ -47,7 +47,21 @@ clear-position and sidebar truncation assertions unchanged.
 The Bazel PTY editor handoff test also timed out on its first attempt, then
 passed both subsequent automatic retries. This remains an observed intermittent
 failure, not evidence of a dependency regression; no terminal behavior or test
-timeout is changed here.
+timeout was changed in that correction.
+
+At head `5eecb541`, Bazel and all compilation checks passed, but Cargo tests
+again timed out waiting for input after the editor's interrupt scenario. Treat
+this as a recurring handoff problem, not a reason to rerun until green.
+Crossterm's default Mio source can return a resize or wake event before handling
+the rest of a readiness batch. Select its supported `use-dev-tty` Unix backend,
+which uses level-triggered `poll`: unread keyboard input remains readable after
+another event is returned. Windows retains its existing backend.
+
+The existing PTY regression repeats the interrupt handoff eight additional times
+with the same single-key input, deadlines, terminal-mode assertions, and draft
+checks. No sleeps, retries of failed assertions, or ignored tests are added.
+CI must validate this backend change; source inspection alone does not prove
+that it resolves the observed intermittent timeout.
 
 ## Reference Patterns
 
