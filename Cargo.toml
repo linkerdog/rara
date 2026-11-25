@@ -54,10 +54,10 @@ tempfile = "3.17"
 ignore = "0.4.26"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 rmcp = { version = "3.5", features = ["client", "transport-child-process"] }
-codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
-codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.154.0" }
+codex-execpolicy = { git = "https://github.com/openai/codex", tag = "rust-v0.172.0" }
+codex-http-client = { git = "https://github.com/openai/codex", tag = "rust-v0.172.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.172.0" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.172.0" }
 rara-instructions = { path = "crates/instructions" }
 
 [package]
@@ -116,7 +116,8 @@ rara-tool-macros = { path = "crates/tool-macros" }
 urlencoding = "2.1"
 url = "2.5"
 ratatui = "0.30"
-crossterm = { version = "0.29", features = ["event-stream"] }
+# Level-triggered polling retains unread input across editor resize/wake events.
+crossterm = { version = "0.29", features = ["event-stream", "use-dev-tty"] }
 walkdir = "2.5"
 glob = "0.3"
 regex = "1.11"
@@ -128,7 +129,9 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 pulldown-cmark = "0.13"
 unicase = "2.9"
 textwrap = "0.16.2"
-unicode-width = "0.2"
+# Ratatui 0.30 and our shared width policy compensate for halfwidth sound marks.
+# unicode-width 0.2.3 counts those marks itself, doubling that compensation.
+unicode-width = "=0.2.2"
 unicode-segmentation = "1.13"
 nom = "8.0"
 syntect = "5"
@@ -158,11 +161,11 @@ signal-hook = "0.3"
 openssl = { version = "0.10", features = ["vendored"] }
 
 [patch.crates-io]
-tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
-tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "7a920470d62138955446b64220c7609e46ad770e" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "e19950ef7828cb311e6d51a6bedcebf0192e055c" }
 
 [patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
-tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "e19950ef7828cb311e6d51a6bedcebf0192e055c" }
 
 [features]
 default = []

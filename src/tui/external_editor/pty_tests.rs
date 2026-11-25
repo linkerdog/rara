@@ -66,7 +66,11 @@ fn real_editor_handoff_restores_modes_input_and_size_on_success_and_failures() {
         "read_failure",
         "raw_failure",
         "interrupt",
-    ] {
+    ]
+    .into_iter()
+    // Exercise repeated resize/interrupt handoffs without relaxing input deadlines.
+    .chain(std::iter::repeat_n("interrupt", 8))
+    {
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("editor script.sh");
         let cancel_socket = directory.path().join("cancel.sock");

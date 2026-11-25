@@ -3,8 +3,8 @@ use std::path::Path;
 use anyhow::Result;
 use codex_http_client::{HttpClientFactory, OutboundProxyPolicy};
 use codex_login::{AuthCredentialsStoreMode, AuthKeyringBackendKind, AuthManager, AuthRouteConfig};
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::{ModelsManager, RefreshStrategy, StaticModelsManager};
+use codex_models_manager::{ModelOrigin, bundled_models_response};
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct CodexReasoningOption {
@@ -44,7 +44,11 @@ pub async fn load_codex_model_catalog(
         )),
     )
     .await;
-    let manager = StaticModelsManager::new(Some(auth_manager), bundled_models_response()?);
+    let manager = StaticModelsManager::new(
+        Some(auth_manager),
+        bundled_models_response()?,
+        ModelOrigin::Bundled,
+    );
     let mut models = manager
         .list_models(
             refresh_strategy,
