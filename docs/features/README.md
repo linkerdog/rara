@@ -76,6 +76,8 @@ future appserver integrations can use.
   context/metrics contracts.
 - `provider-cache-observability.md`: content-free per-request cache reports and
   the opt-in official DeepSeek AB/BA measurement contract.
+- `agent-trace.md`: opt-in session-scoped JSONL diagnostics for model cache,
+  memory selection, and agent-loop state transitions.
 - `provider-registry.md`: layered provider/model documents, compatible service
   presets, credential isolation, and model selection identity.
 - `deepseek-anthropic-route.md`: `deepseek-flash` routed to DeepSeek's

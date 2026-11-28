@@ -179,6 +179,7 @@ impl Agent {
             agent_tree_control: None,
             cancellation_token: None,
             runtime_turn_id: None,
+            agent_trace: rara_agent_trace::AgentTraceRecorder::disabled(),
         }
     }
 
@@ -229,7 +230,9 @@ impl Agent {
         F: FnMut(AgentEvent) + Send,
     {
         let lease = self.begin_inference_turn();
+        self.record_agent_trace_turn_started();
         let result = self.query_inner(prompt, output_mode, report).await;
+        self.record_agent_trace_turn_finished(result.is_ok());
         // Post-turn extraction and goal evaluation still belong to this task.
         // The next query replaces the context before it starts new work.
         drop(lease);
@@ -503,6 +506,7 @@ impl Agent {
         }
         turn_metadata.ensure_not_cancelled()?;
         let assembled = self.assemble_turn_context();
+        self.record_agent_trace_context_assembled(&assembled.runtime);
         let history_for_query = self
             .history
             .iter()
